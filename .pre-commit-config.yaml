@@ -1,0 +1,10 @@
+# Local pre-commit hooks mirroring the blocking CI lint job.
+# Install/activate with:  pre-commit install
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      # Blocking defect subset (see .github/workflows/ci.yaml).
+      - id: ruff
+        args: [--select, "F,E9,PLE,B,T20,S307,ASYNC,RUF006", --fix]
+      - id: ruff-format

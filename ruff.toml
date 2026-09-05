@@ -18,6 +18,12 @@ ignore = [
     "I001", # Import block is un-sorted or un-formatted
 ]
 
+[lint.per-file-ignores]
+# Test suites are allowed to be less strict about style, docs and magic numbers.
+"tests/**" = ["S101", "ANN", "D", "PLR2004"]
+# pyloxone_api/__main__.py is a standalone command-line test tool; printing is its purpose.
+"custom_components/loxone/pyloxone_api/__main__.py" = ["T201"]
+
 [lint.flake8-pytest-style]
 fixture-parentheses = false
 

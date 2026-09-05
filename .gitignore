@@ -9,14 +9,6 @@ venv
 hass.py
 
 .idea
-*.yaml
-!/.github/workflows/*.yaml
-!/.github/ISSUE_TEMPLATE/*.yaml
-
-*.yml
-!/.github/workflows/*.yml
-!/.github/ISSUE_TEMPLATE/*.yml
-
 *.db
 *.log
 !hacs.json
