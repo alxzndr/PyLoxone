@@ -124,6 +124,16 @@
     "quick_shade": {
       "name": "Beschattung ",
       "description": "Loxone Jalousie in Schattenposition bringen. Position wird von Loxone abhängig von mehreren Werten festgelegt."
+    },
+    "sync_areas": {
+      "name": "Bereiche synchronisieren",
+      "description": "Weist den Loxone-Entitäten Bereiche anhand des Raums aus Loxone zu. Existiert der Bereich nicht, bleiben die Entitäten unverändert.",
+      "fields": {
+        "create_areas": {
+          "name": "Bereiche anlegen",
+          "description": "Bereiche anlegen, wenn sie in Home Assistant noch nicht existieren"
+        }
+      }
     }
   }
 }
