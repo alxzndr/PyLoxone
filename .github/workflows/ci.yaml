@@ -77,6 +77,11 @@ jobs:
   # ---------------------------------------------------------------------------
   hacs:
     runs-on: ubuntu-latest
+    # Two of the nine HACS checks — "topics" and "issues" — inspect the GitHub
+    # repository itself, not the code, and no commit can satisfy them on a fork
+    # (forks start with no topics and issues disabled). Report them everywhere,
+    # but only let them block the canonical repository.
+    continue-on-error: ${{ github.repository != 'JoDehli/PyLoxone' }}
     steps:
       - uses: actions/checkout@v7
       - name: HACS validation

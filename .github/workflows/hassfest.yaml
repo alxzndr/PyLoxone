@@ -1,8 +1,9 @@
 name: Validate with hassfest
 
+# Push and pull_request are covered by the `hassfest` job in ci.yaml; this
+# workflow keeps only the nightly cron, which catches breakage originating
+# outside the repository (a new Home Assistant release changing hassfest).
 on:
-  push:
-  pull_request:
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * *"
