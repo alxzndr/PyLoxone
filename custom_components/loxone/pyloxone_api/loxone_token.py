@@ -7,15 +7,10 @@ https://github.com/JoDehli/pyloxone-api
 
 from __future__ import annotations
 
-import asyncio
 import datetime
-import hashlib
 import json
-import logging
-import os
-import types
 from collections import namedtuple
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Final
 
 LOXONE_EPOCH: Final = datetime.datetime(2009, 1, 1, 0, 0)
@@ -60,9 +55,7 @@ class LoxoneToken:
         """The number of seconds until this token expires."""
 
         # current number of seconds since epoch
-        current_seconds_since_epoch = (
-            datetime.datetime.now() - LOXONE_EPOCH
-        ).total_seconds()
+        current_seconds_since_epoch = (datetime.datetime.now() - LOXONE_EPOCH).total_seconds()
         # work out how many seconds are left
         if self.valid_until == 0:
             raise ValueError("Cannot have valid_until == 0")

@@ -10,13 +10,12 @@ from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from voluptuous import Any, Optional
+from typing import Any
 
 from . import LoxoneEntity
 from .binary_sensor import LoxoneDigitalSensor
 from .const import SENDDOMAIN
-from .helpers import (add_room_and_cat_to_value_values, get_all,
-                      get_or_create_device)
+from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 from .sensor import LoxoneSensor
 
@@ -28,9 +27,7 @@ DEFAULT_FAN_SPEED_BOOST = 100
 
 VENTELATION_INT_TO_STR = {2: "Low", 3: "Medium", 4: "High", 5: "Auto", 6: "Away"}
 
-STR_TO_VENTILATION_PROFILE_SETTABLE = {
-    value: key for (key, value) in VENTELATION_INT_TO_STR.items()
-}
+STR_TO_VENTILATION_PROFILE_SETTABLE = {value: key for (key, value) in VENTELATION_INT_TO_STR.items()}
 
 
 async def async_setup_platform(
@@ -157,9 +154,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         self._details = kwargs["details"]
 
         self.type = "Fan"
-        self._attr_device_info = get_or_create_device(
-            self.unique_id, self.name, self.type, self.room
-        )
+        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     @property
     def extra_state_attributes(self):
@@ -222,22 +217,20 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         return VENTELATION_INT_TO_STR.get(self.get_state_value("mode"))
 
     @property
-    def percentage(self) -> Optional[int]:
+    def percentage(self) -> int | None:
         """Return the current speed percentage."""
         return self.get_state_value("speed")
 
     @device_class.setter
     def device_class(self, device_class):
         if not hasattr(self, "_device_class"):
-            setattr(self, "_device_class", device_class)
+            self._device_class = device_class
         else:
             self._device_class = device_class
 
     def get_state_value(self, name):
         uuid = self._stateAttribUuids[name]
-        return (
-            self._stateAttribValues[uuid] if uuid in self._stateAttribValues else None
-        )
+        return self._stateAttribValues[uuid] if uuid in self._stateAttribValues else None
 
     def set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan."""
@@ -249,7 +242,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
             SENDDOMAIN,
             dict(
                 uuid=self.uuidAction,
-                value=f'setTimer/{interval}/{percentage}/{VENTELATION_INT_TO_STR.get( self.get_state_value("mode") )}/-1',
+                value=f"setTimer/{interval}/{percentage}/{VENTELATION_INT_TO_STR.get(self.get_state_value('mode'))}/-1",
             ),
         )
 

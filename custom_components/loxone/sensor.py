@@ -13,17 +13,31 @@ from typing import Any
 
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
-from homeassistant.components.sensor import (CONF_STATE_CLASS, PLATFORM_SCHEMA,
-                                             SensorDeviceClass, SensorEntity,
-                                             SensorEntityDescription,
-                                             SensorStateClass)
+from homeassistant.components.sensor import (
+    CONF_STATE_CLASS,
+    PLATFORM_SCHEMA,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (CONF_DEVICE_CLASS, CONF_NAME,
-                                 CONF_UNIT_OF_MEASUREMENT, CONF_VALUE_TEMPLATE,
-                                 LIGHT_LUX, PERCENTAGE, STATE_UNKNOWN,
-                                 UnitOfEnergy, UnitOfPower, UnitOfRatio,
-                                 UnitOfSpeed, UnitOfTemperature, UnitOfVolume,
-                                 UnitOfVolumeFlowRate)
+from homeassistant.const import (
+    CONF_DEVICE_CLASS,
+    CONF_NAME,
+    CONF_UNIT_OF_MEASUREMENT,
+    CONF_VALUE_TEMPLATE,
+    LIGHT_LUX,
+    PERCENTAGE,
+    STATE_UNKNOWN,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfRatio,
+    UnitOfSpeed,
+    UnitOfTemperature,
+    UnitOfVolume,
+    UnitOfVolumeFlowRate,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
@@ -31,10 +45,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
-from . import LoxoneEntity, MiniServer
+from . import LoxoneEntity
 from .const import CLIMATE_EVENT, CONF_ACTIONID, DOMAIN, EVENT, SENDDOMAIN, THROTTLE_KEEP_ALIVE_TIME
-from .helpers import (add_room_and_cat_to_value_values, clean_unit, get_all,
-                      get_or_create_device)
+from .helpers import add_room_and_cat_to_value_values, clean_unit, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
 NEW_SENSOR = "sensors"
@@ -65,6 +78,7 @@ OVERRIDE_REASONS = {
     8: "Overridden by source",
     14: "Fixed",
 }
+
 
 class LoxoneEntityDescription(SensorEntityDescription, frozen_or_thawed=True):
     """
@@ -161,6 +175,7 @@ UNAMBIGUOUS_UNITS: frozenset[str] = frozenset(
     for u in desc.loxone_format_strings
 )
 """Units that map to exactly one device class without needing keyword disambiguation."""
+
 
 def match_sensor_description(
     unit: str,
@@ -266,33 +281,37 @@ async def async_setup_entry(
     for irc in get_all(loxconfig, "IRoomControllerV2"):
         irc = add_room_and_cat_to_value_values(loxconfig, irc)
         states = irc.get("states", {})
-        device_info = get_or_create_device(
-            irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", "")
-        )
+        device_info = get_or_create_device(irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", ""))
 
         if "overrideReason" in states:
-            entities.append(LoxoneRoomControllerOverrideSensor(
-                name=f"{irc['name']} Override Reason",
-                uuid=states["overrideReason"],
-                device_info=device_info,
-                parent_uuid=irc["uuidAction"],
-            ))
+            entities.append(
+                LoxoneRoomControllerOverrideSensor(
+                    name=f"{irc['name']} Override Reason",
+                    uuid=states["overrideReason"],
+                    device_info=device_info,
+                    parent_uuid=irc["uuidAction"],
+                )
+            )
 
         if "comfortTemperature" in states:
-            entities.append(LoxoneRoomControllerTemperatureSensor(
-                name=f"{irc['name']} Comfort Temperature",
-                uuid=states["comfortTemperature"],
-                device_info=device_info,
-                parent_uuid=irc["uuidAction"],
-            ))
+            entities.append(
+                LoxoneRoomControllerTemperatureSensor(
+                    name=f"{irc['name']} Comfort Temperature",
+                    uuid=states["comfortTemperature"],
+                    device_info=device_info,
+                    parent_uuid=irc["uuidAction"],
+                )
+            )
 
         if "comfortTemperatureCool" in states:
-            entities.append(LoxoneRoomControllerTemperatureSensor(
-                name=f"{irc['name']} Comfort Temperature Cool",
-                uuid=states["comfortTemperatureCool"],
-                device_info=device_info,
-                parent_uuid=irc["uuidAction"],
-            ))
+            entities.append(
+                LoxoneRoomControllerTemperatureSensor(
+                    name=f"{irc['name']} Comfort Temperature Cool",
+                    uuid=states["comfortTemperatureCool"],
+                    device_info=device_info,
+                    parent_uuid=irc["uuidAction"],
+                )
+            )
 
     @callback
     def async_add_sensors(_):
@@ -402,6 +421,7 @@ class LoxoneVersionSensor(LoxoneEntity, SensorEntity):
         """Return a unique ID."""
         return f"{self._miniserver_serial}-{self._attr_unique_id}"
 
+
 class LoxoneTextSensor(LoxoneEntity, SensorEntity):
     """Representation of a Text Sensor."""
 
@@ -426,9 +446,7 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
     async def async_set_value(self, value):
         """Set new value."""
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value=f"{value}")
-        )
+        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"{value}"))
         self.async_schedule_update_ha_state()
 
     @property
@@ -475,9 +493,7 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
             _uuid = self._parent_id
 
         self.type = "Sensor analog"
-        self._attr_device_info = get_or_create_device(
-            _uuid, self.name, self.type, self.room
-        )
+        self._attr_device_info = get_or_create_device(_uuid, self.name, self.type, self.room)
 
     def _parse_digits_after_decimal(self, format_string):
         """Parse digits after the decimal point from the format string."""
@@ -525,7 +541,7 @@ class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
         try:
             # For legacy Meter
             model = sensor["details"]["type"].capitalize() + " Meter"
-        except (KeyError, TypeError):
+        except KeyError, TypeError:
             model = "Meter"
         return DeviceInfo(
             identifiers={(DOMAIN, sensor["uuidAction"])},
@@ -533,6 +549,7 @@ class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
             manufacturer="Loxone",
             model=model,
         )
+
 
 class LoxoneRoomControllerTemperatureSensor(SensorEntity):
     """Sensor for IRoomControllerV2 comfort temperature states."""
@@ -552,14 +569,13 @@ class LoxoneRoomControllerTemperatureSensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to Loxone events."""
-        self.async_on_remove(
-            self.hass.bus.async_listen(EVENT, self.event_handler)
-        )
+        self.async_on_remove(self.hass.bus.async_listen(EVENT, self.event_handler))
 
     async def event_handler(self, e):
         if self._uuid in e.data:
             self._attr_native_value = e.data[self._uuid]
             self.async_schedule_update_ha_state()
+
 
 class LoxoneRoomControllerOverrideSensor(SensorEntity):
     """Sensor for IRoomControllerV2 override reason."""
@@ -578,9 +594,7 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to Loxone events."""
-        self.async_on_remove(
-            self.hass.bus.async_listen(EVENT, self.event_handler)
-        )
+        self.async_on_remove(self.hass.bus.async_listen(EVENT, self.event_handler))
 
     async def event_handler(self, e):
         if self._uuid in e.data:
@@ -590,6 +604,7 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
             if self._attr_native_value.startswith("Unknown") and self._attr_native_value not in self._attr_options:
                 self._attr_options.append(self._attr_native_value)
             self.async_schedule_update_ha_state()
+
 
 class LoxoneClimateController(LoxoneEntity, SensorEntity):
     """Climate controller sensor that fires demand events for IRoomControllerV2.
@@ -608,9 +623,7 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
         self._cool_demand = 0
         self.type = "ClimateController"
 
-        self._attr_device_info = get_or_create_device(
-            self.unique_id, self.name, self.type, self.room
-        )
+        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     async def event_handler(self, e):
         update = False

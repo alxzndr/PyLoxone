@@ -6,20 +6,20 @@ import re
 import homeassistant.helpers.config_validation as cv
 import voluptuous as vol
 from homeassistant.components.alarm_control_panel import (
-    PLATFORM_SCHEMA, AlarmControlPanelEntity, AlarmControlPanelState)
-from homeassistant.components.alarm_control_panel.const import (
-    AlarmControlPanelEntityFeature, CodeFormat)
+    PLATFORM_SCHEMA,
+    AlarmControlPanelEntity,
+    AlarmControlPanelState,
+)
+from homeassistant.components.alarm_control_panel.const import AlarmControlPanelEntityFeature, CodeFormat
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (CONF_CODE, CONF_NAME, CONF_PASSWORD,
-                                 CONF_USERNAME)
+from homeassistant.const import CONF_CODE, CONF_NAME, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .const import DOMAIN, SECUREDSENDDOMAIN, SENDDOMAIN
-from .helpers import (add_room_and_cat_to_value_values, get_all,
-                      get_or_create_device)
+from .const import SECUREDSENDDOMAIN, SENDDOMAIN
+from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
 DEFAULT_NAME = "Loxone Alarm"
@@ -77,16 +77,11 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
         self._armed_at = 0
         self._next_level_at = 0
         self._code = str(kwargs["code"]) if kwargs["code"] else None
-        self._attr_device_info = get_or_create_device(
-            self.unique_id, self.name, "Alarm", self.room
-        )
+        self._attr_device_info = get_or_create_device(self.unique_id, self.name, "Alarm", self.room)
 
     @property
     def supported_features(self):
-        return (
-            AlarmControlPanelEntityFeature.ARM_HOME
-            | AlarmControlPanelEntityFeature.ARM_AWAY
-        )
+        return AlarmControlPanelEntityFeature.ARM_HOME | AlarmControlPanelEntityFeature.ARM_AWAY
 
     @property
     def code_arm_required(self):
@@ -177,13 +172,9 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
     async def async_alarm_disarm(self, code=None):
         """Send disarm command."""
         if self.isSecured:
-            self.hass.bus.async_fire(
-                SECUREDSENDDOMAIN, dict(uuid=self.uuidAction, value="off", code=code)
-            )
+            self.hass.bus.async_fire(SECUREDSENDDOMAIN, dict(uuid=self.uuidAction, value="off", code=code))
         else:
-            self.hass.bus.async_fire(
-                SENDDOMAIN, dict(uuid=self.uuidAction, value="off")
-            )
+            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="off"))
         self.async_schedule_update_ha_state()
 
     async def async_alarm_arm_home(self, code=None):
@@ -194,9 +185,7 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
                 dict(uuid=self.uuidAction, value="delayedon/0", code=code),
             )
         else:
-            self.hass.bus.async_fire(
-                SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/0")
-            )
+            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/0"))
         self.async_schedule_update_ha_state()
 
     async def async_alarm_arm_away(self, code=None):
@@ -207,9 +196,7 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
                 dict(uuid=self.uuidAction, value="delayedon/1", code=code),
             )
         else:
-            self.hass.bus.async_fire(
-                SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/1")
-            )
+            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/1"))
         self.async_schedule_update_ha_state()
 
     @property

@@ -1,14 +1,11 @@
 from functools import cached_property
 
-from homeassistant.components.light import (ATTR_BRIGHTNESS, ColorMode,
-                                            LightEntity)
+from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.helpers.entity import DeviceInfo
 
 from .. import LoxoneEntity
-from ..const import DOMAIN, SENDDOMAIN
-from ..helpers import (get_or_create_device, hass_to_lox, lox2hass_mapped,
-                       lox_to_hass)
+from ..const import SENDDOMAIN
+from ..helpers import get_or_create_device, hass_to_lox, lox2hass_mapped, lox_to_hass
 
 
 class LoxoneDimmer(LoxoneEntity, LightEntity):
@@ -42,14 +39,10 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(
-                self._light_controller_id, self.name, self.type, self.room
-            )
+            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
         else:
             self.type = "Dimmer"
-            self._attr_device_info = get_or_create_device(
-                self.unique_id, self.name, self.type, self.room
-            )
+            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
         state_attributes = {
             "device_type": self.type,
@@ -102,16 +95,12 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
                 and self._min != STATE_UNKNOWN
                 and self._max != STATE_UNKNOWN
             ):
-                self._attr_brightness = lox2hass_mapped(
-                    e.data[self._position_uuid], self._min, self._max
-                )
+                self._attr_brightness = lox2hass_mapped(e.data[self._position_uuid], self._min, self._max)
             else:
                 self._attr_brightness = lox_to_hass(e.data[self._position_uuid])
             request_update = True
 
-        self._attr_is_on = (
-            True if self._attr_brightness and self._attr_brightness > 0 else False
-        )
+        self._attr_is_on = True if self._attr_brightness and self._attr_brightness > 0 else False
 
         if request_update:
             if not self._attr_available:
@@ -132,14 +121,10 @@ class EIBDimmer(LoxoneDimmer):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(
-                self._light_controller_id, self.name, self.type, self.room
-            )
+            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
         else:
             self.type = "EIBDimmer"
-            self._attr_device_info = get_or_create_device(
-                self.unique_id, self.name, self.type, self.room
-            )
+            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     @cached_property
     def icon(self):

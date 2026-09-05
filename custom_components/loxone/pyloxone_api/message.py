@@ -14,8 +14,7 @@ import struct
 import time
 import uuid
 from enum import IntEnum
-from functools import lru_cache
-from typing import Optional, Union
+from typing import Optional
 
 from .exceptions import LoxoneException
 
@@ -75,10 +74,7 @@ def detect_encoding(byte_string):
         try:
             byte_string.decode(encoding)
             return encoding
-        except (
-                UnicodeDecodeError,
-                AttributeError
-        ):
+        except UnicodeDecodeError, AttributeError:
             continue
     return None
 
@@ -170,13 +166,12 @@ class LLResponse:
             self._parsed: dict = json.loads(response)
             # Sometimes, Loxone uses "Code", and sometimes "code"
             self.code: int = int(
-                self._parsed.get("LL", {}).get("code", "")
-                or self._parsed.get("LL", {}).get("Code", "")
+                self._parsed.get("LL", {}).get("code", "") or self._parsed.get("LL", {}).get("Code", "")
             )
             self.control: str = self._parsed["LL"]["control"]
             self.value: str = str(self._parsed["LL"]["value"])
         except (ValueError, KeyError, TypeError) as exc:
-            raise ValueError(exc)
+            raise ValueError(exc) from exc
 
     @property
     def value_as_dict(self) -> dict:
@@ -204,7 +199,7 @@ class MessageHeader:
             try:
                 unpacked_data = struct.unpack("<cBccI", header)
             except (struct.error, TypeError) as exc:
-                raise LoxoneException(f"Invalid header received: {exc} - {header}")
+                raise LoxoneException(f"Invalid header received: {exc} - {header}") from exc
 
             self.message_type: MessageType = MessageType(unpacked_data[1])
             # First bit indicates that length is only estimated

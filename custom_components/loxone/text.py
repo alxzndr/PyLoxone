@@ -16,8 +16,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
 from .const import SENDDOMAIN
-from .helpers import (add_room_and_cat_to_value_values, get_all,
-                      get_or_create_device)
+from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +43,6 @@ async def async_setup_entry(
     entities = []
 
     for text_entity in get_all(loxconfig, ["TextInput"]):
-
         text_entity = add_room_and_cat_to_value_values(loxconfig, text_entity)
         text_entity.update(
             {
@@ -69,9 +67,7 @@ class LoxoneText(LoxoneEntity, TextEntity):
         self._native_value = ""
 
         self.type = "TextInput"
-        self._attr_device_info = get_or_create_device(
-            self.unique_id, self.name, self.type, self.room
-        )
+        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     @property
     def should_poll(self):
@@ -121,7 +117,5 @@ class LoxoneText(LoxoneEntity, TextEntity):
 
     async def async_set_value(self, value: str):
         """Set new value."""
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value="{}".format(value))
-        )
+        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="{}".format(value)))
         self.async_schedule_update_ha_state()

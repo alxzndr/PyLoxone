@@ -5,24 +5,16 @@ from __future__ import annotations
 import logging
 from typing import Literal, final
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
-from homeassistant.components.binary_sensor import (BinarySensorDeviceClass,
-                                                    BinarySensorEntity)
-from homeassistant.components.sensor import CONF_STATE_CLASS
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (CONF_DEVICE_CLASS, CONF_NAME,
-                                 CONF_UNIT_OF_MEASUREMENT, CONF_VALUE_TEMPLATE,
-                                 STATE_OFF, STATE_ON, STATE_UNKNOWN)
+from homeassistant.const import CONF_VALUE_TEMPLATE, STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .const import CONF_ACTIONID, DOMAIN, SENDDOMAIN
-from .helpers import (add_room_and_cat_to_value_values, get_all,
-                      get_or_create_device)
+from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,12 +99,7 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
         self._attr_is_on = STATE_UNKNOWN
         self._from_loxone_config = False
 
-        if (
-            "type" in kwargs
-            and "room" in kwargs
-            and "cat" in kwargs
-            and hasattr(self, "states")
-        ):
+        if "type" in kwargs and "room" in kwargs and "cat" in kwargs and hasattr(self, "states"):
             self._from_loxone_config = True
             if self.type == "smoke":
                 self._state_uuid = self.states["areAlarmSignalsOff"]
@@ -138,13 +125,9 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
             self.uuidAction = self._parent_id
 
         if self._from_loxone_config:
-            self._attr_device_info = get_or_create_device(
-                self.unique_id, self.name, self.type, self.room
-            )
+            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
         else:
-            self._attr_device_info = get_or_create_device(
-                self.unique_id, self.name, self.type, ""
-            )
+            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, "")
 
         if self._from_loxone_config:
             self._attr_extra_state_attributes.update(

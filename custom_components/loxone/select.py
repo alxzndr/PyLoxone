@@ -118,12 +118,7 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         self._icon = None
         self._locked = None
 
-        (
-            self._options,
-            self._num_to_option,
-            self._option_to_num,
-            self._all_off_num
-        ) = build_option_maps(self.details)
+        (self._options, self._num_to_option, self._option_to_num, self._all_off_num) = build_option_maps(self.details)
         self._attr_current_option = None
 
         self.type = "Radio"
@@ -154,7 +149,7 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
             value = e.data[self.states["activeOutput"]]
             try:
                 number = int(float(value))
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 number = None
             self._attr_current_option = self._num_to_option.get(number)
             self.async_schedule_update_ha_state()

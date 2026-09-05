@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import AsyncIterable, Iterable, NoReturn, Union
+from typing import AsyncIterable, Iterable, Union
 
 from websockets import ClientConnection
 
 from .exceptions import LoxoneException, LoxoneOutOfServiceException
-from .message import (BaseMessage, MessageType, check_and_decode_if_needed,
-                      parse_header, parse_message)
+from .message import BaseMessage, MessageType, check_and_decode_if_needed, parse_header, parse_message
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -84,9 +83,7 @@ class LoxoneClientConnection(ClientConnection):
             return message
 
         if not isinstance(header_data, bytes):
-            raise LoxoneException(
-                f"Expected a bytes header, but received {header_data}"
-            )
+            raise LoxoneException(f"Expected a bytes header, but received {header_data}")
         _LOGGER.debug(f"Parsing header {header_data[:80]!r}")
         header = parse_header(header_data)
         self._last_header = header

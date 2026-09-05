@@ -7,15 +7,16 @@ https://github.com/JoDehli/pyloxone-api
 
 import asyncio
 import logging
-import warnings
 
 import aiohttp
 
 from .const import TIMEOUT
-from .exceptions import (LoxoneMaxNumOfConnectionsError,
-                         LoxoneServiceUnAvailableError,
-                         LoxoneUnauthorisedError,
-                         LoxoneUnrecognizedCommandError)
+from .exceptions import (
+    LoxoneMaxNumOfConnectionsError,
+    LoxoneServiceUnAvailableError,
+    LoxoneUnauthorisedError,
+    LoxoneUnrecognizedCommandError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,9 +94,7 @@ class LoxoneAsyncHttpClient:
 
         except aiohttp.ClientConnectionError as err:
             _LOGGER.error(f"Connection error to {url}: {err}")
-            raise ConnectionError(
-                f"Failed to connect to Loxone Miniserver at {url}: {err}"
-            ) from err
+            raise ConnectionError(f"Failed to connect to Loxone Miniserver at {url}: {err}") from err
 
         except aiohttp.ClientConnectorError as err:
             _LOGGER.error(f"Connector error to {url}: {err}")
@@ -103,9 +102,7 @@ class LoxoneAsyncHttpClient:
 
         except asyncio.TimeoutError as err:
             _LOGGER.error(f"Timeout error for {url}")
-            raise TimeoutError(
-                f"Request to {url} timed out after {self.timeout} seconds"
-            ) from err
+            raise TimeoutError(f"Request to {url} timed out after {self.timeout} seconds") from err
 
         except aiohttp.ClientSSLError as err:
             _LOGGER.error(f"SSL error for {url}: {err}")
@@ -233,9 +230,7 @@ class LoxoneAsyncHttpClient:
 
         elif response.status == 901:
             _LOGGER.error(f"Max Connections (901): {content}")
-            err = LoxoneMaxNumOfConnectionsError(
-                f"Maximum number of allowed concurrent connections reached: {content}"
-            )
+            err = LoxoneMaxNumOfConnectionsError(f"Maximum number of allowed concurrent connections reached: {content}")
             err.response = response
             raise err
 

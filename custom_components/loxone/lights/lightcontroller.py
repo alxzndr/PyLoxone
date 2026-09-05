@@ -1,16 +1,12 @@
 from collections import OrderedDict
 from functools import cached_property
 
-from homeassistant.components.light import (ATTR_BRIGHTNESS, ATTR_EFFECT,
-                                            ColorMode, LightEntity,
-                                            LightEntityFeature)
+from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_EFFECT, ColorMode, LightEntity, LightEntityFeature
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.helpers.entity import DeviceInfo
 
 from .. import LoxoneEntity
-from ..const import DOMAIN, SENDDOMAIN, STATE_OFF
-from ..helpers import (get_or_create_device, hass_to_lox, lox2hass_mapped,
-                       lox_to_hass)
+from ..const import SENDDOMAIN, STATE_OFF
+from ..helpers import get_or_create_device, hass_to_lox, lox2hass_mapped, lox_to_hass
 
 
 class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
@@ -54,18 +50,14 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
 
         if self._master_value:
             self._master_value_uuid = self._master_value.get("uuidAction")
-            self._master_position_uuid = self._master_value.get("states", {}).get(
-                "position"
-            )
+            self._master_position_uuid = self._master_value.get("states", {}).get("position")
             self._master_min_uuid = self._master_value.get("states", {}).get("min")
             self._master_max_uuid = self._master_value.get("states", {}).get("max")
             self._attr_color_mode = ColorMode.BRIGHTNESS
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
         self.type = "LightControllerV2"
-        self._attr_device_info = get_or_create_device(
-            self.unique_id, self.name, self.type, self.room
-        )
+        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     @property
     def device_class(self):
@@ -116,9 +108,7 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                     dict(uuid=self.uuidAction, value="changeTo/{}".format(mood_id)),
                 )
             else:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN, dict(uuid=self.uuidAction, value="plus")
-                )
+                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="plus"))
         else:
             effect_ids = []
             for _ in effects:
@@ -150,15 +140,11 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             )
         elif kwargs == {}:
             if self.state == STATE_OFF:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN, dict(uuid=self.uuidAction, value="changeTo/99")
-                )
+                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="changeTo/99"))
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value="changeTo/0")
-        )
+        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="changeTo/0"))
         self.async_schedule_update_ha_state()
 
     async def event_handler(self, event):
@@ -189,13 +175,11 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                     self._master_max,
                 )
             else:
-                self._attr_brightness = lox_to_hass(
-                    event.data[self._master_position_uuid]
-                )
+                self._attr_brightness = lox_to_hass(event.data[self._master_position_uuid])
             request_update = True
 
         if self.states["activeMoods"] in event.data:
-            self._active_moods = eval(event.data[self.states["activeMoods"]])
+            self._active_moods = eval(event.data[self.states["activeMoods"]])  # noqa: S307  # TODO(WP-1.2): replace eval() with json.loads
             if self._active_moods != [778]:
                 self._attr_is_on = True
             else:
@@ -203,27 +187,24 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             request_update = True
 
         if self.states["moodList"] in event.data:
-            event.data[self.states["moodList"]] = event.data[
-                self.states["moodList"]
-            ].replace("true", "True")
-            event.data[self.states["moodList"]] = event.data[
-                self.states["moodList"]
-            ].replace("false", "False")
-            self._moodlist = eval(event.data[self.states["moodList"]])
+            event.data[self.states["moodList"]] = event.data[self.states["moodList"]].replace("true", "True")
+            event.data[self.states["moodList"]] = event.data[self.states["moodList"]].replace("false", "False")
+            self._moodlist = eval(event.data[self.states["moodList"]])  # noqa: S307  # TODO(WP-1.2): replace eval() with json.loads
             request_update = True
 
         if self.states["additionalMoods"] in event.data:
-            self._additional_moodlist = eval(event.data[self.states["additionalMoods"]])
+            self._additional_moodlist = eval(event.data[self.states["additionalMoods"]])  # noqa: S307  # TODO(WP-1.2): replace eval() with json.loads
             request_update = True
 
         if request_update:
             if not self._attr_available:
                 attr_is_on_is_not_unknown = self._attr_is_on == True or self._attr_is_on == False
-                both_master_values_are_not_unknown = self._master_min != STATE_UNKNOWN and self._master_max != STATE_UNKNOWN
+                both_master_values_are_not_unknown = (
+                    self._master_min != STATE_UNKNOWN and self._master_max != STATE_UNKNOWN
+                )
                 if attr_is_on_is_not_unknown or both_master_values_are_not_unknown:
                     self._attr_available = True
             self.async_schedule_update_ha_state()
-
 
     @property
     def extra_state_attributes(self):
@@ -234,9 +215,7 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         return {
             **self._attr_extra_state_attributes,
             "selected_scene": self.effect,
-            "selected_scenes": [
-                self.get_moodname_by_id(id) for id in self._active_moods
-            ],
+            "selected_scenes": [self.get_moodname_by_id(id) for id in self._active_moods],
             "device_type": self.type,
             "subcontrols": self._sub_controls,
         }

@@ -7,7 +7,6 @@ https://github.com/JoDehli/pyloxone-api
 
 import hashlib
 import logging
-from hmac import HMAC
 
 from Crypto.Hash import HMAC, SHA1, SHA256
 

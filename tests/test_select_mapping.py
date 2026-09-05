@@ -40,9 +40,7 @@ class TestBuildOptionMaps:
         ]
 
     def test_empty_all_off_uses_default_label(self):
-        options, num_to_opt, opt_to_num, all_off_num = build_option_maps(
-            VENTILATIE_DETAILS
-        )
+        options, num_to_opt, opt_to_num, all_off_num = build_option_maps(VENTILATIE_DETAILS)
         assert ALL_OFF_DEFAULT_LABEL in options
         assert num_to_opt[ALL_OFF_VALUE] == ALL_OFF_DEFAULT_LABEL
         assert opt_to_num[ALL_OFF_DEFAULT_LABEL] == ALL_OFF_VALUE

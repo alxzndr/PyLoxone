@@ -1,11 +1,8 @@
-import asyncio
 import logging
-import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from homeassistant.const import (CONF_HOST, CONF_PASSWORD, CONF_PORT,
-                                 CONF_USERNAME)
+from homeassistant.const import CONF_HOST, CONF_PORT
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
 
@@ -101,9 +98,7 @@ class MiniServer:
         # Miniserver service
         device_registry.async_get_or_create(
             config_entry_id=self.config_entry.entry_id,
-            connections={
-                (CONNECTION_NETWORK_MAC, self.config_entry.options[CONF_HOST])
-            },
+            connections={(CONNECTION_NETWORK_MAC, self.config_entry.options[CONF_HOST])},
             name=self.name,
             model=get_miniserver_type(self.miniserver_type),
             identifiers={(DOMAIN, self.serial)},

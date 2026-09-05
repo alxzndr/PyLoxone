@@ -3,10 +3,9 @@ from typing import Any
 
 from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.helpers.entity import DeviceInfo, ToggleEntity
 
 from .. import LoxoneEntity
-from ..const import DOMAIN, SENDDOMAIN
+from ..const import SENDDOMAIN
 from ..helpers import get_or_create_device
 
 
@@ -35,14 +34,10 @@ class LoxoneLightSwitch(LoxoneEntity, LightEntity):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(
-                self._light_controller_id, self.name, self.type, self.room
-            )
+            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
         else:
             self.type = "Light"
-            self._attr_device_info = get_or_create_device(
-                self.unique_id, self.name, self.type, self.room
-            )
+            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
         state_attributes = {
             "device_type": self.type,

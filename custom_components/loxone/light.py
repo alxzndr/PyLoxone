@@ -55,9 +55,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Loxone Light Controller."""
     miniserver = get_miniserver_from_hass(hass, config_entry)
-    generate_subcontrols = config_entry.options.get(
-        "generate_lightcontroller_subcontrols", False
-    )
+    generate_subcontrols = config_entry.options.get("generate_lightcontroller_subcontrols", False)
     loxconfig = miniserver.lox_config.json
     entities = []
     dimmers_without_light_controller = get_all(loxconfig, ["Dimmer", "EIBDimmer"])
@@ -78,10 +76,7 @@ async def async_setup_entry(
 
         if "subControls" in light_controller:
             for sub_control_uuid in light_controller["subControls"]:
-                if (
-                    sub_control_uuid.find("masterValue") > -1
-                    or sub_control_uuid.find("masterColor") > 1
-                ):
+                if sub_control_uuid.find("masterValue") > -1 or sub_control_uuid.find("masterColor") > 1:
                     continue
                 sub_control = light_controller["subControls"][sub_control_uuid]
                 # Update for all entities
@@ -143,10 +138,8 @@ async def async_setup_entry(
                     new_tunablewhite_picker = TunableWhiteLight(**color_picker)
                     entities.append(new_tunablewhite_picker)
                 else:
-                    _LOGGER.error(
-                        f"Not implemented Colorpicker Type {picker_type} for {color_picker}"
-                    )
+                    _LOGGER.error(f"Not implemented Colorpicker Type {picker_type} for {color_picker}")
             else:
-                _LOGGER.error(f"Could not read picker_type of colorpicker")
+                _LOGGER.error("Could not read picker_type of colorpicker")
 
     async_add_entities(entities)

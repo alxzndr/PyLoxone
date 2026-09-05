@@ -1,8 +1,7 @@
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (CONF_HOST, CONF_PASSWORD, CONF_PORT,
-                                 CONF_USERNAME)
+from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -30,9 +29,7 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         self._password = config_entry.options[CONF_PASSWORD]
         self._host = config_entry.options[CONF_HOST]
         self._port = config_entry.options[CONF_PORT]
-        self._verify_ssl = config_entry.options.get(
-            CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL
-        )
+        self._verify_ssl = config_entry.options.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
 
         self.api: LoxoneConnection | None = None
         self.miniserver: MiniServer | None = None
@@ -71,9 +68,7 @@ class LoxoneCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Could not connect to Loxone Miniserver")
             raise e
 
-        self.miniserver = MiniServer(
-            self.hass, self.api.structure_file, self.config_entry
-        )
+        self.miniserver = MiniServer(self.hass, self.api.structure_file, self.config_entry)
 
         return None
 
@@ -83,7 +78,6 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         This is the place to pre-process the data to lookup tables
         so entities can quickly look up their data.
         """
-        print("_async_update_data")
         return None
 
     async def async_cleanup(self):

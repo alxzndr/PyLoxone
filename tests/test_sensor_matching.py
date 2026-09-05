@@ -1,5 +1,4 @@
 """Tests for Loxone sensor matching and device class detection."""
-import pytest
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
@@ -113,9 +112,8 @@ class TestSensorMatching:
 
     def test_volume_flow_rate_same_description(self):
         """All flow rate units resolve to the same description."""
-        assert (
-            match_sensor_description(unit=UnitOfVolumeFlowRate.LITERS_PER_HOUR)
-            is match_sensor_description(unit=UnitOfVolumeFlowRate.LITERS_PER_MINUTE)
+        assert match_sensor_description(unit=UnitOfVolumeFlowRate.LITERS_PER_HOUR) is match_sensor_description(
+            unit=UnitOfVolumeFlowRate.LITERS_PER_MINUTE
         )
 
     def test_water_liters(self):
@@ -274,9 +272,7 @@ class TestSensorTypesStructure:
     def test_no_native_unit_in_descriptions(self):
         """Descriptions are classification-only; unit comes from _attr_* in __init__."""
         for desc in SENSOR_TYPES:
-            assert desc.native_unit_of_measurement is None, (
-                f"{desc.key} should not set native_unit_of_measurement"
-            )
+            assert desc.native_unit_of_measurement is None, f"{desc.key} should not set native_unit_of_measurement"
 
     def test_ten_descriptions(self):
         """One per concept: temp, wind, energy, power, volume_flow_rate, water, illuminance, co2, humidity, battery."""

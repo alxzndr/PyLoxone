@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from homeassistant.components.media_player import (MediaPlayerDeviceClass,
-                                                   MediaPlayerEntity,
-                                                   MediaPlayerEntityFeature,
-                                                   MediaPlayerState)
+from homeassistant.components.media_player import (
+    MediaPlayerDeviceClass,
+    MediaPlayerEntity,
+    MediaPlayerEntityFeature,
+    MediaPlayerState,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -15,8 +17,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
 from .const import DEFAULT_AUDIO_ZONE_V2_PLAY_STATE, SENDDOMAIN
-from .helpers import (add_room_and_cat_to_value_values, get_all,
-                      get_or_create_device)
+from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,9 +97,7 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
         self._volume = 0
 
         self.type = "AudioZoneV2"
-        self._attr_device_info = get_or_create_device(
-            self.unique_id, self.name, self.type, self.room
-        )
+        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     async def event_handler(self, event):
         should_update = False
@@ -108,9 +107,7 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
             should_update = True
 
         if self.states["playState"] in event.data:
-            self._state = play_state_to_media_player_state(
-                event.data[self.states["playState"]]
-            )
+            self._state = play_state_to_media_player_state(event.data[self.states["playState"]])
             should_update = True
 
         if should_update:
@@ -161,9 +158,7 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
     async def async_set_volume_level(self, volume: float) -> None:
         """Send new volume_level to device."""
         volume_int = int(volume * 100)
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value=f"volume/{volume_int}")
-        )
+        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"volume/{volume_int}"))
         self.async_schedule_update_ha_state()
 
     async def async_volume_up(self) -> None:
@@ -173,7 +168,5 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
 
     async def async_volume_down(self) -> None:
         """Send volume DOWN to device."""
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value="volDown")
-        )
+        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="volDown"))
         self.async_schedule_update_ha_state()
