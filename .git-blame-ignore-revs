@@ -1,0 +1,8 @@
+# Commits that contain a repo-wide `ruff format` mass reformat.
+# `git blame --ignore-revs-file=.git-blame-ignore-revs` skips them so formatting
+# noise does not obscure the developer who last made a real change to a line.
+#
+# 5389101  WP-0.1: the mechanical lint sweep commit. It applies `ruff format` to
+#          32 files (they were already reformatted before this split could be
+#          made into a standalone commit), so it is recorded here in full.
+5389101
