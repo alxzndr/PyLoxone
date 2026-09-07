@@ -3,14 +3,17 @@
   "name": "PyLoxone",
   "codeowners": ["@JoDehli"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["group"],
   "documentation": "https://github.com/JoDehli/PyLoxone",
-  "iot_class": "local_polling",
+  "iot_class": "local_push",
   "issue_tracker": "https://github.com/JoDehli/PyLoxone/issues",
   "requirements": [
-    "websockets>=14",
-    "pycryptodome",
-    "httpx"
+    "websockets>=14,<16",
+    "pycryptodome>=3.20"
   ],
-  "version": "0.9.22"
+  "integration_type": "hub",
+  "loggers": [
+    "custom_components.loxone"
+  ],
+  "version": "0.9.23"
 }
