@@ -1,0 +1,56 @@
+name: "Feature request"
+description: Suggest a new entity, service, setting, or behaviour for the Loxone integration
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for considering a feature for PyLoxone! Please keep the
+        request focused: one feature per issue.
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Where does this live?"
+      options:
+        - "Config / options flow"
+        - "Entities & device registry"
+        - "Services"
+        - "Connection / websocket"
+        - "Diagnostics / repairs"
+        - "Docs / packaging"
+        - "Other"
+      allow_custom_options: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: "What should happen?"
+      description: "A one-paragraph description of the behaviour you want."
+    validations:
+      required: true
+  - type: textarea
+    id: loxapp
+    attributes:
+      label: "LoxApp reference"
+      description: "The LoxApp3 block type(s) and state(s) involved, and a screenshot if possible."
+      placeholder: "e.g. `Ventilation`, states `speed`, `mode`, `active`"
+    validations:
+      required: true
+  - type: textarea
+    id: workaround
+    attributes:
+      label: "Is there a workaround today?"
+      description: "e.g. a HA automation, a Loxone VI, a custom component, or something that works for now"
+  - type: checkboxes
+    id: will-submit
+    attributes:
+      label: "Would you be willing to submit a PR?"
+      description: "See CONTRIBUTING.md. A merged LoxApp3 fixture is already available for tests."
+      options:
+        - label: "I can contribute this myself"
+        - label: "I would try with guidance"
+  - type: textarea
+    id: context
+    attributes:
+      label: "Additional context"
+      description: "Links to Loxone community/forum threads, existing upstream PRs (#512/#513/#515), or related findings from docs/review/2026-09-findings.md."

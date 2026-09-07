@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+      - "*"
+
+permissions:
+  contents: write
+
+jobs:
+  # ------------------------------------------------------------------------
+  # Verify manifest version == push tag, then (if applicable) create the
+  # GitHub release that wraps the contents of the `Unreleased` block in
+  # CHANGELOG.md. This makes it impossible to tag 0.9.24 while the manifest
+  # still says 0.9.23 (see TOOL-02: release 0.9.23 shipped 0.9.22).
+  # ------------------------------------------------------------------------
+  verify-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - id: read_version
+        name: Read manifest.json version
+        run: |
+          set -euo pipefail
+          MV=$(python3 -c "import json;print(json.load(open('custom_components/loxone/manifest.json'))['version'])")
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "manifest=${MV} tag=${TAG}"
+          # Accept v-prefixed tags; HASH# version so we compare major.minor.patch
+          TAG_NORM="${TAG#v}"
+          if [ "${MV}" != "${TAG_NORM}" ]; then
+            echo "::error::manifest.json version (${MV}) != git tag (${TAG_NORM})"
+            exit 1
+          fi
+          echo "match=true" >> "${GITHUB_OUTPUT}"
+
+      - id: create_release
+        name: Create or update the GitHub release
+        if: steps.read_version.outputs.match == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF#refs/tags/}"
+          BODY=$(awk '
+            /^## Unreleased/{grab=1;next}
+            /^## /{grab=0}
+            grab' CHANGELOG.md)
+          if [ -z "${BODY}" ]; then
+            BODY="Release ${TAG}"
+          fi
+          if gh release view "${TAG}" 2>/dev/null; then
+            gh release edit "${TAG}" --notes "${BODY}"
+          else
+            gh release create "${TAG}" --title "PyLoxone ${TAG#v}" --notes "${BODY}"
+          fi
+          echo "release: ${TAG} created."
