@@ -15,7 +15,7 @@ Home Assistant binding for Loxone.
 A special thanks to Pawel Pieczul from the great openhab2 house automation software. 
 He really helped me a lot to with the new token based authentication. Thanks Pawel!!!
 
-#### This release works for the version 2024.1.0 and newer!!
+#### This release works for the version 2026.7.0 and newer!!
 
 
 ## Config for the gen2 miniserver
@@ -123,7 +123,7 @@ logger:
     homeassistant: warning
     homeassistant.helpers: warning
     custom_components.loxone: debug
-    custom_components.loxone.api: debug
+    custom_components.loxone.pyloxone_api: debug
 ```
 
 ## Recorder Configuration
