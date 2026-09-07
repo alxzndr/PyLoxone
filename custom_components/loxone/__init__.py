@@ -66,8 +66,6 @@ from .pyloxone_api.exceptions import (
     LoxoneUnauthorisedError,
 )
 
-REQUIREMENTS = ["websockets", "pycryptodome", "numpy"]
-
 _LOGGER = logging.getLogger(__name__)
 
 CONFIG_SCHEMA = vol.Schema(
