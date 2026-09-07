@@ -130,14 +130,10 @@ def test_platforms_in_code_match_loxone_platforms():
 # --------------------------------------------------------------------------- #
 # 2.  Manifest requirements are each imported somewhere
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    strict=True,
-    reason="CORE-24: httpx is in manifest.requirements but never imported (the "
-    "HTTP layer is aiohttp). Drop httpx before removing this xfail.",
-)
 def test_every_manifest_requirement_is_imported():
     """Every ``requirements`` package in manifest.json is imported somewhere in
-    the integration source.  Fails today on httpx (CORE-24)."""
+    the integration source. (CORE-24 — flipped from ``xfail`` in WP-0.3 now
+    that the dead ``httpx`` requirement is gone.)"""
     manifest = json.loads(MANIFEST_JSON.read_text())
     assert "requirements" in manifest
 

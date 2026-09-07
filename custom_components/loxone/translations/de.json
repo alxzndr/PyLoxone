@@ -30,9 +30,6 @@
     }
   },
   "config": {
-    "abort": {
-      "single_instance_allowed": "Bereits konfiguriert"
-    },
     "step": {
       "user": {
         "title": "Loxone",
@@ -48,6 +45,10 @@
           "generate_scenes_delay": "Verzögerung beim erstellen der Scenen (wenn aktiviert)"
         }
       }
+    },
+    "error": {
+      "invalid_username_encoding": "Benutzername enthält Zeichen, die nicht in Latin-1 darstellbar sind",
+      "invalid_password_encoding": "Passwort enthält Zeichen, die nicht in Latin-1 darstellbar sind"
     }
   },
   "options": {
@@ -66,6 +67,10 @@
         "description": "PyLoxone Einstellungen editieren:",
         "title": "PyLoxone Einstellungen"
       }
+    },
+    "error": {
+      "invalid_username_encoding": "Benutzername enthält Zeichen, die nicht in Latin-1 darstellbar sind",
+      "invalid_password_encoding": "Passwort enthält Zeichen, die nicht in Latin-1 darstellbar sind"
     }
   },
   "services": {

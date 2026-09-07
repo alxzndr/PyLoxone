@@ -28,5 +28,17 @@
         }
       }
     }
+  },
+  "config": {
+    "error": {
+      "invalid_username_encoding": "Username contains characters that are not latin-1 compatible",
+      "invalid_password_encoding": "Password contains characters that are not latin-1 compatible"
+    }
+  },
+  "options": {
+    "error": {
+      "invalid_username_encoding": "Username contains characters that are not latin-1 compatible",
+      "invalid_password_encoding": "Password contains characters that are not latin-1 compatible"
+    }
   }
 }
