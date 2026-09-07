@@ -125,11 +125,6 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     @property
-    def should_poll(self):
-        """No polling needed for a Loxone select."""
-        return False
-
-    @property
     def icon(self):
         """Return the icon to use for device if any."""
         return self._icon

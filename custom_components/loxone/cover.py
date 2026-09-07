@@ -128,11 +128,6 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         return CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
 
     @property
-    def should_poll(self):
-        """No polling needed for a demo cover."""
-        return False
-
-    @property
     def device_class(self):
         """Return the class of this device, from component DEVICE_CLASSES."""
         if self.animation == 0:
@@ -431,11 +426,6 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
                 self._auto_state = e.data[self.states["autoState"]]
 
             self.schedule_update_ha_state()
-
-    @property
-    def should_poll(self):
-        """No polling needed for a demo cover."""
-        return False
 
     @property
     def current_cover_position(self):

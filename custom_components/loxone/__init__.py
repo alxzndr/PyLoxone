@@ -8,8 +8,6 @@ https://github.com/JoDehli/PyLoxone
 import asyncio
 import logging
 import re
-import sys
-import traceback
 from functools import cached_property
 
 import homeassistant.components.group as group
@@ -620,23 +618,25 @@ class LoxoneEntity(Entity):
     @DynamicAttrs
     """
 
+    # Loxone entities are event-driven; never poll the Miniserver.
+    _attr_should_poll = False
+    # Keep the recorder from logging these high-churn / low-signal attributes.
+    _unrecorded_attributes = frozenset({"uuid", "platform", "room", "category", "state_uuid", "device_type"})
+
     def __init__(self, **kwargs):
-        for key in kwargs:
+        for key, value in kwargs.items():
             if not hasattr(self, key):
                 if key == "name":
-                    self._attr_name = kwargs[key]
+                    self._attr_name = value
                 else:
-                    setattr(self, key, kwargs[key])
+                    setattr(self, key, value)
             else:
                 try:
-                    setattr(self, key, kwargs[key])
+                    setattr(self, key, value)
                 except AttributeError:
-                    _LOGGER.error(f"Could set {key} for {self.name}")
+                    _LOGGER.error("Could not set %s=%r for %s", key, value, type(self).__name__)
                 except Exception:
-                    traceback.print_exc()
-                    sys.exit(-1)
-
-        self.listener = None
+                    _LOGGER.exception("Could not set %s=%r for %s", key, value, type(self).__name__)
 
         # Initialize base extra state attributes with common Loxone fields
         self._attr_extra_state_attributes = {
@@ -645,18 +645,15 @@ class LoxoneEntity(Entity):
         }
 
         # Add optional common attributes from Loxone JSON if they exist
-        if "room" in kwargs and kwargs["room"]:
+        if kwargs.get("room"):
             self._attr_extra_state_attributes["room"] = kwargs["room"]
-        if "cat" in kwargs and kwargs["cat"]:
+        if kwargs.get("cat"):
             self._attr_extra_state_attributes["category"] = kwargs["cat"]
 
     async def async_added_to_hass(self):
-        """Subscribe to device events."""
-        self.listener = self.hass.bus.async_listen(EVENT, self.event_handler)
-
-    async def async_will_remove_from_hass(self):
-        """Disconnect callbacks."""
-        self.listener = None
+        """Subscribe to the bus; HA cancels this on entity removal, so an
+        in-place reload no longer leaks ``loxone_event`` listeners (CORE-01)."""
+        self.async_on_remove(self.hass.bus.async_listen(EVENT, self.event_handler))
 
     async def event_handler(self, e):
         pass
@@ -664,21 +661,6 @@ class LoxoneEntity(Entity):
     @cached_property
     def name(self):
         return self._attr_name
-
-    # @name.setter
-    # def name(self, n):
-    #     self._attr_name = n
-
-    @staticmethod
-    def _clean_unit(lox_format):
-        search = re.search(cfmt, lox_format, flags=re.X)
-        if search:
-            unit = lox_format.replace(search.group(0).strip(), "").strip()
-            if unit == "%%":
-                unit = unit.replace("%%", "%")
-            return unit
-        else:
-            return lox_format
 
     @staticmethod
     def _get_format(lox_format):
