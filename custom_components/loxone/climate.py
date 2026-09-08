@@ -137,7 +137,6 @@ async def async_setup_entry(
             }
         )
         entities.append(LoxoneAcControl(**accontrol))
-
     async_add_entities(entities)
 
 
@@ -398,7 +397,6 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         """Handle climate demand events from ClimateController."""
         if event.data.get("uuid") == self.uuidAction:
             self._demand = event.data.get("value", 0)
-            self._demand = event.data["value"]
             self.schedule_update_ha_state()
 
     def get_mode_from_id(self, mode_id):
@@ -413,9 +411,15 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             val = event.data[key]
             self._state_attr_values[key] = val
             if self._states_reversed[key] == "operatingMode":
-                self.operating_mode = OperatingMode.from_mode(val)
+                try:
+                    self.operating_mode = OperatingMode.from_mode(val)
+                except ValueError:
+                    _LOGGER.warning("LoxoneRoomControllerV2: unknown operating mode %r", val)
             elif self._states_reversed[key] == "activeMode":
-                self.active_state = ActiveState.from_raw(val)
+                try:
+                    self.active_state = ActiveState.from_raw(val)
+                except ValueError:
+                    _LOGGER.warning("LoxoneRoomControllerV2: unknown active mode %r", val)
             update = True
 
         if update:
@@ -777,8 +781,10 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         # _LOGGER.debug(f"State attribs after event handling: {self._stateAttribValues}")
 
     def get_state_value(self, name):
-        uuid = self._stateAttribUuids[name]
-        return self._stateAttribValues[uuid] if uuid in self._stateAttribValues else None
+        uuid = self._stateAttribUuids.get(name)
+        if uuid is None:
+            return None
+        return self._stateAttribValues.get(uuid)
 
     @property
     def extra_state_attributes(self):
@@ -876,10 +882,12 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
     @property
     def temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform."""
-        if "format" in self.details:
-            if self.details["format"].find("°"):
+        fmt = self.details.get("format")
+        if fmt is not None:
+            if "°C" in fmt:
                 return UnitOfTemperature.CELSIUS
-            return UnitOfTemperature.FAHRENHEIT
+            if "°F" in fmt:
+                return UnitOfTemperature.FAHRENHEIT
         return UnitOfTemperature.CELSIUS
 
     @property
