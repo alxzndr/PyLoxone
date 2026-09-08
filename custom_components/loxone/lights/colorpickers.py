@@ -13,7 +13,7 @@ from homeassistant.const import STATE_UNKNOWN
 
 from .. import LoxoneEntity
 from ..const import SENDDOMAIN
-from ..helpers import get_or_create_device, hass_to_lox, lox_to_hass
+from ..helpers import get_or_create_device, hass_to_lox, literal_decoder, lox_to_hass
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,11 +92,12 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
 
             if _color.startswith("temp"):
                 _color = _color.replace("temp", "")
-                _color = eval(_color)  # noqa: S307  # TODO(WP-1.2): replace eval() with the safe color parser
-                self._attr_color_mode = ColorMode.COLOR_TEMP
-                self._attr_color_temp_kelvin = _color[1]
-                self._attr_brightness = round(255 * _color[0] / 100)
-                request_update = True
+                _color = literal_decoder(_color)
+                if _color is not None:
+                    self._attr_color_mode = ColorMode.COLOR_TEMP
+                    self._attr_color_temp_kelvin = _color[1]
+                    self._attr_brightness = round(255 * _color[0] / 100)
+                    request_update = True
             elif _color.startswith("hsv"):
                 if _color == "hsv(0,0,0)":
                     self._attr_brightness = 0
@@ -226,19 +227,21 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
 
             if _color.startswith("hsv"):
                 _color = _color.replace("hsv", "")
-                _color = eval(_color)  # noqa: S307  # TODO(WP-1.2): replace eval() with the safe color parser
-                self._attr_color_mode = ColorMode.HS
-                self._attr_hs_color = (_color[0], _color[1])
-                self._attr_brightness = lox_to_hass(_color[2])
-                request_update = True
+                _color = literal_decoder(_color)
+                if _color is not None:
+                    self._attr_color_mode = ColorMode.HS
+                    self._attr_hs_color = (_color[0], _color[1])
+                    self._attr_brightness = lox_to_hass(_color[2])
+                    request_update = True
             elif _color.startswith("temp"):
                 _color = _color.replace("temp", "")
-                _color = eval(_color)  # noqa: S307  # TODO(WP-1.2): replace eval() with the safe color parser
-                self._attr_color_mode = ColorMode.COLOR_TEMP
-                self._attr_color_temp_kelvin = _color[1]
-                self._attr_hs_color = None
-                self._attr_brightness = round(255 * _color[0] / 100)
-                request_update = True
+                _color = literal_decoder(_color)
+                if _color is not None:
+                    self._attr_color_mode = ColorMode.COLOR_TEMP
+                    self._attr_color_temp_kelvin = _color[1]
+                    self._attr_hs_color = None
+                    self._attr_brightness = round(255 * _color[0] / 100)
+                    request_update = True
             else:
                 _LOGGER.error("Not handled command -> %s", _color)
 

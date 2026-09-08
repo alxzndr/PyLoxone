@@ -5,9 +5,40 @@ For more details about this component, please refer to the documentation at
 https://home-assistant.io/components/loxone/
 """
 
+import ast
+import json
 import re
 
 from .const import DOMAIN, cfmt
+
+
+def json_decoder(value):
+    """Parse a Loxone value string with ``json.loads``.
+
+    Replaces the old ``eval(...)`` calls: it cannot execute code.  Returns
+    ``None`` on a parse failure so the caller can keep its prior state instead
+    of crashing the event handler on a malformed value.
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except ValueError, TypeError:
+        return None
+
+
+def literal_decoder(value):
+    """Parse a Loxone value (e.g. ``"temp[0.85, 2700]"``) with
+    ``ast.literal_eval`` — safe for lists/tuples of numbers, no code execution.
+    Returns ``None`` on a parse failure.
+    """
+    if not isinstance(value, str):
+        return value
+    try:
+        return ast.literal_eval(value)
+    except ValueError, SyntaxError, TypeError:
+        return None
+
 
 # Initialize a device registry
 device_registry = {}

@@ -6,7 +6,7 @@ from homeassistant.const import STATE_UNKNOWN
 
 from .. import LoxoneEntity
 from ..const import SENDDOMAIN, STATE_OFF
-from ..helpers import get_or_create_device, hass_to_lox, lox2hass_mapped, lox_to_hass
+from ..helpers import get_or_create_device, hass_to_lox, json_decoder, lox2hass_mapped, lox_to_hass
 
 
 class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
@@ -179,21 +179,21 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             request_update = True
 
         if self.states["activeMoods"] in event.data:
-            self._active_moods = eval(event.data[self.states["activeMoods"]])  # noqa: S307  # TODO(WP-1.2): replace eval() with json.loads
-            if self._active_moods != [778]:
-                self._attr_is_on = True
-            else:
-                self._attr_is_on = False
-            request_update = True
+            self._active_moods = json_decoder(event.data[self.states["activeMoods"]])
+            if self._active_moods is not None:
+                if self._active_moods != [778]:
+                    self._attr_is_on = True
+                else:
+                    self._attr_is_on = False
+                request_update = True
 
         if self.states["moodList"] in event.data:
-            event.data[self.states["moodList"]] = event.data[self.states["moodList"]].replace("true", "True")
-            event.data[self.states["moodList"]] = event.data[self.states["moodList"]].replace("false", "False")
-            self._moodlist = eval(event.data[self.states["moodList"]])  # noqa: S307  # TODO(WP-1.2): replace eval() with json.loads
-            request_update = True
+            self._moodlist = json_decoder(event.data[self.states["moodList"]])
+            if self._moodlist is not None:
+                request_update = True
 
         if self.states["additionalMoods"] in event.data:
-            self._additional_moodlist = eval(event.data[self.states["additionalMoods"]])  # noqa: S307  # TODO(WP-1.2): replace eval() with json.loads
+            self._additional_moodlist = json_decoder(event.data[self.states["additionalMoods"]])
             request_update = True
 
         if request_update:
