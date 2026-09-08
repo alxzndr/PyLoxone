@@ -1,18 +1,10 @@
-"""Interfaces with Alarm.com alarm control panels."""
+"""Loxone Alarm controls as alarm control panels."""
 
 import logging
-import re
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
-from homeassistant.components.alarm_control_panel import (
-    PLATFORM_SCHEMA,
-    AlarmControlPanelEntity,
-    AlarmControlPanelState,
-)
+from homeassistant.components.alarm_control_panel import AlarmControlPanelEntity, AlarmControlPanelState
 from homeassistant.components.alarm_control_panel.const import AlarmControlPanelEntityFeature, CodeFormat
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_CODE, CONF_NAME, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -22,19 +14,31 @@ from .const import SECUREDSENDDOMAIN, SENDDOMAIN
 from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
-DEFAULT_NAME = "Loxone Alarm"
-DEFAULT_FORCE_UPDATE = False
-
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        vol.Required(CONF_PASSWORD): cv.string,
-        vol.Required(CONF_USERNAME): cv.string,
-        vol.Optional(CONF_CODE): cv.positive_int,
-        vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
-    }
-)
+
+def _state_uuid(states: dict, name: str) -> str | None:
+    """Un-guarded ``states[name]`` indexing crashes the alarm platform when a
+    structure file omits an attribute (PC-16); return ``None`` instead."""
+    return states.get(name)
+
+
+def alarm_arm_value(arm_state: AlarmControlPanelState) -> str:
+    """Command value that arms an Loxone alarm (PC-31, **VERIFY**).
+
+    Intended semantics: the argument of ``delayedon/<x>`` is Loxone's
+    movement-disabled flag, and it must agree with the state mapping below (``armed and disabled_move`` →
+    ``ARMED_HOME``): armed-home disables movement ⇒ ``delayedon/1``,
+    armed-away ⇒ ``delayedon/0``. The previous code sent ``delayedon/0`` for
+    home and ``delayedon/1`` for away, which round-trips home to *away*.
+    VERIFY — confirm the round-trip on a live Miniserver before relying on the
+    swapped mapping.
+    """
+    if arm_state == AlarmControlPanelState.ARMED_HOME:
+        return "delayedon/1"
+    if arm_state == AlarmControlPanelState.ARMED_AWAY:
+        return "delayedon/0"
+    raise ValueError(f"{arm_state} is not an arm state")
 
 
 async def async_setup_platform(
@@ -43,8 +47,7 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up Loxone Alarms."""
-    return True
+    """Set up Loxone Alarms from YAML is not supported (config entries only)."""
 
 
 async def async_setup_entry(
@@ -63,7 +66,6 @@ async def async_setup_entry(
         entities.append(new_alarm)
 
     async_add_entities(entities, True)
-    return True
 
 
 class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
@@ -76,51 +78,47 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
         self._armed_delay_total_delay = 0.0
         self._armed_at = 0
         self._next_level_at = 0
-        self._code = str(kwargs["code"]) if kwargs["code"] else None
+        # Fixed at setup time from the structure file (PC-06): a secured alarm
+        # needs a numeric arm/disarm code, an unsecured one needs none. They
+        # must not depend on ``code_arm_required`` being read first.
+        is_secured = bool(kwargs.get("isSecured"))
+        self._attr_code_arm_required = is_secured
+        self._attr_code_format = CodeFormat.NUMBER if is_secured else None
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, "Alarm", self.room)
 
     @property
     def supported_features(self):
         return AlarmControlPanelEntityFeature.ARM_HOME | AlarmControlPanelEntityFeature.ARM_AWAY
 
-    @property
-    def code_arm_required(self):
-        """Whether the code is required for arm actions."""
-        self._code = "required"
-        if self.isSecured:
-            self._code = "required"
-        else:
-            self._code = None
-        return self.isSecured
-
     async def event_handler(self, e):
         request_update = False
-        if self.states["armed"] in e.data:
-            self._state = e.data[self.states["armed"]]
+
+        if (u := _state_uuid(self.states, "armed")) and u in e.data:
+            self._state = e.data[u]
             request_update = True
 
-        if self.states["disabledMove"] in e.data:
-            self._disabled_move = e.data[self.states["disabledMove"]]
+        if (u := _state_uuid(self.states, "disabledMove")) and u in e.data:
+            self._disabled_move = e.data[u]
             request_update = True
 
-        if "armedAt" in self.states and self.states["armedAt"] in e.data:
-            self._armed_at = e.data[self.states["armedAt"]]
+        if (u := _state_uuid(self.states, "armedAt")) and u in e.data:
+            self._armed_at = e.data[u]
             request_update = True
 
-        if "nextLevelAt" in self.states and self.states["nextLevelAt"] in e.data:
-            self._next_level_at = e.data[self.states["nextLevelAt"]]
+        if (u := _state_uuid(self.states, "nextLevelAt")) and u in e.data:
+            self._next_level_at = e.data[u]
             request_update = True
 
-        if self.states["armedDelay"] in e.data:
-            self._armed_delay = e.data[self.states["armedDelay"]]
+        if (u := _state_uuid(self.states, "armedDelay")) and u in e.data:
+            self._armed_delay = e.data[u]
             request_update = True
 
-        if self.states["armedDelayTotal"] in e.data:
-            self._armed_delay_total_delay = e.data[self.states["armedDelayTotal"]]
+        if (u := _state_uuid(self.states, "armedDelayTotal")) and u in e.data:
+            self._armed_delay_total_delay = e.data[u]
             request_update = True
 
-        if self.states["level"] in e.data:
-            self._level = e.data[self.states["level"]]
+        if (u := _state_uuid(self.states, "level")) and u in e.data:
+            self._level = e.data[u]
             request_update = True
 
         if request_update:
@@ -150,25 +148,6 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
     def level(self):
         return self._level
 
-    @property
-    def hidden(self) -> bool:
-        """Return True if the entity should be hidden from UIs."""
-        return False
-
-    @property
-    def icon(self):
-        """Return the icon to use in the frontend, if any."""
-        return None
-
-    def alarm_disarm(self, code=None):
-        pass
-
-    def alarm_arm_home(self, code=None):
-        pass
-
-    def alarm_arm_away(self, code=None):
-        pass
-
     async def async_alarm_disarm(self, code=None):
         """Send disarm command."""
         if self.isSecured:
@@ -179,24 +158,26 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
 
     async def async_alarm_arm_home(self, code=None):
         """Send arm home command."""
+        value = alarm_arm_value(AlarmControlPanelState.ARMED_HOME)
         if self.isSecured:
             self.hass.bus.async_fire(
                 SECUREDSENDDOMAIN,
-                dict(uuid=self.uuidAction, value="delayedon/0", code=code),
+                dict(uuid=self.uuidAction, value=value, code=code),
             )
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/0"))
+            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=value))
         self.async_schedule_update_ha_state()
 
     async def async_alarm_arm_away(self, code=None):
         """Send arm away command."""
+        value = alarm_arm_value(AlarmControlPanelState.ARMED_AWAY)
         if self.isSecured:
             self.hass.bus.async_fire(
                 SECUREDSENDDOMAIN,
-                dict(uuid=self.uuidAction, value="delayedon/1", code=code),
+                dict(uuid=self.uuidAction, value=value, code=code),
             )
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/1"))
+            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=value))
         self.async_schedule_update_ha_state()
 
     @property
@@ -224,19 +205,3 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
             "armed_delay": self._armed_delay,
             "armed_delay_total_delay": self._armed_delay_total_delay,
         }
-
-    def _validate_code(self, code):
-        """Validate given code."""
-        check = self._code is None or code == self._code
-        if not check:
-            _LOGGER.warning("Wrong code entered")
-        return check
-
-    @property
-    def code_format(self):
-        """Return one or more digits/characters."""
-        if self._code is None:
-            return None
-        if isinstance(self._code, str) and re.search("^\\d+$", self._code):
-            return CodeFormat.NUMBER
-        return CodeFormat.TEXT

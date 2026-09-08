@@ -87,6 +87,25 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   (API-08); the token is persisted on every change (incl. `unsecurePass`)
   via a coordinator callback, and `jdev/sys/killtoken` is sent before close
   on entry unload (API-17, VERIFY: killtoken form for JWTs)
+- `fan.py` (Ventilation) — `TURN_ON`/`TURN_OFF` advertised (PC-08);
+  `set_preset_mode` actually sends `setMode/<id>` instead of a no-op
+  (PC-09, VERIFY command name); `set_percentage` sends the raw integer
+  profile id instead of the profile name/`None` and refuses to guess when
+  no mode is known yet (PC-29, VERIFY); `percentage` is a clamped int in
+  0..100 instead of the raw server float (PC-30); dead code removed
+  (PC-40/PC-41)
+- `alarm_control_panel.py` — `code_arm_required`/`code_format` are
+  setup-time attributes from `isSecured` (NUMBER when secured, `None`
+  otherwise) instead of a side-effects-laden TEXT default (PC-06,
+  JoDehli/PyLoxone#413); arm-home/arm-away parameter value inverted to
+  agree with the state mapping (PC-31, VERIFY on a live Miniserver);
+  missing `states` entries (e.g. no `nextLevelAt`) no longer crash the
+  platform (PC-16); dead YAML schema, stubs and sync shims removed
+  (PC-40/PC-41)
+- `media_player.py` (AudioZoneV2) — `STOP` advertised so `async_media_stop`
+  is reachable (PC-43); unknown `playState` values map to `idle` instead
+  of leaving the entity stateless (PC-41); missing `playState`/`volume`
+  state uuids no longer crash event handling (PC-16)
 
 ## 0.9.23
 

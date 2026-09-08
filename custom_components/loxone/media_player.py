@@ -35,7 +35,46 @@ SUPPORT_LOXONE_AUDIO_ZONE = (
     | MediaPlayerEntityFeature.PREVIOUS_TRACK
     | MediaPlayerEntityFeature.VOLUME_SET
     | MediaPlayerEntityFeature.VOLUME_STEP
+    | MediaPlayerEntityFeature.STOP
 )
+
+
+def _state_uuid(states: dict, name: str) -> str | None:
+    """Un-guarded ``states[name]`` indexing crashes the media player platform when a
+    structure file omits an attribute (PC-16); return ``None`` instead."""
+    return states.get(name)
+
+
+def play_state_to_media_player_state(play_state: int) -> MediaPlayerState:
+    """Map a Loxone AudioZoneV2 ``playState`` value to the matching HA state.
+
+    Unknown values fall back to ``IDLE`` (a non-playing state): the entity
+    must never be left without a state just because the server sent a new
+    value we do not know about.
+    """
+    match play_state:
+        case 0:
+            return MediaPlayerState.IDLE
+        case 1:
+            return MediaPlayerState.PAUSED
+        case 2:
+            return MediaPlayerState.PLAYING
+        case -1:
+            return MediaPlayerState.OFF
+        case _:
+            _LOGGER.debug("Unknown playState %r; defaulting to %s", play_state, MediaPlayerState.IDLE)
+            return MediaPlayerState.IDLE
+
+
+def audio_zone_stop_value() -> str:
+    """Command value behind the ``STOP`` feature (PC-43).
+
+    AudioZoneV2 has no ``stop`` sub-command; pausing makes the zone silent,
+    which is the closest stop semantic the device offers.
+    VERIFY — confirm a dedicated stop command (if any) exists on a live
+    Miniserver.
+    """
+    return "pause"
 
 
 async def async_setup_platform(
@@ -45,7 +84,6 @@ async def async_setup_platform(
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up Loxone Audio zones."""
-    return True
 
 
 async def async_setup_entry(
@@ -70,25 +108,11 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-def play_state_to_media_player_state(play_state: int) -> MediaPlayerState:
-    match play_state:
-        case 0:
-            return MediaPlayerState.IDLE
-        case 1:
-            return MediaPlayerState.PAUSED
-        case 2:
-            return MediaPlayerState.PLAYING
-        case -1:
-            return MediaPlayerState.OFF
-        case _:
-            _LOGGER.warning(f"Unknown playState:{play_state}")
-
-
 class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
     """Representation of a AudioZoneV2 Loxone device."""
 
     def __init__(self, **kwargs):
-        _LOGGER.debug(f"Input AudioZoneV2: {kwargs}")
+        _LOGGER.debug("Input AudioZoneV2 uuidAction=%s", kwargs.get("uuidAction"))
         super().__init__(**kwargs)
         self.hass = kwargs["hass"]
 
@@ -102,12 +126,12 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
     async def event_handler(self, event):
         should_update = False
 
-        if self.states["volume"] in event.data:
-            self._volume = float(event.data[self.states["volume"]]) / 100
+        if (u := _state_uuid(self.states, "volume")) and u in event.data:
+            self._volume = float(event.data[u]) / 100
             should_update = True
 
-        if self.states["playState"] in event.data:
-            self._state = play_state_to_media_player_state(event.data[self.states["playState"]])
+        if (u := _state_uuid(self.states, "playState")) and u in event.data:
+            self._state = play_state_to_media_player_state(event.data[u])
             should_update = True
 
         if should_update:
@@ -141,8 +165,8 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
         self.async_schedule_update_ha_state()
 
     async def async_media_stop(self) -> None:
-        """Send stop command to device."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="pause"))
+        """Send stop command to device (PC-43)."""
+        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=audio_zone_stop_value()))
         self.async_schedule_update_ha_state()
 
     async def async_media_next_track(self) -> None:

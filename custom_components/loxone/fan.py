@@ -1,4 +1,4 @@
-"""Interfaces with Alarm.com alarm control panels."""
+"""Loxone Ventilation controls as fan entities."""
 
 from __future__ import annotations
 
@@ -26,8 +26,65 @@ DEFAULT_FAN_SPEED_AWAY = 10
 DEFAULT_FAN_SPEED_BOOST = 100
 
 VENTELATION_INT_TO_STR = {2: "Low", 3: "Medium", 4: "High", 5: "Auto", 6: "Away"}
-
 STR_TO_VENTILATION_PROFILE_SETTABLE = {value: key for (key, value) in VENTELATION_INT_TO_STR.items()}
+
+VENTILATION_SET_TIMER_INTERVAL = 3600
+
+
+def _state_uuid(states: dict, name: str) -> str | None:
+    """Un-guarded ``states[name]`` indexing crashes the whole platform when a
+    structure file omits an attribute (PC-16); return ``None`` instead."""
+    return states.get(name)
+
+
+def fan_speed_percentage(speed: object) -> int | None:
+    """Clamp the raw Loxone ``speed`` value to an int in 0..100 (PC-30).
+
+    The Miniserver reports a plain float with no contractual bounds.
+    Non-numeric or NaN values map to ``None`` (an HA *unknown* speed)
+    rather than to some arbitrary percentage.
+    """
+    if speed is None:
+        return None
+    try:
+        value = int(round(float(speed)))
+    except TypeError, ValueError:
+        return None
+    return max(0, min(100, value))
+
+
+def ventilation_set_mode_command(preset_mode: str) -> str:
+    """Command value that selects a ventilation profile (PC-09).
+
+    Intended semantics: ``setMode/<profile id>`` (2=Low … 6=Away).
+    VERIFY — confirm the subcommand name (and the id-as-argument layout)
+    against a live Miniserver before relying on it; the Loxconfig device
+    table does not document the Ventilation command set.
+    """
+    return f"setMode/{STR_TO_VENTILATION_PROFILE_SETTABLE[preset_mode]}"
+
+
+def ventilation_set_timer_command(interval: int, percentage: int, mode: int) -> str:
+    """Command value that sets the ventilation speed (PC-29).
+
+    Intended semantics: the trailing mode argument is the *raw integer*
+    profile id (2..6). The previous code interpolated the profile
+    *name* (or ``None``) there and took a one-hour timer for a plain
+    speed change.
+    VERIFY — confirm the argument layout of ``setTimer`` (and whether a
+    non-timed speed command exists) on a live Miniserver.
+    """
+    return f"setTimer/{interval}/{percentage}/{mode}/-1"
+
+
+def ventilation_profile_id(mode: object) -> int | None:
+    """The raw integer profile id (2..6) for ``mode``, or ``None`` if it is
+    not a known profile (guards the ``setTimer`` mode argument, PC-29)."""
+    try:
+        value = int(mode)
+    except TypeError, ValueError:
+        return None
+    return value if value in VENTELATION_INT_TO_STR else None
 
 
 async def async_setup_platform(
@@ -39,7 +96,6 @@ async def async_setup_platform(
     """
     For now, we do nothing. Function is only to get rid of the error message of missing async_setup_platform
     """
-    pass
 
 
 async def async_setup_entry(
@@ -103,20 +159,6 @@ async def async_setup_entry(
                 "config_entry": config_entry,
             }
             entities.append(LoxoneSensor(**air_quality))
-        # if "temperatureIndoor" in fan["states"]:
-        #     temperature = {
-        #         "parent_id": fan["uuidAction"],
-        #         "uuidAction": fan["states"]["temperatureIndoor"],
-        #         "type": "analog",
-        #         "room": fan.get("room", ""),
-        #         "cat": fan.get("cat", ""),
-        #         "name": fan["name"] + " - Temperature",
-        #         "details": {
-        #             "format": "%.1f°C"
-        #         },
-        #         "async_add_devices": async_add_entities
-        #     }
-        #     entities.append(LoxoneSensor(**temperature))
         if "temperatureOutdoor" in fan["states"]:
             temperature = {
                 "parent_id": fan["uuidAction"],
@@ -139,6 +181,9 @@ async def async_setup_entry(
 
 class LoxoneVentilation(LoxoneEntity, FanEntity):
     """Representation of a ventilation Loxone device."""
+
+    # Loxone reports a 0..100 percentage; keep the legacy speed-count contract sane (PC-30).
+    _attr_speed_count = 100
 
     def __init__(self, **kwargs) -> None:
         """Initialize the fan."""
@@ -170,7 +215,12 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
     @property
     def supported_features(self):
         """Flag supported features."""
-        return FanEntityFeature.PRESET_MODE | FanEntityFeature.SET_SPEED
+        return (
+            FanEntityFeature.PRESET_MODE
+            | FanEntityFeature.SET_SPEED
+            | FanEntityFeature.TURN_ON
+            | FanEntityFeature.TURN_OFF
+        )
 
     async def event_handler(self, event):
         # _LOGGER.debug(f"Fan Event data: {event.data}")
@@ -218,8 +268,8 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
 
     @property
     def percentage(self) -> int | None:
-        """Return the current speed percentage."""
-        return self.get_state_value("speed")
+        """Return the current speed percentage (int, 0..100) (PC-30)."""
+        return fan_speed_percentage(self.get_state_value("speed"))
 
     @device_class.setter
     def device_class(self, device_class):
@@ -228,27 +278,43 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         else:
             self._device_class = device_class
 
-    def get_state_value(self, name):
-        uuid = self._stateAttribUuids[name]
-        return self._stateAttribValues[uuid] if uuid in self._stateAttribValues else None
+    def get_state_value(self, name: str):
+        """Return the last value for *name*, or ``None`` if the control does
+        not have that state or no value has arrived yet (PC-16)."""
+        uuid = _state_uuid(self._stateAttribUuids, name)
+        if uuid is None:
+            return None
+        if uuid in self._stateAttribValues:
+            return self._stateAttribValues[uuid]
+        return None
 
     def set_preset_mode(self, preset_mode: str) -> None:
-        """Set the preset mode of the fan."""
+        """Set the preset mode of the fan (PC-09)."""
+        if preset_mode not in STR_TO_VENTILATION_PROFILE_SETTABLE:
+            _LOGGER.warning("Setting unsupported ventilation profile %r", preset_mode)
+            return
+        self.hass.bus.fire(
+            SENDDOMAIN,
+            dict(uuid=self.uuidAction, value=ventilation_set_mode_command(preset_mode)),
+        )
 
     def set_percentage(self, percentage: int) -> None:
-        """Set the speed percentage of the fan."""
-        interval = 3600
+        """Set the speed percentage of the fan (PC-29)."""
+        mode = ventilation_profile_id(self.get_state_value("mode"))
+        if mode is None:
+            # No (known) profile yet: the raw command would need the raw
+            # integer mode, and guessing one would turn a plain speed
+            # change into a profile change.
+            _LOGGER.warning("Ventilation profile not known (got %r); cannot send speed change", mode)
+            return
+        clamped = max(0, min(100, int(percentage)))
         self.hass.bus.fire(
             SENDDOMAIN,
             dict(
                 uuid=self.uuidAction,
-                value=f"setTimer/{interval}/{percentage}/{VENTELATION_INT_TO_STR.get(self.get_state_value('mode'))}/-1",
+                value=ventilation_set_timer_command(VENTILATION_SET_TIMER_INTERVAL, clamped, mode),
             ),
         )
-
-    # def turn_on(self, speed: Optional[str] = None, percentage: Optional[int] = None, preset_mode: Optional[str] = None,
-    #             **kwargs: Any) -> None:
-    #     """Turn on the fan."""
 
     async def async_turn_on(
         self,
@@ -262,12 +328,6 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         if percentage:
             self.set_percentage(percentage)
         _LOGGER.debug("Turn on")
-
-    def turn_off(self, **kwargs: Any) -> None:
-        """Turn the fan off."""
-        if hasattr(self, "preset_mode"):
-            self.set_preset_mode(kwargs.get("preset_mode", "Auto"))
-        self.set_percentage(0)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the fan off."""
