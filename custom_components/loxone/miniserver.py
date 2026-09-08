@@ -21,8 +21,16 @@ NEW_COVERS = "covers"
 
 @callback
 def get_miniserver_from_hass(hass, config_entry):
-    """Return the Miniserver for this specific config entry."""
-    return hass.data[DOMAIN][config_entry.entry_id].miniserver
+    """Return the Miniserver for this specific config entry.
+
+    Returns ``None`` (not ``KeyError``) when the domain data or the entry has
+    not been populated yet, so callers (diagnostics, system health) can degrade
+    gracefully.
+    """
+    entry_data = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
+    if entry_data is None:
+        return None
+    return entry_data.miniserver
 
 
 @dataclass
