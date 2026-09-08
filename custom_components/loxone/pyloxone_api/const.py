@@ -9,11 +9,26 @@ from __future__ import annotations
 
 from typing import Final
 
-RECONNECT_DELAY = 5  # maximum delay in seconds
-RECONNECT_TRIES = 100  # number of tries to reconnect before giving up
+# API-08: bounded connect retries (was RECONNECT_DELAY=5 / RECONNECT_TRIES=100,
+# i.e. up to 8 minutes blocking config-entry setup instead of letting
+# ConfigEntryNotReady retry). 3 tries with exponential backoff, applied to
+# all three bootstrap GETs.
+CONNECT_TRIES: Final = 3
+CONNECT_RETRY_BASE_DELAY: Final = 1.0  # seconds; attempt N waits base * 2**(N-1)
+
+# API-13: LL response codes that mean "unauthorised" (bad credentials /
+# stale token) -- all auth handlers must check every response's code.
+LLRSP_UNAUTHORISED_CODES: Final = frozenset({401, 4003})
+
+# API-16: consecutive check_refresh_token failures before escalating to
+# LoxoneTokenError (which forces a reload that retries auth from scratch).
+TOKEN_REFRESH_MAX_FAILURES: Final = 3
 
 # Loxone constants
 MAX_WEBSOCKET_MESSAGE_SIZE: Final = 5 * 1024 * 1024  # 5 megabytes = 5,242,880 bytes
+# API-06: explicit websocket close_timeout (stated instead of riding the
+# websockets library default).
+WEBSOCKET_CLOSE_TIMEOUT: Final = 10
 DELAY_CHECK_TOKEN_REFRESH: Final = 20
 TIMEOUT: Final = 30
 KEEP_ALIVE_PERIOD: Final = 30
@@ -50,3 +65,5 @@ CMD_REFRESH_TOKEN: Final = "jdev/sys/refreshtoken"
 CMD_REFRESH_TOKEN_JSON_WEB: Final = "jdev/sys/refreshjwt/"
 CMD_ENABLE_UPDATES: Final = "jdev/sps/enablebinstatusupdate"
 CMD_GET_VISUAL_PASSWD: Final = "jdev/sys/getvisusalt/"
+# API-17: invalidate a token on the Miniserver when the entry is removed.
+CMD_KILL_TOKEN: Final = "jdev/sys/killtoken"

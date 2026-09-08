@@ -35,6 +35,34 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         self.miniserver: MiniServer | None = None
         self.listeners = []
 
+    def _on_token_changed(self, token: dict) -> None:
+        """API-17: the Miniserver issued a new token - persist it now.
+
+        The token (incl. the ``unsecurePass`` flag) used to be written only
+        at HA shutdown, and ``unsecure_password`` was dropped entirely. The
+        merged dict preserves all other ``ConfigEntry.data`` keys.
+        """
+        if not token or not token.get("token"):
+            return
+        data = {**self.config_entry.data}
+        data.update(
+            {
+                "token": token["token"],
+                "hash_alg": token.get("hash_alg", ""),
+                "valid_until": token.get("valid_until", 0),
+                "unsecure_password": token.get("unsecure_password", False),
+            }
+        )
+        _LOGGER.debug("Persisting Loxone token change (valid_until=%s)", data["valid_until"])
+        self.hass.async_create_task(self._persist_token_data(data))
+
+    async def _persist_token_data(self, data: dict) -> None:
+        try:
+            await self.config_entry.async_update_entry(data=data)
+            _LOGGER.debug("Loxone token persisted")
+        except Exception as e:
+            _LOGGER.warning("Failed to persist Loxone token change: %s", e)
+
     async def async_config_entry_first_refresh(self) -> None:
         _LOGGER.debug("async_config_entry_first_refresh")
         if self.api and self.api.connection:
@@ -51,6 +79,8 @@ class LoxoneCoordinator(DataUpdateCoordinator):
                 verify_ssl=self._verify_ssl,
                 # API-19: parse the multi-MB LoxAPP3.json off the event loop.
                 executor=self.hass.async_add_executor_job,
+                # API-17: persist every token change, not just at shutdown.
+                token_change_callback=self._on_token_changed,
             )
         else:
             self.api = LoxoneConnection(
@@ -61,6 +91,8 @@ class LoxoneCoordinator(DataUpdateCoordinator):
                 verify_ssl=self._verify_ssl,
                 # API-19: parse the multi-MB LoxAPP3.json off the event loop.
                 executor=self.hass.async_add_executor_job,
+                # API-17: persist every token change, not just at shutdown.
+                token_change_callback=self._on_token_changed,
             )
         try:
             session = async_get_clientsession(self.hass)
@@ -95,4 +127,12 @@ class LoxoneCoordinator(DataUpdateCoordinator):
 
         # Close API connection
         if hasattr(self, "api"):
+            # API-17: kill the token on the Miniserver *before* the socket
+            # goes away (entry removal/unload) so it does not linger
+            # server-side. kill_token() is best-effort and a no-op without
+            # a live connection.
+            try:
+                await self.api.kill_token()
+            except Exception as e:
+                _LOGGER.debug("kill_token on cleanup failed: %s", e)
             await self.api.close()

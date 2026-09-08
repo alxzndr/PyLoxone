@@ -6,6 +6,7 @@ the code under test.
 
 from __future__ import annotations
 
+import asyncio
 from base64 import b64decode
 import hashlib
 import json
@@ -288,7 +289,13 @@ async def _run_listening(frames: list, callback=None) -> list:
         if callback is not None:
             await callback(data)
 
-    await conn._do_start_listening(cb, FakeFeed(frames))
+    try:
+        await conn._do_start_listening(cb, FakeFeed(frames))
+    except LoxoneConnectionClosedOk:
+        # Feed exhaustion == the server cleanly closing the socket. Since
+        # the API-02 fix, the listen loop surfaces that as
+        # LoxoneConnectionClosedOk instead of returning silently.
+        pass
     return seen
 
 
@@ -419,7 +426,11 @@ class _FakeWebSocket:
         return self
 
     async def __anext__(self) -> None:
-        raise StopAsyncIteration  # zero frames: listener finishes cleanly
+        # Stay open forever: this test pins *setup* behaviour (one socket,
+        # key exchange), not close. An immediately-terminating iterator
+        # would trigger the API-02 clean-close path (and hence the
+        # LoxoneConnectionClosedOk -> reload chain) before teardown.
+        await asyncio.Event().wait()
 
 
 async def test_setup_opens_exactly_one_websocket(hass, mock_entry, enable_custom_integrations) -> None:

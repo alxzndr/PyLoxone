@@ -70,6 +70,24 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   every setup failure now closes the API handle, fixing the connection
   leak on the 401/503 branches (CORE-09)
 
+- `pyloxone_api` connection layer (WP-2.2, #514 #486 #457): a clean close
+  (code 1000) now surfaces as `LoxoneConnectionClosedOk` within ~1s
+  instead of 30s later as an ERROR (API-02); expected reconnect control
+  flow is logged at DEBUG with one lost/restored WARNING+INFO pair per
+  outage, and real failures as WARNING with the traceback at DEBUG (API-27);
+  outbound commands are awaited per send and remaining background tasks are
+  tracked in a set with a done-callback so a failure is no longer swallowed
+  (API-14); the token-refresh loop waits for an authenticated token instead
+  of spinning at 1 Hz and escalates after 3 consecutive failures
+  (API-16); 401/4003 on *every* auth response raises
+  `LoxoneUnauthorisedError` instead of hanging on bad credentials (API-13);
+  the websocket uses `ping_interval=None` with an explicit `close_timeout`
+  (API-06, VERIFY: ping off vs live Miniserver); `open()` GETs use 3 tries
+  with exponential backoff instead of 100×5s, applied to all three GETs
+  (API-08); the token is persisted on every change (incl. `unsecurePass`)
+  via a coordinator callback, and `jdev/sys/killtoken` is sent before close
+  on entry unload (API-17, VERIFY: killtoken form for JWTs)
+
 ## 0.9.23
 
 &mdash; (version number; release notes back-ported after first cut)
