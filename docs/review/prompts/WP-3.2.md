@@ -1,7 +1,11 @@
 # Agent prompt — WP-3.2: Multi-instance isolation (#491)
 
 You are implementing work package **WP-3.2** of the PyLoxone remediation plan.
-Repository: `/Users/alexandergeeraerts/github/PyLoxone` (Home Assistant custom integration for Loxone Miniservers).
+Repository: **your current working directory**. It is a Home Assistant custom integration for
+Loxone Miniservers. Every path in this document is relative to that directory.
+Do not `cd` outside it. Do not search the filesystem for another copy of this project: other
+checkouts exist, they belong to other people, and writing to one destroys their work.
+Use `.venv/bin/python` for Python; it is present in your working directory.
 Work autonomously. Do not ask questions unless genuinely blocked; state assumptions in the PR body instead.
 
 Source documents (read them; they are authoritative):
@@ -102,7 +106,7 @@ Source documents (read them; they are authoritative):
 ## Definition of done
 
 1. Every acceptance criterion above is met and backed by a test that fails before your change and passes after it.
-2. From the repo root, all of these pass and their output is pasted into the PR/commit body:
+2. From your working directory, all of these pass and their output is pasted into the PR/commit body:
    ```
    ruff check . --select F,E9,PLE,B,T20,S307,ASYNC,RUF006
    ruff format --check .
