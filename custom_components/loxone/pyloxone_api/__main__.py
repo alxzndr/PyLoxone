@@ -3,9 +3,9 @@ A quick test of the pyloxone_api module
 
 From the command line, run:
 
-> python -m pyloxone_api username password host port
+> python -m pyloxone_api host port username password
 
-where username, password host and port are your Loxone login credentials
+where host, port, username and password are your Loxone login credentials
 
 """
 

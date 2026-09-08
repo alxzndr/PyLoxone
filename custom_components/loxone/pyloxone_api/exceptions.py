@@ -24,12 +24,8 @@ class LoxoneConnectionError(Exception):
     """Raised the network connection is interrupted"""
 
 
-class LoxoneHTTPStatusError(LoxoneException):
-    """An exception indicating an unusual http response from the miniserver"""
-
-
 class LoxoneRequestError(LoxoneException):
-    """An exception raised during an http request"""
+    """An exception raised during a request to the miniserver"""
 
 
 class LoxoneUnauthorisedError(LoxoneRequestError):
@@ -37,22 +33,7 @@ class LoxoneUnauthorisedError(LoxoneRequestError):
 
 
 class LoxoneTokenError(LoxoneRequestError):
-    """Unauthorised web request. Incorrect credentials"""
-
-
-class LoxoneCommandError(LoxoneException):
-    """An exception raised when a command is sent to the miniserver"""
-
-    def __init__(self, code: int, message: str) -> None:
-        self.code = code
-        self.message = message
-
-    def __str__(self) -> str:
-        return f"{self.code}: {self.message}"
-
-
-class LoxoneTimeOutError(LoxoneException):
-    """An exception indicating an unusual http response from the miniserver"""
+    """Token authentication or handling failed"""
 
 
 class LoxoneServiceUnAvailableError(LoxoneRequestError):
@@ -65,33 +46,3 @@ class LoxoneMaxNumOfConnectionsError(LoxoneRequestError):
 
 class LoxoneUnrecognizedCommandError(LoxoneRequestError):
     """Unrecognized command"""
-
-
-class ConnectionFailure(Exception):
-    """Error during connection."""
-
-    pass
-
-
-class UnauthorizedError(ConnectionFailure):
-    """Error from ms.channel.unauthorized event."""
-
-    pass
-
-
-class ResponseError(Exception):
-    """Error in response."""
-
-    pass
-
-
-class HttpApiError(Exception):
-    """Error using HTTP API."""
-
-    pass
-
-
-class MessageError(Exception):
-    """Error from ms.error event."""
-
-    pass

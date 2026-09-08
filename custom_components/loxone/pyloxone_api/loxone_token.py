@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime
 import json
-from collections import namedtuple
 from dataclasses import dataclass
 from typing import Final
 
@@ -28,9 +27,6 @@ class LxJsonKeySalt:
         self.key = value["key"]
         self.salt = value["salt"]
         self.hash_alg = value.get("hashAlg", "SHA1")
-
-
-Salt = namedtuple("Salt", ["value", "is_new", "previous"])
 
 
 @dataclass
