@@ -16,6 +16,15 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Fixed
 
+- `__init__.py` — a 401 during setup (e.g. a Miniserver inside its boot
+  window after a firmware update, incident 2026-09-02) no longer ends the
+  entry in `setup_error`: `return False` is gone, the branch now raises
+  `ConfigEntryNotReady`, and after 5 consecutive auth failures spanning at
+  least 5 minutes an ERROR points at the stored credentials (a WARNING is
+  logged on every earlier attempt). `ConfigEntryAuthFailed`/re-auth lands
+  in WP-3.4; every setup failure now closes the API handle, including the
+  503 branch (CORE-09)
+
 - `manifest.json` — `iot_class` corrected to `local_push`; dead `httpx`
   requirement removed; `websockets` ceiling to `<16`; `dependencies` pin
   to `group`; log list; version aligned to the `0.9.23` tag (TOOL-02,
@@ -35,6 +44,14 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   `config_flow.validate_loxone_setup`
 - `__init__.py` — `REQUIREMENTS` list deleted (a HA 0.x relic, HA>=2021
   reads the `requirements` key on the `manifest`)
+- `__init__.py` — a transient 401 during setup (e.g. a Miniserver inside its
+  boot window after a firmware update, incident 2026-09-02) no longer parks
+  the entry in `setup_error` via `return False`: it now raises
+  `ConfigEntryNotReady` and retries, escalating to an ERROR with
+  credential-check guidance only after 5 consecutive auth failures spanning
+  at least 5 minutes (`ConfigEntryAuthFailed`/reauth lands in WP-3.4);
+  every setup failure now closes the API handle, fixing the connection
+  leak on the 401/503 branches (CORE-09)
 
 ## 0.9.23
 

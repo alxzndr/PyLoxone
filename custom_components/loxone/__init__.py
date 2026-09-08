@@ -8,6 +8,7 @@ https://github.com/JoDehli/PyLoxone
 import asyncio
 import logging
 import re
+import time
 from functools import cached_property
 
 import homeassistant.components.group as group
@@ -86,6 +87,16 @@ CONFIG_SCHEMA = vol.Schema(
 
 _UNDEF: dict = {}
 
+# A Miniserver that is still booting (firmware update / reboot) answers 401 to
+# authenticated requests for a short window after its HTTP server is back up
+# (see 2026-09-02-pyloxone-401-setup-error.md).  A 401 during setup is therefore
+# retried, but once consecutive failures span this long we escalate to an ERROR
+# that points at the stored credentials.  WP-3.4 replaces the escalation branch
+# with `ConfigEntryAuthFailed` + reauth.  (CORE-09)
+AUTH_RETRY_MAX_ATTEMPTS = 5
+AUTH_RETRY_MIN_ELAPSED_SECONDS = 300
+_AUTH_FAILURES = "auth_failures"  # key in hass.data[DOMAIN]; a plain dict is not a coordinator
+
 # TODO: get version and check for updates https://update.loxone.com/updatecheck.xml?serial=xxxxxxxxx
 
 
@@ -127,6 +138,9 @@ async def async_unload_entry(hass, config_entry):
                 coordinator.listeners = []
 
             hass.data[DOMAIN].pop(config_entry.entry_id, None)
+            # The in-flight 401-retry bookkeeping would otherwise survive the
+            # reload; drop it too (CORE-09).
+            _clear_auth_failure(hass, config_entry)
         except Exception as e:
             raise e
 
@@ -235,6 +249,73 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
         )
 
 
+def _hass_data(hass) -> dict:
+    """Return ``hass.data[DOMAIN]``, creating it if needed."""
+    if DOMAIN not in hass.data:
+        hass.data[DOMAIN] = {}
+    return hass.data[DOMAIN]
+
+
+def _auth_failure_tracker(hass) -> dict:
+    """Return the per-entry consecutive-auth-failure store.
+
+    HA re-creates the coordinator on every setup attempt, so the counter and
+    first-failure timestamp must not live on the coordinator.  They are kept
+    in ``hass.data[DOMAIN]["auth_failures"]`` (a plain dict keyed by entry id,
+    ignored by the coordinator-lookup helpers which test
+    ``hasattr(value, ...)``).  Removed again by :func:`_clear_auth_failure`
+    once all counters are reset, so the domain data never holds stale
+    non-coordinator keys. (CORE-09)
+    """
+    return _hass_data(hass).setdefault(_AUTH_FAILURES, {})
+
+
+def _record_auth_failure(hass, config_entry, now=None):
+    """Record one 401 during setup. Returns ``(consecutive_count, first_failure_time)``.
+
+    ``now`` defaults to the process monotonic clock (a persistent per-entry
+    first-failure timestamp would survive HA restarts only via the entry,
+    which is not where we store it), and is injectable for tests.
+    """
+    if now is None:
+        now = time.monotonic()
+    tracker = _auth_failure_tracker(hass)
+    state = tracker.get(config_entry.entry_id)
+    if state is None:
+        state = {"count": 0, "first": now}
+        tracker[config_entry.entry_id] = state
+    state["count"] += 1
+    return state["count"], state["first"]
+
+
+def _clear_auth_failure(hass, config_entry) -> None:
+    """Reset the consecutive-auth-failure counter after a successful setup.
+
+    Also removes the empty ``auth_failures`` dict from ``hass.data[DOMAIN]``
+    so the domain data contains no non-coordinator keys while every entry
+    that should be live is live (``system_health`` iterates that dict and
+    reports "Unavailable" for any value lacking a ``miniserver``).
+    """
+    tracker = _hass_data(hass).setdefault(_AUTH_FAILURES, {})
+    tracker.pop(config_entry.entry_id, None)
+    if not tracker:
+        _hass_data(hass).pop(_AUTH_FAILURES, None)
+
+
+def _should_escalate_auth_failure(consecutive_count, first_failure_time, now) -> bool:
+    """Escalate only after the bounded retry window is exhausted.
+
+    Intent: a booting Miniserver emits 401 for a short window, so a *short* run
+    of failures is retried quietly; 5+ consecutive failures spanning >= 5
+    minutes means the credentials are probably wrong (or the server is not the
+    one we think it is).  VERIFY against a live Miniserver's boot behaviour
+    before relying on the escalation actually firing for genuinely bad
+    credentials: until then the ERROR is only *guidance*, setup still keeps
+    retrying (WP-3.4 makes it terminal via reauth).
+    """
+    return consecutive_count >= AUTH_RETRY_MAX_ATTEMPTS and (now - first_failure_time) >= AUTH_RETRY_MIN_ELAPSED_SECONDS
+
+
 async def async_setup_entry(hass, config_entry):
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
@@ -251,46 +332,74 @@ async def async_setup_entry(hass, config_entry):
         config_entry.options.get(CONF_PORT),
     )
 
+    # Every branch of the inner block re-raises on failure, so the ``finally``
+    # below is the single place that guarantees the (partially opened) API
+    # handle is closed on *every* setup failure — previously the 401 branch
+    # returned False (no retry, connection leaked) and the 503 branch leaked
+    # too (CORE-09).
+    entry_setup_failed = True
     try:
-        await coordinator.async_config_entry_first_refresh()
-    except LoxoneServiceUnAvailableError as err:
-        _LOGGER.warning(
-            "Loxone Miniserver at %s is unavailable (service restarting?). Will retry automatically",
-            host,
-        )
-        raise ConfigEntryNotReady from err
-    except LoxoneUnauthorisedError:
-        _LOGGER.error("Could not connect to Loxone Miniserver. Unauthorised. Please check username and password.")
-        return False
-    except OSError as err:
-        await coordinator.api.close()
-        _LOGGER.warning(
-            "Network error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
-            host,
-            err,
-        )
-        raise ConfigEntryNotReady from err
-    except (
-        LoxoneConnectionError,
-        LoxoneConnectionClosedOk,
-        TimeoutError,
-        ConnectionError,
-    ) as err:
-        await coordinator.api.close()
-        _LOGGER.warning(
-            "Could not connect to Loxone Miniserver at %s: %s. Will retry automatically",
-            host,
-            err,
-        )
-        raise ConfigEntryNotReady from err
-    except Exception as err:
-        await coordinator.api.close()
-        _LOGGER.warning(
-            "Unexpected error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
-            host,
-            err,
-        )
-        raise ConfigEntryNotReady from err
+        try:
+            await coordinator.async_config_entry_first_refresh()
+            entry_setup_failed = False
+        except LoxoneServiceUnAvailableError as err:
+            _LOGGER.warning(
+                "Loxone Miniserver at %s is unavailable (service restarting?). Will retry automatically",
+                host,
+            )
+            raise ConfigEntryNotReady from err
+        except LoxoneUnauthorisedError as err:
+            # A Miniserver coming out of a reboot answers 401 before auth is
+            # ready: retry, and only after the bounded window escalate (CORE-09).
+            attempt, first_attempt = _record_auth_failure(hass, config_entry)
+            if _should_escalate_auth_failure(attempt, first_attempt, time.monotonic()):
+                _LOGGER.error(
+                    "Miniserver at %s answered 401 %i consecutive times during setup over at least %i "
+                    "minutes. Please check the stored credentials (username and password) for this "
+                    "Miniserver in Settings > Devices & Services; if they are correct the Miniserver may "
+                    "simply still be booting. Retrying automatically.",
+                    host,
+                    attempt,
+                    AUTH_RETRY_MIN_ELAPSED_SECONDS // 60,
+                )
+            else:
+                _LOGGER.warning(
+                    "Miniserver answered 401 during setup; retrying (attempt %i)",
+                    attempt,
+                )
+            raise ConfigEntryNotReady from err
+        except OSError as err:
+            _LOGGER.warning(
+                "Network error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
+                host,
+                err,
+            )
+            raise ConfigEntryNotReady from err
+        except (
+            LoxoneConnectionError,
+            LoxoneConnectionClosedOk,
+            TimeoutError,
+            ConnectionError,
+        ) as err:
+            _LOGGER.warning(
+                "Could not connect to Loxone Miniserver at %s: %s. Will retry automatically",
+                host,
+                err,
+            )
+            raise ConfigEntryNotReady from err
+        except Exception as err:
+            _LOGGER.warning(
+                "Unexpected error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
+                host,
+                err,
+            )
+            raise ConfigEntryNotReady from err
+    finally:
+        if entry_setup_failed:
+            if coordinator.api is not None:
+                await coordinator.api.close()
+
+    _clear_auth_failure(hass, config_entry)
 
     _LOGGER.info(
         "Successfully connected to Loxone Miniserver at %s",
