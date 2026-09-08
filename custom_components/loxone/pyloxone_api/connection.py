@@ -7,12 +7,14 @@ https://github.com/JoDehli/pyloxone-api
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import ssl
 import time
 import urllib
 from base64 import b64decode, b64encode
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import TracebackType
@@ -72,6 +74,7 @@ from .message import (
     BinaryFile,
     Keepalive,
     LLResponse,
+    MessageHeader,
     MessageType,
     TextMessage,
     check_and_decode_if_needed,
@@ -81,14 +84,6 @@ from .message import (
 from .websocket_protocol import LoxoneClientConnection
 
 _LOGGER = logging.getLogger(__name__)
-import warnings
-
-# Filter out the specific warning
-warnings.filterwarnings(
-    "ignore",
-    message="Detected blocking call to load_verify_locations",
-    module="httpx._config",
-)
 
 
 def time_elapsed_in_seconds():
@@ -99,6 +94,82 @@ def time_elapsed_in_seconds():
 class MessageForQueue:
     command: str
     flag: bool
+
+
+@dataclass
+class SecuredCommand:
+    """Parameters of a secured state change.
+
+    API-15: queue *parameters*, never un-awaited coroutines (the salt they
+    depend on only exists once the next ``getvisusalt`` response lands, so
+    capturing closure state at send time was broken anyway). The queue is
+    an unbounded ``deque`` and is cleared in ``close()``.
+    """
+
+    device_uuid: str
+    value: Union[str, int, float]
+    code: str
+
+
+def percent_encode_credential(value: str) -> str:
+    """Percent-encode a credential for use inside a protocol command (API-12).
+
+    VERIFY: the Miniserver is assumed to expect *UTF-8* percent-encoding
+    (e.g. ``"Ége" -> "%C3%89ge"``). Loxone's community knowledge points at
+    latin-1 for command strings instead; confirm against a live Miniserver
+    with non-ASCII credentials before relying on this (the helper is the
+    single place to switch to ``value.encode("latin-1")`` if needed).
+    """
+    return urllib.parse.quote(value, safe="")
+
+
+def parse_loxone_url(url: str) -> tuple[str, str, int, str]:
+    """Decompose a full Miniserver URL into ``(scheme, hostname, port, path)``.
+
+    ``scheme`` defaults to ``http`` when the URL carries none, and ``port``
+    is always concrete (80/443 applied for the scheme's default). This is
+    the single source of URL-building logic (API-11) and is covered by the
+    URL table in ``tests/test_connection_unit.py`` — including the Cloud-DNS
+    redirect case where the scheme itself changes.
+    """
+    if "://" not in url:
+        # scheme-less host[:port] (the constructor accepts those too)
+        url = f"//{url}"
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname or " " in hostname:
+        raise ValueError(f"Cannot parse hostname from '{url}'")
+    scheme = parsed.scheme if parsed.scheme in ("http", "https") else "http"
+    port = parsed.port or (443 if scheme == "https" else 80)
+    return scheme, hostname, port, parsed.path or ""
+
+
+def build_loxone_url(scheme: str, hostname: str, port: int, path: str = "") -> str:
+    """Build the scheme-less base address ``host[:port][/path]``.
+
+    Mirrors the construction in ``LoxoneBaseConnection.__init__``: the
+    scheme's default port is omitted (``192.168.1.5`` for http, not
+    ``192.168.1.5:80``).
+    """
+    default_port = 443 if scheme == "https" else 80
+    hostpart = f"{hostname}:{port}" if port and port != default_port else hostname
+    if path:
+        path = path.rstrip("/")
+    return f"{hostpart}{path}"
+
+
+# Binary-header types whose message is followed by a body. OUT_OF_SERVICE
+# (5) and KEEPALIVE (6) headers stand alone, and non-0x03 headers never
+# carry one (message.py pins their payload length to 0). (API-18)
+_BODY_CARRIERS = frozenset(
+    {
+        MessageType.TEXT,
+        MessageType.VALUE_STATES,
+        MessageType.TEXT_STATES,
+        MessageType.DAYTIMER_STATES,
+        MessageType.WEATHER_STATES,
+    }
+)
 
 
 class LoxoneBaseConnection:
@@ -115,7 +186,12 @@ class LoxoneBaseConnection:
         port: int = 8080,
         timeout: Optional[float] = None,
         verify_ssl: bool = True,
+        executor: Optional[Callable[..., Any]] = None,
     ):
+        # ``executor`` (API-19) runs a function with arguments off the event
+        # loop and returns its result — e.g. ``hass.async_add_executor_job``
+        # in HA, where parsing the multi-megabyte LoxAPP3.json in-loop used
+        # to stall the heartbeat.
         # Validate input parameters
         if not host or not isinstance(host, str):
             raise ValueError("Host must be a non-empty string")
@@ -132,12 +208,18 @@ class LoxoneBaseConnection:
 
         self.host = host
         self.username = username
+        # API-12: protocol-URL parts must be percent-encoded (see VERIFY note
+        # on percent_encode_credential). Kept raw for credential *hashing*
+        # (which is not a URL), and encoded for embedding in commands.
+        self._encoded_username = percent_encode_credential(username)
         self.password = password
         self.token = token
         self.port = port
         self.timeout = None if timeout == 0 else timeout
         self.verify_ssl = verify_ssl
         self.connection: wslib.ClientConnection | None = None
+        self._session: aiohttp.ClientSession | None = None
+        self._executor = executor
         self._pending_task = []
         self._closed = False
         self._key_update_event: Optional[asyncio.Event] = None
@@ -174,7 +256,11 @@ class LoxoneBaseConnection:
             raise RuntimeError(f"Failed to generate cryptographic keys: {e}") from e
 
         self._public_key: str = ""
-        self._session_key: bytes
+        # API-24: the annotation was never initialised, so the
+        # ``if not self._session_key`` guard in start_listening raised
+        # AttributeError instead of the intended RuntimeError when reached
+        # before open().
+        self._session_key: bytes | None = None
 
         self.miniserver_version: list[int] = []
         self.miniserver_serial: str = ""
@@ -217,10 +303,29 @@ class LoxoneBaseConnection:
         self._salt: str = ""
         self._salt_used_count: int = 0
         self._visual_hash = None
-        # Replace synchronous Queue with asyncio.Queue with bounded size
+        # Bounded queue for plain protocol commands: the websocket is a
+        # single in-order writer, and a full queue must fail loudly.
         self._message_queue: asyncio.Queue[MessageForQueue] = asyncio.Queue(maxsize=1000)
-        self._secured_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+        # API-15: unbounded deque of SecuredCommand parameters, drained (and
+        # re-hashed with the fresh salt) by the getvisusalt handler, cleared
+        # on close().
+        self._secured_queue: deque[SecuredCommand] = deque()
         self.message_header = None
+
+    def _apply_url(self, url: str) -> None:
+        """Adopt scheme/host/port from a full URL (API-11).
+
+        The Loxone Cloud-DNS redirect can change the *scheme* as well as the
+        host (a ``http://<miniserver>`` address redirects to
+        ``https://xxx.loxone.com``); the websocket (``wss://``/non-default
+        port) and the http client both key off ``self.scheme``/``self.url``,
+        so all three must be taken from the redirect target at once.
+        """
+        scheme, hostname, port, path = parse_loxone_url(url)
+        self.scheme = scheme
+        self.host = hostname
+        self.port = port
+        self.url = build_loxone_url(scheme, hostname, port, path)
 
     def _websocket_ssl_context(self) -> ssl.SSLContext | None:
         """Return an unverified TLS context when explicitly configured."""
@@ -260,8 +365,8 @@ class LoxoneBaseConnection:
         except Exception as e:
             _LOGGER.error(f"Failed to reset token: {e}")
 
-    async def _send_text_command(self, command: str = "", encrypted: bool = False) -> TextMessage:
-        """Send a (text) command to the Miniserver, and return the response.
+    async def _send_text_command(self, command: str = "", encrypted: bool = False) -> None:
+        """Send a (text) command to the Miniserver.
 
         If encrypted=True, the message will be encrypted, and will be sent using
         Loxone's 'jdev/sys/enc' command. We do not handle 'jdev/sys/fenc'
@@ -270,8 +375,18 @@ class LoxoneBaseConnection:
         Miniserver gen 2 uses TLS, so most commands do not need encrypting. But
         some commands (to do with tokens) still seem to need it.
 
+        Security note (API-25): the AES-CBC fixed IV and AES-256 key are
+        established once per session by the RSA / key-exchange dance in
+        open(); this is protocol-mandated and must not be "improved" into
+        random-IV CBC without breaking the miniserver. The salt rotation
+        thresholds (SALT_MAX_USE_COUNT / SALT_MAX_AGE_SECONDS) are the
+        mitigation against IV reuse.
+
+        Raises LoxoneConnectionClosedOk when the websocket is not open
+        (API-04: the old code only *warned* here and then kept on, crashing
+        on ``self.connection.send`` with AttributeError).
         """
-        _LOGGER.debug(f"Send text command: {command}")
+        _LOGGER.debug("Send text command: %s", command)
         if encrypted:
             if self._new_salt_needed():
                 old_salt = self._salt
@@ -286,16 +401,17 @@ class LoxoneBaseConnection:
             cipher = b64encode(aes_cipher.encrypt(padded_bytes))
             enc_cipher = urllib.parse.quote(cipher.decode())
             command = f"jdev/sys/enc/{enc_cipher}"
+        if self.connection is None or not self.is_connected:
+            raise LoxoneConnectionClosedOk("Cannot send command - connection is not open")
         try:
-            # Check if connection is open before sending
-            if not self.connection or not self.is_connected:
-                _LOGGER.warning("Cannot send command - connection is not open")
-            await self.connection.send([command])
+            # A plain str goes out as a single frame; a list would trigger
+            # websockets fragmentation (API-10).
+            await self.connection.send(command)
         except websockets.ConnectionClosedOK as e:
             raise LoxoneConnectionClosedOk("Connection closed normally while sending command") from e
         except Exception as e:
             _LOGGER.error("Error while sending command: %s", e)
-            raise e
+            raise
 
     def _decrypt(self, command: str) -> bytes:
         """AES decrypt a command returned by the miniserver."""
@@ -342,9 +458,9 @@ class LoxoneBaseConnection:
                 raise RuntimeError("Failed to hash token")
 
             if self.miniserver_version < [10, 2]:
-                command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self.username}"
+                command = f"{CMD_REFRESH_TOKEN}{token_hash}/{self._encoded_username}"
             else:
-                command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self.username}"
+                command = f"{CMD_REFRESH_TOKEN_JSON_WEB}{token_hash}/{self._encoded_username}"
 
             try:
                 await self._message_queue.put(MessageForQueue(command, True))
@@ -392,8 +508,21 @@ class LoxoneBaseConnection:
             _LOGGER.error(f"Token hashing error: {e}")
             return None
 
-    async def _send_secure(self, device_uuid, value, code):
-        pwd_hash_str = code + ":" + self._visual_hash.salt
+    def _secured_command_text(self, secured: SecuredCommand) -> str | None:
+        """Compute the ``jdev/sps/ios/...`` command text for a secured change.
+
+        Called from the getvisusalt handler, by which time the visual key/salt
+        are known. Returns ``None`` (and logs) when the visual hash is missing
+        or unusable (API-15: the old code dereferenced
+        ``self._visual_hash.salt`` without a None guard).
+        """
+        if self._visual_hash is None or not self._visual_hash.key or not self._visual_hash.salt:
+            _LOGGER.warning(
+                "Cannot send secured command for %s: visual salt not available, dropping it",
+                secured.device_uuid,
+            )
+            return None
+        pwd_hash_str = f"{secured.code}:{self._visual_hash.salt}"
         if self._visual_hash.hash_alg == "SHA1":
             m = hashlib.sha1()
             hash_module = SHA1
@@ -401,23 +530,21 @@ class LoxoneBaseConnection:
             m = hashlib.sha256()
             hash_module = SHA256
         else:
-            _LOGGER.error("Unrecognised hash algorithm: {}".format(self._visual_hash.hash_alg))
+            _LOGGER.error("Unrecognised hash algorithm: %s", self._visual_hash.hash_alg)
             return None
 
         m.update(pwd_hash_str.encode("utf-8"))
         pwd_hash = m.hexdigest().upper()
 
-        digester = HMAC.new(bytes.fromhex(self._visual_hash.key), pwd_hash.encode("utf-8"), hash_module)
-        new_hash = digester.hexdigest()
-        # Ensure value is string when formatting command
-        command = "jdev/sps/ios/{}/{}/{}".format(new_hash, device_uuid, str(value))
-        # Fix: Use await with put() and timeout for critical secure commands
         try:
-            await self._message_queue.put(MessageForQueue(command, True))
-        except asyncio.TimeoutError:
-            _LOGGER.error(f"Timeout queueing secure command for {device_uuid}")
-            raise
-        return None
+            key_bytes = bytes.fromhex(self._visual_hash.key)
+        except ValueError:
+            _LOGGER.error("Visual salt key is not valid hex, dropping secured command for %s", secured.device_uuid)
+            return None
+
+        digester = HMAC.new(key_bytes, pwd_hash.encode("utf-8"), hash_module)
+        new_hash = digester.hexdigest()
+        return f"jdev/sps/ios/{new_hash}/{secured.device_uuid}/{secured.value}"
 
     def _hash_credentials(self):
         try:
@@ -462,10 +589,14 @@ class LoxoneConnection(LoxoneBaseConnection):
     async def start_listening(self, callback: Optional[Callable[[str, Any], Optional[Awaitable[None]]]] = None) -> None:
         """Open, and start listening."""
 
-        if not self.connection:
+        # API-01: open() stores the websocket on self.connection (and the
+        # session that created it), so the coordinator's open() and this
+        # method share exactly one socket. The fallback re-open only runs
+        # for standalone users of the library who call start_listening
+        # before open().
+        if self.connection is None:
             _LOGGER.debug("No existing connection found. Opening a new connection.")
-            self.connection = await self.open()
-            # raise exceptions.ConnectionFailure("Connection already exists")
+            await self.open(self._session)
         else:
             _LOGGER.debug("Using existing connection.")
 
@@ -728,52 +859,100 @@ class LoxoneConnection(LoxoneBaseConnection):
             MessageType.KEEPALIVE,
         }
 
-        last_header = None
+        last_header: Optional[MessageHeader] = None
 
-        async def _run_callback(msg):
+        async def _run_callback(msg) -> None:
+            if callback is None:
+                return
             try:
                 await callback(msg.as_dict())
             except Exception as e:
-                _LOGGER.error(f"Callback error: {e}", exc_info=True)
+                _LOGGER.error("Callback error: %s", e, exc_info=True)
 
         try:
+            # Strict header→body sequencing (API-18), ported from the
+            # removed ``LoxoneClientConnection.recv_message`` which knew
+            # the wire format:
+            #
+            # * a frame received while no body is pending is a binary 8-byte
+            #   MessageHeader — decided by *state*, not by length, so an
+            #   8-byte body is no longer misread as a header;
+            # * the out-of-service and keepalive headers stand alone (no
+            #   body); the keepalive is handled inline;
+            # * an Estimated-Header (cInfo bit set) is always followed by
+            #   an exact header carrying the real length (Loxone docs), so
+            #   the first 8-byte frame after an estimated header IS that
+            #   exact header — even when a real body frame is 8 bytes long;
+            # * body frames are concatenated until payload_length bytes
+            #   have been received.
+            body = bytearray()
+
             async for message in connection:
                 if not connection or connection.state == connection.state.CLOSED:
                     raise LoxoneConnectionError("Connection is closed")
 
-                # Optimization: Removed print(message) - this was the major bottleneck
-                message_length = len(message)
-
-                if message_length == 8:
+                if last_header is None:
+                    if not isinstance(message, (bytes, bytearray)) or len(message) != 8:
+                        _LOGGER.error("Message not handled: %r", message)
+                        continue
                     last_header = parse_header(message)
-                    # Optimization: Check for Out of Service immediately
                     if last_header.message_type == MessageType.OUT_OF_SERVICE:
                         raise LoxoneOutOfServiceException
                     if last_header.message_type == MessageType.KEEPALIVE:
-                        asyncio.create_task(  # noqa: RUF006  # TODO(WP-2.2): store/cancel task
-                            _run_callback(Keepalive(""))
-                        )
+                        # A keepalive header stands alone, no body follows
+                        last_header = None
+                        await _run_callback(Keepalive(""))
+                        continue
+                    if last_header.message_type not in _BODY_CARRIERS:
+                        _LOGGER.debug("Header without body: %s", last_header.message_type.name)
+                        last_header = None
+                        continue
+                    continue
 
-                elif last_header and last_header.payload_length == message_length:
-                    msg_type = last_header.message_type
+                if last_header.estimated and not body and len(message) == 8 and isinstance(message, (bytes, bytearray)):
+                    # The frame that follows an estimated header is always
+                    # the exact header with the real payload length.
+                    last_header = parse_header(message)
+                    if last_header.message_type == MessageType.OUT_OF_SERVICE:
+                        raise LoxoneOutOfServiceException
+                    if last_header.message_type not in _BODY_CARRIERS:
+                        last_header = None
+                    continue
 
-                    if msg_type == MessageType.TEXT:
-                        message = check_and_decode_if_needed(message)
+                if not isinstance(message, (bytes, bytearray)):
+                    # Binary bodies are the only kind the miniserver sends;
+                    # reset the stream so a later header can resync.
+                    _LOGGER.error("Message not handled: %r", message)
+                    last_header = None
+                    continue
 
-                    parsed_message = parse_message(message, msg_type)
-
-                    # Fire internal event processing
-                    asyncio.create_task(  # noqa: RUF006  # TODO(WP-2.2): store/cancel task
-                        self._websocket_event(parsed_message)
+                body.extend(message)
+                if len(body) < last_header.payload_length:
+                    continue
+                msg_type = last_header.message_type
+                expected = last_header.payload_length
+                frame = bytes(body[:expected])
+                if len(body) > expected:
+                    _LOGGER.error(
+                        "Frame for message type %s is %d bytes, header expected %d - dropping %d trailing byte(s)",
+                        msg_type,
+                        len(body),
+                        expected,
+                        len(body) - expected,
                     )
+                body.clear()
+                last_header = None
+                if msg_type == MessageType.TEXT:
+                    frame = check_and_decode_if_needed(frame)
+                parsed_message = parse_message(frame, msg_type)
+                _LOGGER.debug("Parsing message type %s (%d bytes)", msg_type, expected)
 
-                    # Fire external callback if type matches
-                    if callback and msg_type in callback_types:
-                        asyncio.create_task(  # noqa: RUF006  # TODO(WP-2.2): store/cancel task
-                            _run_callback(parsed_message)
-                        )
-                else:
-                    _LOGGER.error(f"Message not handled: {message}")
+                # API-26: handle the message inline instead of spawning one
+                # untracked create_task per message — bursts no longer risk
+                # losing the auth responses, and stream order is preserved.
+                await self._websocket_event(parsed_message)
+                if callback and msg_type in callback_types:
+                    await _run_callback(parsed_message)
         except asyncio.CancelledError:
             _LOGGER.debug("Listening task cancelled")
             raise
@@ -788,6 +967,19 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         if self._closed:
             raise RuntimeError("Cannot open a closed connection")
+
+        # API-01: remember the session used for this connection so open()
+        # and close() agree on who owns the aiohttp session.
+        self._session = session
+
+        async def _load_json(data) -> Any:
+            """JSON parse that keeps LoxAPP3.json off the event loop (API-19)."""
+            if self._executor is not None:
+                result = self._executor(json.loads, data)
+                if inspect.isawaitable(result):
+                    return await result
+                return result
+            return json.loads(data)
 
         connector = None
         try:
@@ -818,13 +1010,16 @@ class LoxoneConnection(LoxoneBaseConnection):
                     else:
                         _LOGGER.exception("Max connection tries exceeded. Stopping.")
                         raise
-            try:
-                if api_resp:
-                    data = await asyncio.wait_for(api_resp.content.read(), timeout=self.timeout or TIMEOUT)
-            except asyncio.TimeoutError as e:
-                raise TimeoutError("Timeout reading API key response") from e
-            except Exception as e:
-                raise RuntimeError(f"Failed to read API key response: {e}") from e
+
+            # Every early exit above re-raises, so a non-None response is
+            # guaranteed here (API-20: make that explicit).
+            if api_resp is None:
+                raise RuntimeError("API key request did not complete")
+
+            # API-20: always release the response (an early raise used to
+            # leak it, pinning a connection in HA's shared aiohttp session).
+            async with api_resp:
+                data = await api_resp.content.read()
 
             try:
                 _value = LLResponse(data).value
@@ -860,8 +1055,13 @@ class LoxoneConnection(LoxoneBaseConnection):
 
             if not local:
                 try:
-                    connector.base_url = str(api_resp.url).replace(CMD_GET_API_KEY, "")
-                    self.url = connector.base_url.replace("https://", "").replace("http://", "")
+                    # API-11: the Cloud-DNS redirect changes the SCHEME too
+                    # (an http://miniserver address redirects to
+                    # https://xxx.loxone.com); scheme/host/port must all come
+                    # from the redirect target, or the websocket would be
+                    # dialed ws://-style against an https endpoint.
+                    self._apply_url(str(api_resp.url).replace(CMD_GET_API_KEY, ""))
+                    connector.base_url = f"{self.scheme}://{self.url}"
                 except Exception as e:
                     _LOGGER.warning(f"Failed to update URL for remote access: {e}")
 
@@ -872,21 +1072,21 @@ class LoxoneConnection(LoxoneBaseConnection):
                 _LOGGER.error(f"Failed to get structure file: {e}", exc_info=True)
                 raise
 
-            if lox_app_data.status != 200:
-                raise RuntimeError(f"Failed to get structure file, status: {lox_app_data.status}")
+            # API-20: read inside async with so a non-200 release does not
+            # leak (it used to raise before the response was released).
+            async with lox_app_data:
+                if lox_app_data.status != 200:
+                    raise RuntimeError(f"Failed to get structure file, status: {lox_app_data.status}")
+                data = await lox_app_data.content.read()
 
             try:
-                data = await asyncio.wait_for(lox_app_data.content.read(), timeout=self.timeout or TIMEOUT)
-                self.structure_file = json.loads(data)
-                self.structure_file["softwareVersion"] = (
-                    self.miniserver_version
-                )  # FIXME Legacy use only. Need to fix pyloxone
-            except asyncio.TimeoutError as e:
-                raise TimeoutError("Timeout reading structure file") from e
+                # Can be several megabytes — never parse it in the event loop.
+                self.structure_file = await _load_json(data)
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON in structure file: {e}") from e
-            except Exception as e:
-                raise RuntimeError(f"Failed to read structure file: {e}") from e
+            self.structure_file["softwareVersion"] = (
+                self.miniserver_version
+            )  # FIXME Legacy use only. Need to fix pyloxone
 
             # Get the public key
             try:
@@ -894,12 +1094,8 @@ class LoxoneConnection(LoxoneBaseConnection):
             except Exception as e:
                 raise RuntimeError(f"Failed to get public key: {e}") from e
 
-            try:
-                pk_data_text = await asyncio.wait_for(pk_data.content.read(), timeout=self.timeout or TIMEOUT)
-            except asyncio.TimeoutError as e:
-                raise TimeoutError("Timeout reading public key") from e
-            except Exception as e:
-                raise RuntimeError(f"Failed to read public key: {e}") from e
+            async with pk_data:
+                pk_data_text = await pk_data.content.read()
 
             try:
                 pk = LLResponse(pk_data_text).value
@@ -919,8 +1115,10 @@ class LoxoneConnection(LoxoneBaseConnection):
             _LOGGER.error(f"Failed to initialize connection: {e}", exc_info=True)
             raise
         finally:
-            # Async httpx client must always be closed
-            if session is None and connector:
+            # The aiohttp session is ours only if we had to create it
+            # ourselves (API-20: "Async httpx" is a stale comment;
+            # this is plain aiohttp).
+            if self._session is None and connector:
                 try:
                     await connector.session.close()
                 except Exception as e:
@@ -1005,7 +1203,13 @@ class LoxoneConnection(LoxoneBaseConnection):
             except Exception as e:
                 raise RuntimeError(f"Unexpected error connecting to websocket: {e}") from e
 
-            _LOGGER.debug(f"Websocket connection established to {base_url}")
+            # API-01: store the open websocket so start_listening (and any
+            # later re-entering caller) reuses it instead of dialling a
+            # second socket per setup — each setup used to open *two*
+            # websockets and leak one (Miniserver cap: error 901).
+            self.connection = connection
+
+            _LOGGER.debug("Websocket connection established to %s", base_url)
             return connection
 
         except Exception as e:
@@ -1020,6 +1224,10 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         _LOGGER.debug("Closing connection...")
         self._closed = True
+
+        # API-15: secured commands queued before the salt was known must not
+        # survive a close (stale visual salt => dropped after reconnect).
+        self._secured_queue.clear()
 
         # Signal shutdown to all tasks
         self._shutdown_event.set()
@@ -1098,7 +1306,14 @@ class LoxoneConnection(LoxoneBaseConnection):
             _LOGGER.error(f"Failed to send websocket command: {e}")
             raise
 
-    async def send_secured__websocket_command(self, device_uuid: str, value: Union[str, int, float], code: str):
+    async def send_secured_websocket_command(self, device_uuid: str, value: Union[str, int, float], code: str):
+        """Queue a secured state change (API-24 renamed from
+        ``send_secured__websocket_command``).
+
+        The visual salt the HMAC needs is fetched in-flight (``getvisusalt``);
+        the parameters are appended to an unbounded ``deque`` and hashed as
+        soon as the salt arrives in ``_websocket_event`` (API-15).
+        """
         if not device_uuid or not isinstance(device_uuid, str):
             raise ValueError("device_uuid must be a non-empty string")
         if value is None or not isinstance(value, (str, int, float)):
@@ -1107,19 +1322,26 @@ class LoxoneConnection(LoxoneBaseConnection):
             raise ValueError("code must be a non-empty string")
 
         try:
-            command = f"{CMD_GET_VISUAL_PASSWD}{self.username}"
-            _LOGGER.debug(f"Call send_secured__websocket_command: {command}")
+            command = f"{CMD_GET_VISUAL_PASSWD}{self._encoded_username}"
+            _LOGGER.debug("Call send_secured_websocket_command: %s", command)
 
-            try:
-                # Use put_nowait with QueueFull exception handling
-                self._secured_queue.put_nowait(self._send_secure(device_uuid, value, code))
-                self._message_queue.put_nowait(MessageForQueue(command=command, flag=True))
-            except asyncio.QueueFull as e:
-                _LOGGER.error("Queue is full, dropping secured command")
-                raise RuntimeError("Queue is full, cannot send secured command") from e
+            # Deque of plain parameters (never un-awaited coroutines), and
+            # the salt request goes through the bounded single-writer queue.
+            self._secured_queue.append(SecuredCommand(device_uuid=device_uuid, value=value, code=code))
+            self._message_queue.put_nowait(MessageForQueue(command=command, flag=True))
+        except asyncio.QueueFull as e:
+            _LOGGER.error("Message queue is full, dropping secured command")
+            raise RuntimeError("Message queue is full, cannot send secured command") from e
         except Exception as e:
             _LOGGER.error(f"Failed to send secured websocket command: {e}")
             raise
+
+    async def send_secured__websocket_command(self, device_uuid: str, value: Union[str, int, float], code: str) -> None:
+        """DEPRECATED alias of :meth:`send_secured_websocket_command` (API-24).
+        Kept so callers outside this package's file set keep working; will be
+        removed once all callers have been updated."""
+        _LOGGER.warning("send_secured__websocket_command is deprecated; call send_secured_websocket_command instead")
+        await self.send_secured_websocket_command(device_uuid, value, code)
 
     async def _websocket_event(self, message: dict[str, Any] | BaseMessage) -> None:
         """Handle websocket event."""
@@ -1168,10 +1390,10 @@ class LoxoneConnection(LoxoneBaseConnection):
             # Handle key exchange
             if isinstance(mess_obj, TextMessage) and "keyexchange" in mess_obj.message:
                 _LOGGER.debug("Key exchange with miniserver...")
-                command = f"{CMD_GET_KEY_AND_SALT}/{self.username}"
+                command = f"{CMD_GET_KEY_AND_SALT}/{self._encoded_username}"
                 try:
                     # Use put() for critical protocol messages
-                    (await self._message_queue.put(MessageForQueue(command, True)),)
+                    await self._message_queue.put(MessageForQueue(command, True))
                 except asyncio.TimeoutError:
                     _LOGGER.error("Timeout queueing key exchange command")
 
@@ -1185,6 +1407,9 @@ class LoxoneConnection(LoxoneBaseConnection):
 
                     self._key = value_dict.get("key", "")
                     self._user_salt = value_dict.get("salt", "")
+                    # API-25: the miniserver pre-dates this field and omits
+                    # hashAlg on some builds (#498); defaulting to SHA1 is the
+                    # protocol-correct fallback and is regression-tested.
                     self._hash_alg = value_dict.get("hashAlg", "SHA1")
 
                     if not self._key:
@@ -1197,7 +1422,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                         token_hash = self._hash_token()
                         if token_hash is None:
                             raise RuntimeError("Failed to hash token")
-                        command = "{}{}/{}".format(CMD_AUTH_WITH_TOKEN, token_hash, self.username)
+                        command = "{}{}/{}".format(CMD_AUTH_WITH_TOKEN, token_hash, self._encoded_username)
                         await self._message_queue.put(MessageForQueue(command, True))
                     else:
                         _LOGGER.debug("Acquire new token...")
@@ -1207,9 +1432,9 @@ class LoxoneConnection(LoxoneBaseConnection):
 
                         # Request new Token
                         if self.miniserver_version < [10, 2]:
-                            command = f"{CMD_REQUEST_TOKEN}/{new_hash}/{self.username}/{TOKEN_PERMISSION}/edfc5f9a-df3f-4cad-9dddcdc42c732b82/pyloxone_api"
+                            command = f"{CMD_REQUEST_TOKEN}/{new_hash}/{self._encoded_username}/{TOKEN_PERMISSION}/edfc5f9a-df3f-4cad-9dddcdc42c732b82/pyloxone_api"
                         else:
-                            command = f"{CMD_REQUEST_TOKEN_JSON_WEB}/{new_hash}/{self.username}/{TOKEN_PERMISSION}/edfc5f9a-df3f-4cad-9dddcdc42c732b82/pyloxone_api"
+                            command = f"{CMD_REQUEST_TOKEN_JSON_WEB}/{new_hash}/{self._encoded_username}/{TOKEN_PERMISSION}/edfc5f9a-df3f-4cad-9dddcdc42c732b82/pyloxone_api"
                         await self._message_queue.put(MessageForQueue(command, True))
 
                 except KeyError as e:
@@ -1240,23 +1465,25 @@ class LoxoneConnection(LoxoneBaseConnection):
                     value_dict = mess_obj.value_as_dict
                     if not isinstance(value_dict, dict):
                         raise ValueError("value_as_dict is not a dictionary")
-                    self._key = value_dict.get("value", "")
+                    # API-07: do NOT overwrite self._key here. That field
+                    # holds the *token* HMAC key (hex); the visual-salt
+                    # response carries a different, non-hex key, and the old
+                    # assignment made every later _hash_token() fail with
+                    # bytes.fromhex ValueError, silently breaking token
+                    # refresh. The visual key lives in self._visual_hash.
 
                     key_and_salt = LxJsonKeySalt()
                     key_and_salt.read_user_salt_response(mess_obj.message)
                     key_and_salt.time_elapsed_in_seconds = time_elapsed_in_seconds()
                     self._visual_hash = key_and_salt
 
-                    while not self._secured_queue.empty():
-                        try:
-                            awaitable = self._secured_queue.get_nowait()
-                            if awaitable:
-                                await awaitable
-                            self._secured_queue.task_done()
-                        except asyncio.QueueEmpty:
-                            break
-                        except Exception as e:
-                            _LOGGER.error(f"Error processing secured queue item: {e}")
+                    # API-15: drain the parameter deque now that the salt is
+                    # known and hash each queued secured command.
+                    while self._secured_queue:
+                        secured = self._secured_queue.popleft()
+                        command = self._secured_command_text(secured)
+                        if command is not None:
+                            await self._message_queue.put(MessageForQueue(command, True))
 
                 except Exception as e:
                     _LOGGER.error(f"Error processing visual salt: {e}")

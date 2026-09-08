@@ -57,19 +57,12 @@ def test_message_header_unknown_bin_type() -> None:
     assert mh.message_type == MessageType.UNKNOWN
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "API-18: MessageHeader on a non-0x03 frame leaves payload_length unset, "
-        "so later access raises AttributeError in the listener. Always set "
-        "payload_length=0 / estimated=False in the UNKNOWN branch."
-    ),
-)
 def test_message_header_unknown_also_exposes_payload_length() -> None:
     header = b"\x07" + b"\x00" * 7
     mh = MessageHeader(header)
     assert mh.message_type == MessageType.UNKNOWN
-    # Fails today: the UNKNOWN branch does not set payload_length.
+    # WP-0.2 pinned this as xfail; WP-2.1 made the UNKNOWN branch always set
+    # payload_length, so the pin is now flipped (see the test matrix above).
     assert hasattr(mh, "payload_length")
 
 

@@ -5,131 +5,34 @@ For more details about this component, please refer to the documentation at
 https://github.com/JoDehli/pyloxone-api
 """
 
-import hashlib
 import json
 import logging
 import math
 import re
 import struct
-import time
 import uuid
 from enum import IntEnum
-from typing import Optional
 
 from .exceptions import LoxoneException
 
 _LOGGER = logging.getLogger(__name__)
 
-# small in-memory cache for expensive encoding detection results
-_encoding_cache: dict[str, Optional[str]] = {}
-_DETECT_SAMPLE_SIZE = 512  # sample length used for detection & caching
-_DETECT_MAX_BYTES = 4096  # only run heavy detection for messages <= this size
-
-
-class AsyncTimer:
-    def __init__(self, label: str, logger: logging.Logger = _LOGGER):
-        self.label = label
-        self.logger = logger
-
-    async def __aenter__(self):
-        self._start = time.perf_counter()
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        elapsed = time.perf_counter() - self._start
-        self.logger.debug("%s took %.6f s", self.label, elapsed)
-
-
-class SyncTimer:
-    def __init__(self, label: str, logger: logging.Logger = _LOGGER):
-        self.label = label
-        self.logger = logger
-
-    def __enter__(self):
-        self._start = time.perf_counter()
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        elapsed = time.perf_counter() - self._start
-        self.logger.debug("%s took %.6f s", self.label, elapsed)
-
-
-def detect_encoding(byte_string):
-    encodings = [
-        "utf-8",
-        "iso-8859-1",
-        "ascii",
-        "utf-16",
-        "utf-32",
-        "latin-1",
-        "cp1252",
-        "mac-roman",
-        "big5",
-        "shift_jis",
-        "euc-jp",
-        "gb2312",
-    ]
-
-    for encoding in encodings:
-        try:
-            byte_string.decode(encoding)
-            return encoding
-        except UnicodeDecodeError, AttributeError:
-            continue
-    return None
-
 
 def check_and_decode_if_needed(message):
+    """Decode a bytes frame to str: utf-8 with a latin-1 fallback.
+
+    latin-1 never fails (every byte maps to a code point), so it is a safe
+    last resort for the single-byte frames the Miniserver occasionally sends
+    for non-UTF8 text states.
+    """
     if isinstance(message, str):
         return message
 
-    # ensure we handle bytearray too
     b: bytes = bytes(message)
-
-    # fast happy-path: utf-8 works for most messages
     try:
         return b.decode("utf-8")
     except UnicodeDecodeError:
-        pass
-
-    # if ascii, decode cheaply (shouldn't usually get here)
-    if getattr(b, "isascii", lambda: False)():
-        return b.decode("ascii", errors="replace")
-
-    # try a few common single-byte encodings (cheap)
-    for enc in ("latin-1", "cp1252", "iso-8859-15"):
-        try:
-            return b.decode(enc)
-        except UnicodeDecodeError:
-            continue
-        except Exception:
-            # defensive: skip any unexpected errors from decoder
-            continue
-
-    # heavy detection: only for small messages, with a cache keyed on sample hash
-    if len(b) <= _DETECT_MAX_BYTES:
-        sample = b[:_DETECT_SAMPLE_SIZE]
-        key = hashlib.sha256(sample).hexdigest()
-        enc = _encoding_cache.get(key)
-        if enc is None and "detect_encoding" in globals():
-            try:
-                enc = detect_encoding(sample)  # may be expensive
-            except Exception:
-                enc = None
-            _encoding_cache[key] = enc  # cache even None to avoid repeated work
-
-        if enc:
-            try:
-                return b.decode(enc)
-            except Exception:
-                pass
-
-    # last resort: replace invalid characters (fast and safe)
-    _LOGGER.info(
-        "Decoding problem for message (len=%d). Falling back to replace invalid chars.",
-        len(b),
-    )
-    return b.decode("utf-8", errors="replace")
+        return b.decode("latin-1")
 
 
 class MessageType(IntEnum):
@@ -195,6 +98,11 @@ class MessageHeader:
         self.header = header
         if not header[0] == 3:
             self.message_type = MessageType.UNKNOWN
+            # Even for a non-0x03 frame the attributes must exist so that the
+            # listener can reason about them uniformly (API-18: leaving them
+            # unset raised AttributeError on the next body read).
+            self.estimated = False
+            self.payload_length = 0
         else:
             try:
                 unpacked_data = struct.unpack("<cBccI", header)
@@ -267,15 +175,27 @@ class ValueStatesTable(BaseMessage):
     def as_dict(self):
         event_dict = {}
         length = len(self.message)
-        num = length / 24
+        # Each record is exactly 24 bytes; a non-multiple means the frame is
+        # truncated and the trailing partial record must not be unpacked
+        # silently (API-21).
+        num, remainder = divmod(length, 24)
+        if remainder:
+            _LOGGER.warning(
+                "Value states frame is %d byte(s) longer than a whole number of "
+                "24-byte records (length %d); ignoring the trailing partial record.",
+                remainder,
+                length,
+            )
         start = 0
         end = 24
-        for _ in range(int(num)):
+        for _ in range(num):
             packet = self.message[start:end]
             event_uuid = uuid.UUID(bytes_le=packet[0:16])
             fields = event_uuid.urn.replace("urn:uuid:", "").split("-")
             uuidstr = f"{fields[0]}-{fields[1]}-{fields[2]}-{fields[3]}{fields[4]}"
-            value = struct.unpack("d", packet[16:24])[0]
+            # The wire format is little-endian, so pin the byte order "<d"
+            # instead of relying on the platform default (API-21).
+            value = struct.unpack("<d", packet[16:24])[0]
             event_dict[uuidstr] = value
             start += 24
             end += 24
@@ -367,9 +287,17 @@ def parse_header(header: bytes) -> MessageHeader:
     return MessageHeader(header)
 
 
+# type -> class dispatch table, built once at import time (API-26: scanning
+# ``BaseMessage.__subclasses__()`` on every message was wasteful). Placed
+# after all the BaseMessage subclasses defined above.
+_MESSAGE_CLASSES: dict[MessageType, type[BaseMessage]] = {
+    klass.message_type: klass for klass in BaseMessage.__subclasses__()
+}
+
+
 def parse_message(message: bytes | str, message_type: int) -> BaseMessage:
     """Return an instance of the appropriate BaseMessage subclass"""
-    for klass in BaseMessage.__subclasses__():
-        if klass.message_type == message_type:
-            return klass(message)
-    raise LoxoneException(f"Unknown message type {message_type}")
+    klass = _MESSAGE_CLASSES.get(message_type)
+    if klass is None:
+        raise LoxoneException(f"Unknown message type {message_type}")
+    return klass(message)
