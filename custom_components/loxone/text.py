@@ -64,7 +64,7 @@ class LoxoneText(LoxoneEntity, TextEntity):
         self._state = STATE_UNKNOWN
         self._icon = None
         self._assumed = False
-        self._native_value = ""
+        self._native_value = None
 
         self.type = "TextInput"
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
@@ -89,12 +89,11 @@ class LoxoneText(LoxoneEntity, TextEntity):
             data = e.data[self.uuidAction]
             if isinstance(data, (list, dict)):
                 data = str(data)
-                if len(data) >= 255:
-                    self._state = data[:255]
-                else:
-                    self._state = data
+            if isinstance(data, str):
+                self._native_value = data[:255]
             else:
-                self._state = data
+                self._native_value = data
+            self._state = data
 
             self.schedule_update_ha_state()
 

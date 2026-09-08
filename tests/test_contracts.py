@@ -106,11 +106,6 @@ def _platform_values() -> set[str]:
 # --------------------------------------------------------------------------- #
 # 1.  Platform modules <-> LOXONE_PLATFORMS symmetry
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    strict=True,
-    reason="CORE-07: Platform.TEXT missing from LOXONE_PLATFORMS, so text.py is "
-    "dead code. Add Platform.TEXT before removing this xfail.",
-)
 def test_platforms_in_code_match_loxone_platforms():
     """Every module that defines async_setup_entry is in LOXONE_PLATFORMS and
     vice-versa."""

@@ -14,7 +14,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNKNOWN, EntityCategory
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -93,8 +93,7 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._attr_state = STATE_UNKNOWN
-        self._attr_is_on = STATE_UNKNOWN
+        self._attr_is_on = None
         self._icon = None
         self._delay_remain = 0.0
         self._delay_time_total = 0.0
@@ -189,8 +188,7 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._attr_state = STATE_UNKNOWN
-        self._attr_is_on = STATE_UNKNOWN
+        self._attr_is_on = None
 
         """Initialize the Loxone switch."""
         self._icon = None
