@@ -18,6 +18,7 @@ import copy
 from types import SimpleNamespace
 
 import pytest
+from homeassistant.helpers import entity_registry as er
 from homeassistant.components.cover import CoverDeviceClass
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ServiceValidationError
@@ -401,11 +402,29 @@ async def test_open_close_tilt_send_fixed_format_lamelle_commands(hass) -> None:
 # ===========================================================================
 
 
-def _cover_state_ids(hass) -> dict[str, str]:
+def _cover_state_ids(hass, loxapp3) -> dict[str, str]:
+    """Map Loxone control type -> entity_id, via the entity registry.
+
+    The state machine cannot be used for this. Once entity availability
+    follows the connection (CORE-28/API-09), a cover may still be
+    `unavailable` at assert time, and Home Assistant does not publish
+    extra_state_attributes for an unavailable entity -- so `device_type`
+    would be missing for reasons unrelated to what these tests check.
+    The registry records every entity that was created, regardless of state.
+    """
+    type_by_uuid = {
+        control["uuidAction"]: control["type"]
+        for control in loxapp3["controls"].values()
+        if control.get("type") in ("Gate", "Window", "Jalousie")
+    }
+    registry = er.async_get(hass)
     collected = {}
-    for st in hass.states.async_all():
-        if (dt := st.attributes.get("device_type")) in ("Gate", "Window", "Jalousie"):
-            collected[dt] = st.entity_id
+    for entry in registry.entities.values():
+        if entry.domain != "cover":
+            continue
+        control_type = type_by_uuid.get(entry.unique_id)
+        if control_type:
+            collected[control_type] = entry.entity_id
     return collected
 
 
@@ -420,7 +439,7 @@ async def test_window_without_target_position_sets_up_and_updates(hass, loxapp3,
     await hass.config_entries.async_setup(mock_entry.entry_id)
     assert hass.config_entries.async_get_entry(mock_entry.entry_id).state is ConfigEntryState.LOADED
 
-    ids = _cover_state_ids(hass)
+    ids = _cover_state_ids(hass, loxapp3)
     assert "Window" in ids, "no Window entity was set up"
 
     # Set up: without a `direction`/`targetPosition` state the Window used to
@@ -445,7 +464,7 @@ async def test_quick_shade_on_gate_raises_service_validation_error(hass, loxapp3
     await hass.config_entries.async_setup(mock_entry.entry_id)
     assert hass.config_entries.async_get_entry(mock_entry.entry_id).state is ConfigEntryState.LOADED
 
-    ids = _cover_state_ids(hass)
+    ids = _cover_state_ids(hass, loxapp3)
     assert set(ids) == {"Gate", "Window", "Jalousie"}
 
     for target, service in (
@@ -508,7 +527,7 @@ async def test_sun_automation_service_fires_auto_on_automatic_jalousie(
     await hass.services.async_call(
         "loxone",
         "enable_sun_automation",
-        {"entity_id": _cover_state_ids(hass)["Jalousie"]},
+        {"entity_id": _cover_state_ids(hass, loxapp3)["Jalousie"]},
         blocking=True,
     )
     await hass.async_block_till_done()

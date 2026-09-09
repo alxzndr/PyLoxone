@@ -11,6 +11,7 @@ directory, which would make `custom_components.loxone` un-importable in tests.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -110,6 +111,35 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
         self._authenticated_event.set()
         await session.wait()
 
+    async def _fake_run(self, on_state, callback=None):
+        # WP-2.3 moved the supervisor from start_listening() to run(on_state).
+        # Emulate it faithfully: a *loop* that brings a session up, announces
+        # the connection (entities are `unavailable` until this fires, and HA
+        # skips unavailable entities in entity-service dispatch), waits for the
+        # test to drop it, announces the drop, and reconnects -- exactly what
+        # API-09 does instead of reloading the config entry.
+        async def _signal(connected):
+            result = on_state(connected)
+            if inspect.isawaitable(result):
+                await result
+
+        try:
+            while True:
+                session = asyncio.Event()
+                namespace.current_session = session
+                self._authenticated_event.set()
+                await _signal(True)
+                await session.wait()
+                namespace.current_session = None
+                await _signal(False)
+                # The real supervisor backs off between attempts. Keep a short
+                # but observable down window here: without it the session is
+                # back before a test can see that it ever went away.
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            await _signal(False)
+            raise
+
     async def _fake_close(self, *args, **kwargs):
         self.connection = None
         return None
@@ -120,6 +150,7 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
     with (
         patch.object(LoxoneConnection, "open", new=_fake_open),
         patch.object(LoxoneConnection, "start_listening", new=_fake_listen),
+        patch.object(LoxoneConnection, "run", new=_fake_run),
         patch.object(LoxoneConnection, "close", new=_fake_close),
         patch.object(LoxoneConnection, "send_websocket_command", new=_fake_send),
     ):
