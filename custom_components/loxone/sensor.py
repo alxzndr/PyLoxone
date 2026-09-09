@@ -8,6 +8,7 @@ https://github.com/JoDehli/PyLoxone
 import json
 import logging
 import re
+from dataclasses import replace
 from functools import cached_property
 from typing import Any
 
@@ -26,7 +27,6 @@ from homeassistant.const import (
     CONF_DEVICE_CLASS,
     CONF_NAME,
     CONF_UNIT_OF_MEASUREMENT,
-    CONF_VALUE_TEMPLATE,
     LIGHT_LUX,
     PERCENTAGE,
     STATE_UNKNOWN,
@@ -46,8 +46,8 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from . import LoxoneEntity
-from .const import CLIMATE_EVENT, CONF_ACTIONID, DOMAIN, EVENT, SENDDOMAIN, THROTTLE_KEEP_ALIVE_TIME
-from .helpers import add_room_and_cat_to_value_values, clean_unit, get_all, get_or_create_device
+from .const import CLIMATE_EVENT, CONF_ACTIONID, DOMAIN, ERROR_VALUE, EVENT, SENDDOMAIN, THROTTLE_KEEP_ALIVE_TIME
+from .helpers import clean_unit, get_or_create_device, iter_controls
 from .miniserver import get_miniserver_from_hass
 
 NEW_SENSOR = "sensors"
@@ -66,18 +66,51 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     }
 )
 
-OVERRIDE_REASONS = {
-    0: "None",
-    1: "Presence",
-    2: "Window Open",
-    3: "Comfort Override",
-    4: "Eco Override",
-    5: "Eco+ Override",
-    6: "Prepare State Heat Up",
-    7: "Prepare State Cool Down",
-    8: "Overridden by source",
-    14: "Fixed",
+# IRoomControllerV2 override-reason codes, as slugs for translation
+# (``entity.sensor.loxone.override_reason.state.<slug>``). A single ``unknown``
+# slug covers every other/odd code instead of minting a ``"Unknown (n)"``
+# display string per code (CORE-22).
+OVERRIDE_REASON_SLUGS = {
+    0: "none",
+    1: "presence",
+    2: "window_open",
+    3: "comfort_override",
+    4: "eco_override",
+    5: "eco_plus_override",
+    6: "prepare_heat_up",
+    7: "prepare_cool_down",
+    8: "overridden_by_source",
+    14: "fixed",
 }
+OVERRIDE_REASON_UNKNOWN = "unknown"
+
+# Meter sub-sensor classification (PS-21). A blanket TOTAL_INCREASING on every
+# kWh/L-formatted value put "Consumption today" counters and the `totalNeg`
+# register in the energy dashboard, where resets show up as spikes.
+METER_STATE_CLASSES = {
+    "actual": (SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+    "total": (SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+    "totalNeg": (SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+    "storage": (SensorDeviceClass.ENERGY, SensorStateClass.MEASUREMENT),
+}
+METER_FORMAT_KEYS = {
+    "actual": "actualFormat",
+    "total": "totalFormat",
+    "totalNeg": "totalFormat",
+    "storage": "storageFormat",
+}
+METER_NAME_SUFFIX = {
+    "actual": "Actual",
+    "total": "Total",
+    "totalNeg": "Total Neg",
+    "storage": "Level",
+}
+
+# A plain InfoOnlyAnalog that counts total energy/water deserves
+# ``TOTAL_INCREASING`` only when its name/category actually says it is a
+# meter. Anything else (e.g. "Consumption today") is a resetting value and
+# gets MEASUREMENT (PS-21).
+METERING_KEYWORDS = ("total", "meter", "zähler", "zaehler", "compteur", "counter")
 
 
 class LoxoneEntityDescription(SensorEntityDescription, frozen_or_thawed=True):
@@ -176,6 +209,41 @@ UNAMBIGUOUS_UNITS: frozenset[str] = frozenset(
 )
 """Units that map to exactly one device class without needing keyword disambiguation."""
 
+# The Loxone format spec types that carry a *numeric* reading. ``s`` is the
+# only string-typed format; state_class may only be advertised for numeric
+# values, or HA raises a ValueError when a text string arrives (PS-09).
+_NUMERIC_EXCLUDED_TYPES = frozenset({"s", ""})
+
+
+def _is_numeric_format(lox_format: Any) -> bool:
+    """True when the Loxone format string carries a numeric value type."""
+    if not isinstance(lox_format, str):
+        return False
+    match = re.search(r"%[-+0 #]*\d*(?:\.\d*)?[a-zA-Z%]+", lox_format)
+    if not match:
+        return False
+    return match.group(0)[-1] not in _NUMERIC_EXCLUDED_TYPES
+
+
+def _analog_value(value: Any) -> Any:
+    """Normalise a raw InfoOnlyAnalog stream value for ``native_value``.
+
+    ``None`` and the Miniserver's error sentinel (``ERROR_VALUE`` == -1)
+    mean "no reading" and map to ``None`` (HA shows ``unknown``);
+    everything else is passed through unchanged (PS-09).
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and float(value) == ERROR_VALUE:
+        return None
+    return value
+
+
+def _metering_indicated(name: str, category: str) -> bool:
+    """True when the name/category names a running meter (PS-21)."""
+    lowered = f"{name} {category}".lower()
+    return any(kw in lowered for kw in METERING_KEYWORDS)
+
 
 def match_sensor_description(
     unit: str,
@@ -210,10 +278,6 @@ async def async_setup_platform(
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up Loxone Sensor from yaml"""
-    value_template = config.get(CONF_VALUE_TEMPLATE)
-    if value_template is not None:
-        value_template.hass = hass
-
     # Devices from yaml
     if config:
         # Setup all Sensors in Yaml-File
@@ -235,27 +299,29 @@ async def async_setup_entry(
     if "softwareVersion" in loxconfig:
         entities.append(LoxoneVersionSensor(miniserver.serial, loxconfig["softwareVersion"]))
 
-    for sensor in get_all(loxconfig, "InfoOnlyAnalog"):
-        sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
-        sensor.update({"type": "analog"})
-        entities.append(LoxoneSensor(**sensor))
+    for sensor in iter_controls(hass, config_entry, "InfoOnlyAnalog"):
+        try:
+            sensor.update({"type": "analog"})
+            entities.append(LoxoneSensor(**sensor))
+        except Exception:
+            # One bad control must not abort the whole sensor platform
+            # (PS-08).
+            _LOGGER.exception("Skipping InfoOnlyAnalog control %s", sensor.get("name", "?"))
 
-    for sensor in get_all(loxconfig, "TextInput"):
-        sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
-        entities.append(LoxoneTextSensor(**sensor))
+    for sensor in iter_controls(hass, config_entry, "TextInput"):
+        try:
+            entities.append(LoxoneTextSensor(**sensor))
+        except Exception:
+            _LOGGER.exception("Skipping TextInput control %s", sensor.get("name", "?"))
 
-    for sensor in get_all(loxconfig, "Meter"):
-        _LOGGER.debug("Found Meter: %s", sensor)
-        sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
-        device_info = LoxoneMeterSensor.create_device_info_from_sensor(sensor)
-
-        for state_key, name_suffix, format_key in [
-            ("actual", "Actual", "actualFormat"),
-            ("total", "Total", "totalFormat"),
-            ("totalNeg", "Total Neg", "totalFormat"),
-            ("storage", "Level", "storageFormat"),
-        ]:
-            if state_key in sensor["states"]:
+    for sensor in iter_controls(hass, config_entry, "Meter"):
+        _LOGGER.debug("Found Meter: %s", sensor.get("name"))
+        try:
+            device_info = LoxoneMeterSensor.create_device_info_from_sensor(sensor)
+            for state_key in METER_STATE_CLASSES:
+                if state_key not in sensor.get("states", {}):
+                    continue
+                format_value = sensor.get("details", {}).get(METER_FORMAT_KEYS[state_key], "%.1f")
                 subsensor = {
                     "device_info": device_info,
                     "parent_id": sensor["uuidAction"],
@@ -263,55 +329,62 @@ async def async_setup_entry(
                     "type": "analog",
                     "room": sensor.get("room", ""),
                     "cat": sensor.get("cat", ""),
-                    "name": f"{sensor['name']} {name_suffix}",
-                    "details": {"format": sensor["details"][format_key]},
-                    "async_add_devices": async_add_entities,
+                    "name": f"{sensor['name']} {METER_NAME_SUFFIX[state_key]}",
+                    "details": {"format": format_value},
+                    "device_class": METER_STATE_CLASSES[state_key][0],
+                    "state_class": METER_STATE_CLASSES[state_key][1],
                     "config_entry": config_entry,
                 }
                 entities.append(LoxoneMeterSensor(**subsensor))
+        except Exception:
+            _LOGGER.exception("Skipping Meter control %s", sensor.get("name", "?"))
 
     # Climate controller demand sensors
     for ctrl_type in ("ClimateController", "ClimateControllerUS"):
-        for ctrl in get_all(loxconfig, ctrl_type):
-            ctrl = add_room_and_cat_to_value_values(loxconfig, ctrl)
-            ctrl_kwargs = {**ctrl, "type": "climate_controller", "hass": hass}
-            entities.append(LoxoneClimateController(**ctrl_kwargs))
+        for ctrl in iter_controls(hass, config_entry, ctrl_type):
+            try:
+                ctrl_kwargs = {**ctrl, "type": "climate_controller", "hass": hass}
+                entities.append(LoxoneClimateController(**ctrl_kwargs))
+            except Exception:
+                _LOGGER.exception("Skipping %s control %s", ctrl_type, ctrl.get("name", "?"))
 
     # IRoomControllerV2 sub-sensors: override reason + comfort temperatures
-    for irc in get_all(loxconfig, "IRoomControllerV2"):
-        irc = add_room_and_cat_to_value_values(loxconfig, irc)
-        states = irc.get("states", {})
-        device_info = get_or_create_device(irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", ""))
+    for irc in iter_controls(hass, config_entry, "IRoomControllerV2"):
+        try:
+            states = irc.get("states", {})
+            device_info = get_or_create_device(irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", ""))
 
-        if "overrideReason" in states:
-            entities.append(
-                LoxoneRoomControllerOverrideSensor(
-                    name=f"{irc['name']} Override Reason",
-                    uuid=states["overrideReason"],
-                    device_info=device_info,
-                    parent_uuid=irc["uuidAction"],
+            if "overrideReason" in states:
+                entities.append(
+                    LoxoneRoomControllerOverrideSensor(
+                        name=f"{irc['name']} Override Reason",
+                        uuid=states["overrideReason"],
+                        device_info=device_info,
+                        parent_uuid=irc["uuidAction"],
+                    )
                 )
-            )
 
-        if "comfortTemperature" in states:
-            entities.append(
-                LoxoneRoomControllerTemperatureSensor(
-                    name=f"{irc['name']} Comfort Temperature",
-                    uuid=states["comfortTemperature"],
-                    device_info=device_info,
-                    parent_uuid=irc["uuidAction"],
+            if "comfortTemperature" in states:
+                entities.append(
+                    LoxoneRoomControllerTemperatureSensor(
+                        name=f"{irc['name']} Comfort Temperature",
+                        uuid=states["comfortTemperature"],
+                        device_info=device_info,
+                        parent_uuid=irc["uuidAction"],
+                    )
                 )
-            )
 
-        if "comfortTemperatureCool" in states:
-            entities.append(
-                LoxoneRoomControllerTemperatureSensor(
-                    name=f"{irc['name']} Comfort Temperature Cool",
-                    uuid=states["comfortTemperatureCool"],
-                    device_info=device_info,
-                    parent_uuid=irc["uuidAction"],
+            if "comfortTemperatureCool" in states:
+                entities.append(
+                    LoxoneRoomControllerTemperatureSensor(
+                        name=f"{irc['name']} Comfort Temperature Cool",
+                        uuid=states["comfortTemperatureCool"],
+                        device_info=device_info,
+                        parent_uuid=irc["uuidAction"],
+                    )
                 )
-            )
+        except Exception:
+            _LOGGER.exception("Skipping IRoomControllerV2 control %s", irc.get("name", "?"))
 
     @callback
     def async_add_sensors(_):
@@ -336,8 +409,15 @@ class LoxoneCustomSensor(LoxoneEntity, SensorEntity):
 
     @cached_property
     def unique_id(self) -> str:
-        """Return a unique ID."""
-        return self.uuidAction + self._attr_name
+        """Return a unique ID.
+
+        A YAML sensor without a name still gets a usable unique id (PS-07):
+        the uuidAction alone, or uuidAction+name when a name is given.
+        """
+        name = self._attr_name
+        if name:
+            return f"{self.uuidAction}-{name}"
+        return self.uuidAction
 
     async def event_handler(self, e):
         if self.uuidAction in e.data:
@@ -403,7 +483,6 @@ class LoxoneKeepAliveSensor(LoxoneEntity, SensorEntity):
 
 
 class LoxoneVersionSensor(LoxoneEntity, SensorEntity):
-    _attr_should_poll = False
     _attr_name = "Loxone Software Version"
     _attr_icon = "mdi:information-outline"
     _attr_unique_id = "loxone_software_version_uuid"
@@ -427,11 +506,14 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._state = STATE_UNKNOWN
+        self._state = None
+        self._state_uuid = self.states.get("text") or self.uuidAction
 
     async def event_handler(self, e):
-        if self.states["text"] in e.data:
-            self._state = str(e.data[self.states["text"]])
+        if self._state_uuid in e.data:
+            self._state = _analog_value(e.data[self._state_uuid])
+            if self._state is not None:
+                self._state = str(self._state)
             self.async_schedule_update_ha_state()
 
     @property
@@ -462,14 +544,23 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
     """Representation of a Loxone Sensor."""
 
     def __init__(self, **kwargs):
+        # Register-level classification from the Meter setup (PS-21); popped
+        # here so the generic kwarg loop in LoxoneEntity does not try to
+        # setattr them as plain attributes.
+        forced_device_class = kwargs.pop("device_class", None)
+        forced_state_class = kwargs.pop("state_class", None)
         super().__init__(**kwargs)
-        self._format = self._get_format(self.details["format"])
+        details = getattr(self, "details", None)
+        details = details if isinstance(details, dict) else {}
+        lox_format = details.get("format", "")
         self._attr_should_poll = False
-        self._attr_native_unit_of_measurement = clean_unit(self.details["format"])
+        self._attr_native_unit_of_measurement = clean_unit(lox_format) if isinstance(lox_format, str) else None
         self._parent_id = kwargs.get("parent_id")
 
-        precision = self._parse_digits_after_decimal(self.details["format"])
-        if precision:
+        # PS-25: a format with an explicit ``.0`` still has a real precision
+        # of 0 digits (``if precision:`` treated 0 as "none").
+        precision = self._parse_digits_after_decimal(lox_format)
+        if precision is not None:
             self._attr_suggested_display_precision = precision
 
         # Device class is detected automatically from unit/category/name.
@@ -483,9 +574,36 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
             name=self.name,
             category=kwargs.get("cat", ""),
         )
-        if desc:
+
+        # Per-register classifications from the Meter setup (PS-21) win over
+        # the unit-based match.
+        if desc is not None and (forced_device_class is not None or forced_state_class is not None):
+            desc = replace(
+                desc,
+                device_class=forced_device_class or desc.device_class,
+                state_class=forced_state_class or desc.state_class,
+            )
+
+        # A plain (non-Meter) kWh/L value only becomes TOTAL_INCREASING when
+        # the name/category indicates a real meter; resetting values like
+        # "Consumption today" would otherwise show spikes in the energy
+        # dashboard (PS-21).
+        if (
+            desc is not None
+            and forced_state_class is None
+            and desc.state_class == SensorStateClass.TOTAL_INCREASING
+            and not _metering_indicated(self.name, kwargs.get("cat", ""))
+        ):
+            desc = replace(desc, state_class=SensorStateClass.MEASUREMENT)
+
+        numeric = _is_numeric_format(lox_format)
+        if desc is not None:
+            if not numeric and desc.state_class is not None:
+                # Text values must not advertise a numeric state_class,
+                # or HA raises when a text string is published (PS-09).
+                desc = replace(desc, state_class=None)
             self.entity_description = desc
-        else:
+        elif numeric:
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
         _uuid = self.unique_id
@@ -495,8 +613,10 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         self.type = "Sensor analog"
         self._attr_device_info = get_or_create_device(_uuid, self.name, self.type, self.room)
 
-    def _parse_digits_after_decimal(self, format_string):
+    def _parse_digits_after_decimal(self, format_string: Any):
         """Parse digits after the decimal point from the format string."""
+        if not isinstance(format_string, str):
+            return None
         pattern = r"\.(\d+)"
         match = re.search(pattern, format_string)
         if match:
@@ -504,20 +624,9 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
             return digits
         return None
 
-    @property
-    def available(self) -> bool:
-        """Return entity availability."""
-        return self.state is not None
-
-    def _get_lox_rounded_value(self, value):
-        try:
-            return float(self._format % float(value))
-        except ValueError:
-            return value
-
     async def event_handler(self, e):
         if self.uuidAction in e.data:
-            self._attr_native_value = e.data[self.uuidAction]
+            self._attr_native_value = _analog_value(e.data[self.uuidAction])
             self.async_schedule_update_ha_state()
 
     @property
@@ -531,8 +640,8 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
 
 class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
     def __init__(self, **kwargs):
+        device_info = kwargs.pop("device_info", None)
         super().__init__(**kwargs)
-        device_info = kwargs.get("device_info")
         if device_info:
             self._attr_device_info = device_info
 
@@ -573,14 +682,19 @@ class LoxoneRoomControllerTemperatureSensor(SensorEntity):
 
     async def event_handler(self, e):
         if self._uuid in e.data:
-            self._attr_native_value = e.data[self._uuid]
+            self._attr_native_value = _analog_value(e.data[self._uuid])
             self.async_schedule_update_ha_state()
 
 
 class LoxoneRoomControllerOverrideSensor(SensorEntity):
-    """Sensor for IRoomControllerV2 override reason."""
+    """Sensor for IRoomControllerV2 override reason.
+
+    The values are slugs that resolve through
+    ``entity.sensor.loxone.override_reason.state.<slug>`` (CORE-22).
+    """
 
     _attr_device_class = SensorDeviceClass.ENUM
+    _attr_translation_key = "override_reason"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, name: str, uuid: str, device_info: DeviceInfo, parent_uuid: str):
@@ -588,8 +702,8 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
         self._uuid = uuid
         self._attr_unique_id = uuid
         self._attr_device_info = device_info
-        self._attr_native_value = "None"
-        self._attr_options = list(OVERRIDE_REASONS.values())
+        self._attr_native_value = OVERRIDE_REASON_SLUGS[0]
+        self._attr_options = [*OVERRIDE_REASON_SLUGS.values(), OVERRIDE_REASON_UNKNOWN]
         self._parent_uuid = parent_uuid
 
     async def async_added_to_hass(self):
@@ -598,11 +712,14 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
 
     async def event_handler(self, e):
         if self._uuid in e.data:
-            reason_code = int(e.data[self._uuid])
-            reason_code = 14 if reason_code > 14 else reason_code
-            self._attr_native_value = OVERRIDE_REASONS.get(reason_code, f"Unknown ({reason_code})")
-            if self._attr_native_value.startswith("Unknown") and self._attr_native_value not in self._attr_options:
-                self._attr_options.append(self._attr_native_value)
+            try:
+                code = int(float(e.data[self._uuid]))
+            except TypeError, ValueError:
+                return
+            slug = OVERRIDE_REASON_SLUGS.get(code, OVERRIDE_REASON_UNKNOWN)
+            if slug not in self._attr_options:
+                self._attr_options = [*self._attr_options, slug]
+            self._attr_native_value = slug
             self.async_schedule_update_ha_state()
 
 

@@ -7,14 +7,14 @@ from typing import Literal, final
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_VALUE_TEMPLATE, STATE_OFF, STATE_ON, STATE_UNKNOWN
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
+from .helpers import get_or_create_device, iter_controls
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,10 +34,6 @@ async def async_setup_platform(
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up Loxone Sensor from yaml"""
-    value_template = config.get(CONF_VALUE_TEMPLATE)
-    if value_template is not None:
-        value_template.hass = hass
-
     # Devices from yaml
     if config != {}:
         # Here setup all Sensors in Yaml-File
@@ -54,23 +50,30 @@ async def async_setup_entry(
 ) -> None:
     """Set up entry."""
     miniserver = get_miniserver_from_hass(hass, config_entry)
-    loxconfig = miniserver.lox_config.json
     entities = []
 
-    for sensor in get_all(loxconfig, "InfoOnlyDigital"):
-        sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
-        sensor.update({"type": "digital"})
-        entities.append(LoxoneDigitalSensor(**sensor))
+    for sensor in iter_controls(hass, config_entry, "InfoOnlyDigital"):
+        try:
+            sensor.update({"type": "digital"})
+            entities.append(LoxoneDigitalSensor(**sensor))
+        except Exception:
+            # One bad control must not abort the whole binary_sensor platform
+            # (PS-04).
+            _LOGGER.exception("Skipping InfoOnlyDigital control %s", sensor.get("name", "?"))
 
-    for sensor in get_all(loxconfig, "PresenceDetector"):
-        sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
-        sensor.update({"type": "presence"})
-        entities.append(LoxoneDigitalSensor(**sensor))
+    for sensor in iter_controls(hass, config_entry, "PresenceDetector"):
+        try:
+            sensor.update({"type": "presence"})
+            entities.append(LoxoneDigitalSensor(**sensor))
+        except Exception:
+            _LOGGER.exception("Skipping PresenceDetector control %s", sensor.get("name", "?"))
 
-    for sensor in get_all(loxconfig, "SmokeAlarm"):
-        sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
-        sensor.update({"type": "smoke"})
-        entities.append(LoxoneDigitalSensor(**sensor))
+    for sensor in iter_controls(hass, config_entry, "SmokeAlarm"):
+        try:
+            sensor.update({"type": "smoke"})
+            entities.append(LoxoneDigitalSensor(**sensor))
+        except Exception:
+            _LOGGER.exception("Skipping SmokeAlarm control %s", sensor.get("name", "?"))
 
     @callback
     def async_add_binary_sensors(_):
@@ -101,11 +104,19 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
 
         if "type" in kwargs and "room" in kwargs and "cat" in kwargs and hasattr(self, "states"):
             self._from_loxone_config = True
+            # PS-04: the elif-chain matters: a SmokeAlarm is read from its
+            # smoke *level* (any level > 0 is a smoke event); `areAlarmSignalsOff`
+            # tells whether the beeper is muted, which is a different signal.
+            # Same for presence; a digital control without an `active` state
+            # falls back to the echoed uuidAction. All lookups are `.get()`
+            # so a missing state cannot abort the platform.
             if self.type == "smoke":
-                self._state_uuid = self.states["areAlarmSignalsOff"]
-            if self.type == "presence":
-                self._state_uuid = self.states["active"]
+                self._state_uuid = self.states.get("level") or self.uuidAction
+            elif self.type == "presence":
+                self._state_uuid = self.states.get("active") or self.uuidAction
             elif "active" in self.states:
+                self._state_uuid = self.states.get("active") or self.uuidAction
+            else:
                 self._state_uuid = self.uuidAction
         else:
             self._state_uuid = self.uuidAction
@@ -145,11 +156,19 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
 
     async def event_handler(self, e):
         if self._state_uuid in e.data:
-            self._state = e.data[self._state_uuid]
-            if self._state == 1.0:
-                self._state = self._on_state
+            value = e.data[self._state_uuid]
+            # PS-04: react to the *level*/active value itself, not the
+            # stale two-valued comparison (a sub-normal non-1.0 value such as
+            # a fraction or a missing sentinel used to read as "off").
+            if isinstance(value, bool):
+                on = value
+            elif isinstance(value, (int, float)):
+                on = value > 0
+            elif isinstance(value, str) and value.strip() != "":
+                on = value.strip().lower() != "off"
             else:
-                self._state = self._off_state
+                on = False
+            self._state = self._on_state if on else self._off_state
             if not self._attr_available:
                 self._attr_available = True
             self.async_schedule_update_ha_state()

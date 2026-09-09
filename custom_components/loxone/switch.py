@@ -21,7 +21,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
 from .const import SENDDOMAIN
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
+from .helpers import add_room_and_cat_to_value_values, get_or_create_device, iter_controls
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,39 +47,51 @@ async def async_setup_entry(
     loxconfig = miniserver.lox_config.json
     entities = []
 
-    for switch_entity in get_all(
-        loxconfig, ["Switch", "TimedSwitch", "Intercom", "IRoomControllerV2", "LightControllerV2"]
+    for switch_entity in iter_controls(
+        hass, config_entry, ["Switch", "TimedSwitch", "Intercom", "IRoomControllerV2", "LightControllerV2"]
     ):
-        switch_entity = add_room_and_cat_to_value_values(loxconfig, switch_entity)
+        try:
+            if switch_entity["type"] in ["Switch"]:
+                new_switch = LoxoneSwitch(**switch_entity)
+                entities.append(new_switch)
 
-        if switch_entity["type"] in ["Switch"]:
-            new_switch = LoxoneSwitch(**switch_entity)
-            entities.append(new_switch)
+            elif switch_entity["type"] == "TimedSwitch":
+                new_switch = LoxoneTimedSwitch(**switch_entity)
+                entities.append(new_switch)
 
-        elif switch_entity["type"] == "TimedSwitch":
-            new_switch = LoxoneTimedSwitch(**switch_entity)
-            entities.append(new_switch)
+            elif switch_entity["type"] == "Intercom":
+                for sub_name in switch_entity.get("subControls", {}) or {}:
+                    subcontrol = switch_entity["subControls"][sub_name]
+                    subcontrol = add_room_and_cat_to_value_values(loxconfig, subcontrol)
+                    subcontrol.update({"name": "{} - {}".format(switch_entity["name"], subcontrol["name"])})
 
-        elif switch_entity["type"] == "Intercom":
-            if "subControls" in switch_entity:
-                for sub_name in switch_entity["subControls"]:
-                    subcontol = switch_entity["subControls"][sub_name]
+                    # PS-05: a sub-control without an `active` state cannot
+                    # report at all -- skip it instead of raising on every event.
+                    if not subcontrol.get("states", {}).get("active"):
+                        _LOGGER.warning(
+                            "Skipping Intercom sub-control %s: no 'active' state",
+                            subcontrol.get("name", sub_name),
+                        )
+                        continue
 
-                    _ = subcontol
-                    _ = add_room_and_cat_to_value_values(loxconfig, _)
-                    _.update({"name": "{} - {}".format(switch_entity["name"], subcontol["name"])})
-
-                    new_switch = LoxoneIntercomSubControl(**_)
+                    new_switch = LoxoneIntercomSubControl(**subcontrol)
                     entities.append(new_switch)
-        elif switch_entity["type"] == "IRoomControllerV2":
-            states = switch_entity.get("states", {})
-            if "overrideEntries" in states:
-                override_kwargs = {**switch_entity, "type": "RoomControllerOverride"}
-                entities.append(LoxoneRoomControllerOverride(**override_kwargs))
-        elif switch_entity["type"] == "LightControllerV2":
-            if switch_entity.get("presence", None):
-                override_kwargs = {**switch_entity, "type": "PresenceDetectionSwitch"}
-                entities.append(LoxoneLightPresenceSwitch(**override_kwargs))
+            elif switch_entity["type"] == "IRoomControllerV2":
+                states = switch_entity.get("states", {})
+                if "overrideEntries" in states:
+                    override_kwargs = {**switch_entity, "type": "RoomControllerOverride"}
+                    entities.append(LoxoneRoomControllerOverride(**override_kwargs))
+            elif switch_entity["type"] == "LightControllerV2":
+                # PS-06: the guard and the constructor must resolve the same
+                # key: the presence state uuid lives in `states` (reading the
+                # top-level key was either dead code or a KeyError that
+                # aborted the whole platform).
+                if "presence" in switch_entity.get("states", {}):
+                    override_kwargs = {**switch_entity, "type": "PresenceDetectionSwitch"}
+                    entities.append(LoxoneLightPresenceSwitch(**override_kwargs))
+        except Exception:
+            # One bad control must not abort the whole switch platform.
+            _LOGGER.exception("Skipping %s control %s", switch_entity.get("type", "?"), switch_entity.get("name", "?"))
     async_add_entities(entities)
 
 
@@ -217,11 +229,14 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
             self.schedule_update_ha_state()
 
     async def event_handler(self, event):
-        if self.uuidAction in event.data or self.states["active"] in event.data:
+        # PS-05: resolve the state uuid once via .get(); a control that
+        # happens to lack `active` must not raise on every event.
+        state_uuid = self.states.get("active")
+        if self.uuidAction in event.data or (state_uuid and state_uuid in event.data):
             if not self._attr_available:
                 self.async_schedule_update_ha_state()
-            if self.states["active"] in event.data:
-                self._attr_is_on = event.data[self.states["active"]]
+            if state_uuid and state_uuid in event.data:
+                self._attr_is_on = event.data[state_uuid]
 
             if not self._attr_available:
                 self._attr_available = True
@@ -235,7 +250,8 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
         """
         return {
             "uuid": self.uuidAction,
-            "state_uuid": self.states.get("active", None),
+            # PS-05: .get() -- a missing `active` state is not an error.
+            "state_uuid": self.states.get("active"),
             "room": self.room,
             "category": self.cat,
             "device_type": self.type,
@@ -334,10 +350,14 @@ class LoxoneLightPresenceSwitch(LoxoneSwitch):
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, **kwargs):
-        self._presence_id = kwargs["states"]["presence"]
+        # PS-06: same key as the setup guard (states["presence"]), and a
+        # .get() so a missing state skips via the setup's try/except instead
+        # of a KeyError here. The default name is set on _attr_name, not by
+        # overwriting the LoxoneEntity.name cached property.
+        self._presence_id = kwargs.get("states", {}).get("presence")
         super().__init__(**kwargs)
         self._attr_device_info = get_or_create_device(self.uuidAction, self.name, "LightControllerV2", self.room)
-        self.name = f"{self.name} Presence Detection"
+        self._attr_name = f"{self.name} Presence Detection"
 
     @cached_property
     def unique_id(self) -> str:

@@ -13,18 +13,21 @@
       }
     },
     "sensor": {
-      "override_reason": {
-        "state": {
-          "none": "Žádný",
-          "presence": "Přítomnost",
-          "window_open": "Otevřené okno",
-          "comfort_override": "Dočasný komfortní režim",
-          "eco_override": "Dočasný Eco režim",
-          "eco_plus_override": "Dočasný Eco+ režim",
-          "prepare_heat_up": "Příprava vytápění",
-          "prepare_cool_down": "Příprava chlazení",
-          "overridden_by_source": "Řízeno nadřazeným zdrojem",
-          "fixed": "Pevná žádaná hodnota"
+      "loxone": {
+        "override_reason": {
+          "state": {
+            "none": "Žádný",
+            "presence": "Přítomnost",
+            "window_open": "Otevřené okno",
+            "comfort_override": "Dočasný komfortní režim",
+            "eco_override": "Dočasný Eco režim",
+            "eco_plus_override": "Dočasný Eco+ režim",
+            "prepare_heat_up": "Příprava vytápění",
+            "prepare_cool_down": "Příprava chlazení",
+            "overridden_by_source": "Řízeno nadřazeným zdrojem",
+            "fixed": "Pevná žádaná hodnota",
+            "unknown": "Neznámý"
+          }
         }
       }
     }
