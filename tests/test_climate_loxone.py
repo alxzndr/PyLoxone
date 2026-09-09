@@ -59,11 +59,17 @@ def test_accontrol_get_state_value_missing_key_returns_none() -> None:
 
 
 def test_accontrol_fan_and_swing_defaults_without_states() -> None:
+    from homeassistant.components.climate.const import ClimateEntityFeature
+
     e = _accontrol({"temperature": "st_temperature"})
-    assert e.fan_mode == "Auto"
-    assert e.fan_modes is None
-    assert e.swing_mode == "Auto"
-    assert e.swing_modes is None
+    # WP-4.1 (PC-24): a control without fan/airflow states advertises neither
+    # feature, reports no options, and returns None (not a fake "Auto").
+    assert e.fan_mode is None
+    assert e.fan_modes == []
+    assert e.swing_mode is None
+    assert e.swing_modes == []
+    assert not (e.supported_features & ClimateEntityFeature.FAN_MODE)
+    assert not (e.supported_features & ClimateEntityFeature.SWING_MODE)
 
 
 def test_accontrol_hvac_mode_defaults_off_without_states() -> None:

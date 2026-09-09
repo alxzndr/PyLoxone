@@ -279,7 +279,10 @@
     "openWindow": "36333734-0136-9336-ffff-d303132362d3000054",
     "modeList": "36333734-0137-9336-ffff-d303132362d3000055",
     "fanspeeds": "[{\"id\":0,\"name\":\"Auto\"},{\"id\":1,\"name\":\"Low\"},{\"id\":2,\"name\":\"High\"}]",
-    "airflows": "[{\"id\":0,\"name\":\"Auto\"},{\"id\":1,\"name\":\"Down\"},{\"id\":2,\"name\":\"Up\"}]"
+    "airflows": "[{\"id\":0,\"name\":\"Auto\"},{\"id\":1,\"name\":\"Down\"},{\"id\":2,\"name\":\"Up\"}]",
+    "valveHeat": "36333734-0127-9336-ffff-000000000001000001",
+    "valveCool": "36333734-0127-9336-ffff-000000000001000002",
+    "isPreparing": "36333734-0127-9336-ffff-000000000001000003"
    },
    "defaultRating": 2,
    "isFavorite": false,

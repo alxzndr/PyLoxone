@@ -6,6 +6,8 @@
           "preset_mode": {
             "state": {
               "schedule": "Časový plán",
+              "fixed": "Fikváné",
+              "fixed_dynamic": "Fikváné (dynamicky)",
               "paused_door_window": "Pozastaveno (Dveře/Okno)"
             }
           }

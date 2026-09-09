@@ -733,7 +733,6 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.hass = kwargs["hass"]
         self._stateAttribUuids = kwargs.get("states", {})
         self._stateAttribValues = {}
         self._heat_demand = 0
