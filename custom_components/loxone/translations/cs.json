@@ -35,15 +35,55 @@
     }
   },
   "config": {
+    "step": {
+      "user": {
+        "title": "Nakonfigurovat Loxone",
+        "description": "Vyplňňte přístupové údaje Miniserveru. Formulář se ověří proti Miniserveru, než se uloží.",
+        "data": {
+          "username": "Uživatel",
+          "port": "Port",
+          "host": "IP adresa Miniserveru",
+          "password": "Heslo",
+          "verify_ssl": "Ověřit TLS certifikát Miniserveru"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Aktualizovat přihlašovací údaje PyLoxone",
+        "description": "Miniserver zamítl uložené přihlašovací údaje. Zadejte je znovu – nejdřív se ověří na Miniserveru, než se uloží.",
+        "data": {
+          "username": "Uživatel",
+          "port": "Port",
+          "host": "IP adresa Miniserveru",
+          "password": "Heslo"
+        }
+      }
+    },
     "error": {
-      "invalid_username_encoding": "Username contains characters that are not latin-1 compatible",
-      "invalid_password_encoding": "Password contains characters that are not latin-1 compatible"
+      "cannot_connect": "Nepodařilo se připojit k Miniserveru. Zkontrolujte IP adresu a port.",
+      "invalid_auth": "Miniserver zamítl uživatelské jméno a heslo.",
+      "invalid_host": "IP adresa Miniserveru, uživatelské jméno nebo heslo chybí, nebo nejsou platné.",
+      "invalid_username_encoding": "Uživatelské jméno obsahuje znaky, které nejdou zapsat v latin-1",
+      "invalid_password_encoding": "Heslo obsahuje znaky, které nejdou zapsat v latin-1"
     }
   },
   "options": {
-    "error": {
-      "invalid_username_encoding": "Username contains characters that are not latin-1 compatible",
-      "invalid_password_encoding": "Password contains characters that are not latin-1 compatible"
+    "step": {
+      "init": {
+        "title": "Nastavení PyLoxone",
+        "description": "Předvolby integrace Loxone (připojovací údaje se mění přes reauth flow).",
+        "data": {
+          "generate_groups": "Vytvářet Loxone skupiny",
+          "generate_scenes": "Generovat scény",
+          "generate_scenes_delay": "Zpoždění generování scén (při zapnutí)",
+          "generate_lightcontroller_subcontrols": "Standardně povolit LightControllerV2 subcontrols"
+        }
+      }
+    }
+  },
+  "issues": {
+    "yaml_config_present": {
+      "title": "Loxone konfigurace v YAML se již nepodporuje",
+      "description": "V `configuration.yaml` zůstává blok `loxone:`. Po přechodu na config entries se nečte – blok odeberte a Miniserver přidejte znovu jako config entry (Nastavení > Zařízení a služby)."
     }
   }
 }

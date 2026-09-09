@@ -38,20 +38,30 @@
     "step": {
       "user": {
         "title": "Set up Loxone",
-        "description": "Configure your Loxone Miniserver connection",
+        "description": "Configure your Loxone Miniserver connection. The form is only submitted once the Miniserver accepts the credentials.",
         "data": {
           "username": "User",
           "port": "Port",
-          "host": "Miniserver Ip",
+          "host": "Miniserver IP / hostname",
           "password": "Password",
-          "verify_ssl": "Verify the Miniserver TLS certificate",
-          "generate_scenes": "generate scenes",
-          "generate_lightcontroller_subcontrols": "Enable LightControllerV2 subcontrols by default",
-          "generate_scenes_delay": "Delay for the scene generation if enabled"
+          "verify_ssl": "Verify the Miniserver TLS certificate"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update the PyLoxone credentials",
+        "description": "The Miniserver rejected the stored username and password. Enter the credentials once more - they are checked against the Miniserver before anything is saved.",
+        "data": {
+          "username": "User",
+          "port": "Port",
+          "host": "Miniserver IP / hostname",
+          "password": "Password"
         }
       }
     },
     "error": {
+      "cannot_connect": "Could not connect to the Miniserver. Check the IP address and port, and that the device is reachable.",
+      "invalid_auth": "The Miniserver rejected the username and password.",
+      "invalid_host": "The Miniserver IP / hostname, or the username or password, is missing or not a valid value.",
       "invalid_username_encoding": "Username contains characters that are not latin-1 compatible",
       "invalid_password_encoding": "Password contains characters that are not latin-1 compatible"
     }
@@ -59,23 +69,15 @@
   "options": {
     "step": {
       "init": {
+        "title": "PyLoxone settings",
+        "description": "Preferences for the Loxone integration (connection details are changed through the reauth flow).",
         "data": {
-          "username": "User",
-          "port": "Port",
-          "host": "Miniserver Ip",
-          "password": "Password",
-          "verify_ssl": "Verify the Miniserver TLS certificate",
+          "generate_groups": "Create Loxone groups",
           "generate_scenes": "Generate scenes",
-          "generate_lightcontroller_subcontrols": "Enable LightControllerV2 subcontrols by default",
-          "generate_scenes_delay": "Delay for the scene generation if enabled"
-        },
-        "description": "PyLoxone edit settings:",
-        "title": "PyLoxone settings"
+          "generate_scenes_delay": "Delay for the scene generation if enabled",
+          "generate_lightcontroller_subcontrols": "Enable LightControllerV2 subcontrols by default"
+        }
       }
-    },
-    "error": {
-      "invalid_username_encoding": "Username contains characters that are not latin-1 compatible",
-      "invalid_password_encoding": "Password contains characters that are not latin-1 compatible"
     }
   },
   "services": {
@@ -150,6 +152,12 @@
     "quick_shade": {
       "name": "Quick shade",
       "description": "Move Loxone Jalousie to shade position. Position is set by Loxone depends on multiple values."
+    }
+  },
+  "issues": {
+    "yaml_config_present": {
+      "title": "Loxone YAML configuration is no longer supported",
+      "description": "A `loxone:` block is left in `configuration.yaml`. It was never read since the integration uses config entries, so remove it and recreate the Miniserver as a config entry (Settings > Devices & Services)."
     }
   }
 }

@@ -37,21 +37,31 @@
   "config": {
     "step": {
       "user": {
-        "title": "Loxone",
-        "description": "Loxone Konfiguration",
+        "title": "Loxone einrichten",
+        "description": "Konnektionsdaten zum Loxone Miniserver. Das Formular wird erst abgeschickt, wenn der Miniserver die Zugangsdaten akzeptiert.",
         "data": {
           "username": "Benutzer",
           "port": "Port",
-          "host": "Miniserver Ip",
-          "password": "Password",
-          "verify_ssl": "TLS-Zertifikat des Miniservers prüfen",
-          "generate_scenes": "Scenen generieren",
-          "generate_lightcontroller_subcontrols": "LightControllerV2-Subcontrols standardmäßig aktivieren",
-          "generate_scenes_delay": "Verzögerung beim erstellen der Scenen (wenn aktiviert)"
+          "host": "Miniserver-IP",
+          "password": "Passwort",
+          "verify_ssl": "TLS-Zertifikat des Miniservers prüfen"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Loxone-Zugangsdaten aktualisieren",
+        "description": "Der Miniserver hat die gespeicherten Zugangsdaten abgelehnt. Geben Sie Name und Passwort ein - sie werden vor dem Speichern am Miniserver geprüft.",
+        "data": {
+          "username": "Benutzer",
+          "port": "Port",
+          "host": "Miniserver-IP",
+          "password": "Passwort"
         }
       }
     },
     "error": {
+      "cannot_connect": "Verbindung zum Miniserver nicht möglich. IP-Adresse/Port prüfen und darauf achten, dass das Gerät erreichbar ist.",
+      "invalid_auth": "Der Miniserver hat Benutzername und Passwort abgelehnt.",
+      "invalid_host": "Die IP/der Hostname des Miniservers, der Benutzername oder das Passwort fehlt oder ist ungültig.",
       "invalid_username_encoding": "Benutzername enthält Zeichen, die nicht in Latin-1 darstellbar sind",
       "invalid_password_encoding": "Passwort enthält Zeichen, die nicht in Latin-1 darstellbar sind"
     }
@@ -59,23 +69,15 @@
   "options": {
     "step": {
       "init": {
+        "title": "PyLoxone Einstellungen",
+        "description": "Einstellungen der Loxone-Integration (Verbindungsdaten ändert man über den Re-Auth-Flow).",
         "data": {
-          "username": "Benutzer",
-          "port": "Port",
-          "host": "Miniserver Ip",
-          "password": "Password",
-          "verify_ssl": "TLS-Zertifikat des Miniservers prüfen",
-          "generate_scenes": "Scenen generieren",
-          "generate_lightcontroller_subcontrols": "LightControllerV2-Subcontrols standardmäßig aktivieren",
-          "generate_scenes_delay": "Verzögerung beim erstellen der Scenen (wenn aktiviert)"
-        },
-        "description": "PyLoxone Einstellungen editieren:",
-        "title": "PyLoxone Einstellungen"
+          "generate_groups": "Loxone-Gruppen anlegen",
+          "generate_scenes": "Scenes generieren",
+          "generate_scenes_delay": "Verzögerung beim Generieren der Scenes (wenn aktiviert)",
+          "generate_lightcontroller_subcontrols": "LightControllerV2-Subcontrols standardmäßig aktivieren"
+        }
       }
-    },
-    "error": {
-      "invalid_username_encoding": "Benutzername enthält Zeichen, die nicht in Latin-1 darstellbar sind",
-      "invalid_password_encoding": "Passwort enthält Zeichen, die nicht in Latin-1 darstellbar sind"
     }
   },
   "services": {
@@ -150,6 +152,12 @@
           "description": "Bereiche anlegen, wenn sie in Home Assistant noch nicht existieren"
         }
       }
+    }
+  },
+  "issues": {
+    "yaml_config_present": {
+      "title": "Loxone-Konfiguration per YAML wird nicht mehr unterstützt",
+      "description": "In `configuration.yaml` steht ein `loxone:`-Block. Dieser wird seit der Umstellung auf Config Entries nicht mehr gelesen - entfernen Sie ihn und legen Sie den Miniserver als Config Eintrag neu an (Einstellungen > Geräte & Dienste)."
     }
   }
 }
