@@ -183,6 +183,32 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   sends both (PC-33); the fake `device_class` control-type marker and
   dead helpers removed (PS-10, PC-40 light lines); `async_turn_off`
   accepts `**kwargs` and the kelvin floor is firmly 2700 K (PC-38/PC-39)
+- `climate.py` — `set_temperature` with only `target_temp_low` in building-
+  protect mode no longer crashes the event loop with `NameError: comfort_cool`
+  and compares against the frost-protect temperature (PC-02, #416);
+  `AcControl` properties returning missing state entries return `None`
+  instead of `KeyError` (PC-10, #479 #398); `RoomControllerV2`
+  `target_temperature` no longer falls off the end to `None` in dual modes,
+  and the entity advertises `TARGET_TEMPERATURE` *or* `TARGET_TEMPERATURE_RANGE`,
+  never both (PC-12, #416); unknown Loxone `operatingMode`/`activeMode`
+  values keep the previous state and log once (PC-13); `AcControl`
+  `FAN_MODE`/`SWING_MODE` are only advertised when the control has
+  `fanspeeds`/`airflows` states, those lists are parsed once, and
+  `set_fan_mode`/`set_swing_mode` no longer send `setFan/None` (PC-24,
+  #398); `AcControl.set_hvac_mode(OFF)` sends only `off` (PC-25);
+  `setOperatingMode/0` for the schedule preset is no longer spelled
+  `setOperationMode/0` (PC-20); FIXED/FIXED-DYNAMIC presets read back as
+  stable literals and `preset_modes` is a constant (PC-32); the
+  legacy `IRoomController` and V2 mode tables are single shared
+  read/write pairs (PC-26, VERIFY against a live V1 Miniserver);
+  `RoomControllerV2.hvac_action` falls back to the controller's own
+  valve/prepare states when no `ClimateController` demand event exists,
+  and the duplicate `hvac_modes` line is gone (PC-28); one shared
+  `temperature_unit_from_format` helper for all three platforms, so a
+  format string starting with `°C` no longer reads as Fahrenheit
+  (PC-23, #398); all remaining direct state/details indexing uses
+  `.get()` (PC-16 climate lines); f-string logging replaced with lazy
+  formatting (PC-41 climate lines)
 
 ## 0.9.23
 

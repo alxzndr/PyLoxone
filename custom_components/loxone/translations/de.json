@@ -6,6 +6,8 @@
           "preset_mode": {
             "state": {
               "schedule": "Zeitplan",
+              "fixed": "Fest",
+              "fixed_dynamic": "Fest (dynamisch)",
               "paused_door_window": "Pausiert (Tür/Fenster)"
             }
           }
