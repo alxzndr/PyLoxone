@@ -84,6 +84,14 @@
     "yaml_config_present": {
       "title": "Loxone konfigurace v YAML se již nepodporuje",
       "description": "V `configuration.yaml` zůstává blok `loxone:`. Po přechodu na config entries se nečte – blok odeberte a Miniserver přidejte znovu jako config entry (Nastavení > Zařízení a služby)."
+    },
+    "auth_failed": {
+      "title": "Loxone Miniserver zamítl uložené přihlašovací údaje",
+      "description": "Miniserver na adrese {host} zamítl uložené uživatelské jméno a heslo. Byl spuštěn proces re-authentizace pro tento záznam (Nastavení > Zařízení a služby > Loxone > Opětovná autentizace). Záznam a jeho entity zůstanou mimo provoz, dokud re-authentizaci nedokončíte."
+    },
+    "unsupported_firmware": {
+      "title": "Firmware Loxone Miniserveru není podporován",
+      "description": "Miniserver hlásí firmware {version}, integrace vyžaduje alespoň {minimum}. Aktualizujte firmware Miniserveru (aplikace Loxone Config) a znovu načtěte záznam. Do té doby nemusí být k dispozici JSON websocket koppání, na kterém integrace závisí."
     }
   }
 }

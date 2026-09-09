@@ -28,7 +28,6 @@ import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.loxone import DOMAIN
 from custom_components.loxone.pyloxone_api.connection import LoxoneConnection, reconnect_backoff_seconds
 from custom_components.loxone.pyloxone_api.exceptions import (
     LoxoneConnectionClosedOk,
@@ -279,7 +278,7 @@ async def test_drop_unavailable_reconnect_restores_state(hass, loxapp3, mock_con
     """
     caplog.set_level(logging.WARNING, "lo")
     entry = await _setup_entry(hass, mock_entry)
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = mock_entry.runtime_data  # CORE-31
 
     await _wait_until(hass, lambda: coordinator.connected is True, message="stub session to come up")
 
@@ -312,7 +311,7 @@ async def test_drop_unavailable_reconnect_restores_state(hass, loxapp3, mock_con
     await _wait_until(hass, lambda: hass.states.get(switch_id).state == "on", message="switch to be on again")
 
     # No reload of the entry: same coordinator object, same registry.
-    assert hass.data[DOMAIN][entry.entry_id] is coordinator
+    assert mock_entry.runtime_data is coordinator  # CORE-31
     entries_after = er.async_entries_for_config_entry(reg, entry.entry_id)
     assert {e.entity_id for e in entries_after} == entity_ids_before
     assert entry.state is ConfigEntryState.LOADED
@@ -326,9 +325,9 @@ async def test_five_drops_reload_count_stays_zero(hass, loxapp3, mock_connection
 
     "Reload count" is measured three independent ways: calls to
     ``async_schedule_reload``, calls to ``async_unload``, and the identity
-    of the coordinator in ``hass.data`` (a reload would replace it)."""
+    of the coordinator (a reload would replace it)."""
     entry = await _setup_entry(hass, mock_entry)
-    coordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator = mock_entry.runtime_data  # CORE-31
 
     counts = {"schedule_reload": 0, "unload": 0}
 
@@ -356,7 +355,7 @@ async def test_five_drops_reload_count_stays_zero(hass, loxapp3, mock_connection
         del hass.config_entries.async_unload
 
     assert counts == {"schedule_reload": 0, "unload": 0}
-    assert hass.data[DOMAIN][entry.entry_id] is coordinator
+    assert mock_entry.runtime_data is coordinator  # CORE-31
     assert entry.state is ConfigEntryState.LOADED
     reg = er.async_get(hass)
     assert er.async_entries_for_config_entry(reg, entry.entry_id)
@@ -377,9 +376,10 @@ async def test_entity_available_reflects_coordinator_state(hass):
     entity.platform = None
     assert entity.available is True
 
-    # Resolved via the platform's config entry, from hass.data[DOMAIN].
-    hass.data.setdefault(DOMAIN, {})["entry-x"] = _FakeCoordinator()
-    entity.platform = SimpleNamespace(config_entry=SimpleNamespace(entry_id="entry-x"))
+    # Resolved via the platform's config entry (CORE-31: the coordinator
+    # lives on ``config_entry.runtime_data``).
+    fake_entry = SimpleNamespace(entry_id="entry-x", runtime_data=_FakeCoordinator())
+    entity.platform = SimpleNamespace(config_entry=fake_entry)
     assert entity.available is True
 
     # Per-entity availability is still effective ("value not yet seen").

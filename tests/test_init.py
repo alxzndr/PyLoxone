@@ -116,8 +116,10 @@ async def test_setup_and_unload_leave_listener_counts_at_baseline(
     assert after[EVENT_HOMEASSISTANT_STOP] == mid[EVENT_HOMEASSISTANT_STOP] - 1
     assert after[EVENT_HOMEASSISTANT_STARTED] == mid[EVENT_HOMEASSISTANT_STARTED]
 
-    # the coordinator object itself is gone from hass.data[DOMAIN]
+    # the coordinator object itself is gone (CORE-31: it lived on the
+    # config entry's runtime_data, and hass.data[DOMAIN] no longer holds it)
     assert mock_entry.entry_id not in hass.data.get(DOMAIN, {})
+    assert getattr(mock_entry, "runtime_data", None) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -153,10 +155,10 @@ async def test_five_reloads_leave_no_extra_tasks(hass, mock_connection, mock_ent
     # The session task is stored in the entry's tracked task list
     # (config_entry.async_create_background_task) — nothing collected,
     # nothing dangling (CORE-03).
-    coordinator = hass.data[DOMAIN][mock_entry.entry_id]
+    coordinator = mock_entry.runtime_data  # CORE-31
     session_task = coordinator.listening_task
     assert session_task is not None and not session_task.done()
-    assert mock_entry.entry_id in hass.data.get(DOMAIN, {})
+    assert mock_entry.runtime_data is coordinator  # CORE-31: no hass.data twin
 
     baseline = set(asyncio.all_tasks())
     for _ in range(5):
@@ -180,7 +182,7 @@ async def test_five_reloads_leave_no_extra_tasks(hass, mock_connection, mock_ent
     assert len(remaining) == 1, f"expected exactly 1 extra task after 5 reloads, got {len(remaining)}: {remaining}"
     assert all(not t.done() for t in remaining)
     assert mock_entry.state is ConfigEntryState.LOADED
-    new_coordinator = hass.data[DOMAIN][mock_entry.entry_id]
+    new_coordinator = mock_entry.runtime_data  # CORE-31
     assert new_coordinator.listening_task is not None and not new_coordinator.listening_task.done()
 
 
@@ -276,7 +278,7 @@ async def test_coordinator_uses_stock_first_refresh(
     hass, mock_connection, mock_entry, enable_custom_integrations
 ) -> None:
     await _setup_entry(hass, mock_entry)
-    coordinator = hass.data[DOMAIN][mock_entry.entry_id]
+    coordinator = mock_entry.runtime_data  # CORE-31
 
     # ``config_entry`` was passed to super() (the ContextVar fallback is
     # deprecated) and data/last_update_success were set by the stock
@@ -386,8 +388,8 @@ async def test_failed_platform_unload_keeps_entry_resources(
     assert ok is False
     assert mock_entry.state is ConfigEntryState.FAILED_UNLOAD
     # nothing was cleaned up: the coordinator still owns live resources
-    assert mock_entry.entry_id in hass.data.get(DOMAIN, {})
-    coordinator = hass.data[DOMAIN][mock_entry.entry_id]
+    assert mock_entry.runtime_data is not None  # CORE-31
+    coordinator = mock_entry.runtime_data
     assert coordinator.listening_task is not None and not coordinator.listening_task.done()
     # and the services are still registered
     assert hass.services.has_service(DOMAIN, "reload")

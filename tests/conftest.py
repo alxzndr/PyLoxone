@@ -102,9 +102,11 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
         dispatches ``loxone_{entry_id}_{uuid}`` with ``value`` — so an
         entry's entities only ever see their own state (CORE-27).
         """
-        for entry_data in hass.data.get("loxone", {}).values():
-            coordinator = getattr(entry_data, "coordinator", entry_data)
-            if hasattr(coordinator, "handle_message"):
+        for entry in hass.config_entries.async_entries("loxone"):
+            # CORE-31 (WP-5.2): the coordinator is on ``runtime_data``,
+            # not in ``hass.data["loxone"]``.
+            coordinator = getattr(entry, "runtime_data", None)
+            if coordinator is not None and hasattr(coordinator, "handle_message"):
                 coordinator.handle_message({uuid: value})
                 namespace.feed_calls.append((uuid, value))
                 return

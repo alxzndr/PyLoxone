@@ -15,14 +15,20 @@ _LOGGER = logging.getLogger(__name__)
 def get_miniserver_from_hass(hass, config_entry):
     """Return the Miniserver for this specific config entry.
 
-    Returns ``None`` (not ``KeyError``) when the domain data or the entry has
-    not been populated yet, so callers (diagnostics, system health) can
-    degrade gracefully.
+    Returns ``None`` (not ``KeyError``) when the entry's coordinator or
+    the structure file has not been populated yet, so callers
+    (diagnostics, system health, the platforms) can degrade gracefully.
+
+    CORE-31 (WP-5.2): the coordinator lives on ``config_entry.runtime_data``
+    (``hass.data[DOMAIN]`` is no longer a per-entry store): HA clears the
+    attribute when the entry unloads, so there is no stale coordinator (and
+    no stale empty ``hass.data[DOMAIN]`` dict) left behind after the last
+    uninstall.
     """
-    entry_data = hass.data.get(DOMAIN, {}).get(config_entry.entry_id)
-    if entry_data is None:
+    coordinator = getattr(config_entry, "runtime_data", None)
+    if coordinator is None:
         return None
-    return entry_data.miniserver
+    return getattr(coordinator, "miniserver", None)
 
 
 @dataclass

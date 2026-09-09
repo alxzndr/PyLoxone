@@ -75,6 +75,7 @@ from .const import (
     loxone_uuid_signal,
 )
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
+from .helpers import MINIMUM_SUPPORTED_FIRMWARE, meets_minimum_firmware
 from .pyloxone_api.exceptions import (
     LoxoneUnauthorisedError,
     LoxoneServiceUnAvailableError,
@@ -137,7 +138,7 @@ RELOAD_SCHEMA = vol.Schema(
 # for it, CORE-09 / WP-3.4).
 AUTH_RETRY_MAX_ATTEMPTS = 5
 AUTH_RETRY_MIN_ELAPSED_SECONDS = 300
-_AUTH_FAILURES = "auth_failures"  # key in hass.data[DOMAIN]; a plain dict is not a coordinator
+_AUTH_FAILURES = "auth_failures"  # key in hass.data[DOMAIN]; a plain dict that must not outlive the last counting entry
 
 # TODO: get version and check for updates https://update.loxone.com/updatecheck.xml?serial=xxxxxxxxx
 
@@ -165,7 +166,13 @@ async def async_unload_entry(hass, config_entry):
     # that the unload succeeded (CORE-06).  What ``async_on_unload``
     # cannot express (awaiting a cancel, killing the connection) is done
     # here, in dependency order.
-    coordinator = _hass_data(hass).get(config_entry.entry_id)
+    #
+    # CORE-31 (WP-5.2): the coordinator lives on ``config_entry.runtime_data``,
+    # not ``hass.data[DOMAIN][entry_id]``.  HA deletes the runtime_data
+    # attribute itself once this callback reports success — and with nothing
+    # else holding the domain key, ``hass.data[DOMAIN]`` can no longer rot
+    # as a stale empty dict after the last unload.
+    coordinator = getattr(config_entry, "runtime_data", None)
     if coordinator is not None:
         # Cancel the session supervisor *before* the connection drops:
         # it otherwise wakes on the socket close and re-raises into
@@ -183,9 +190,9 @@ async def async_unload_entry(hass, config_entry):
         except Exception as e:
             _LOGGER.warning("Error closing connection: %s", e)
 
-    _hass_data(hass).pop(config_entry.entry_id, None)
     # The in-flight 401-retry bookkeeping would otherwise survive the
-    # reload; drop it too (CORE-09).
+    # reload; drop it too (CORE-09).  It also removes a now-empty
+    # ``hass.data[DOMAIN]`` (CORE-31: no stale dict after the last unload).
     _clear_auth_failure(hass, config_entry)
 
     # CORE-04: the domain services are integration-wide, not per entry —
@@ -205,7 +212,8 @@ async def async_unload_entry(hass, config_entry):
 
 def _loxone_coordinator_by_uuid(hass: HomeAssistant, uuid: str) -> LoxoneCoordinator | None:
     """The already-loaded loxone coordinator whose structure file contains ``uuid``."""
-    for coordinator in hass.data.get(DOMAIN, {}).values():
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        coordinator = getattr(entry, "runtime_data", None)
         if isinstance(coordinator, LoxoneCoordinator) and uuid in coordinator.known_uuids:
             return coordinator
     return None
@@ -241,7 +249,8 @@ def _resolve_outbound_target(hass: HomeAssistant, data: dict) -> tuple[LoxoneCoo
         raise ServiceValidationError(f"Unknown entity: {device_id}")
     if registry_entry.platform != DOMAIN:
         raise ServiceValidationError(f"Entity {device_id} does not belong to the loxone integration")
-    coordinator = hass.data.get(DOMAIN, {}).get(registry_entry.config_entry_id)
+    entry = hass.config_entries.async_get_entry(registry_entry.config_entry_id)
+    coordinator = getattr(entry, "runtime_data", None) if entry is not None else None
     if not isinstance(coordinator, LoxoneCoordinator):
         raise ServiceValidationError(f"Entity {device_id} belongs to a loxone entry that is not loaded")
     # Command-address semantics are unchanged from the pre-fix handler:
@@ -571,11 +580,11 @@ def _auth_failure_tracker(hass) -> dict:
 
     HA re-creates the coordinator on every setup attempt, so the counter and
     first-failure timestamp must not live on the coordinator.  They are kept
-    in ``hass.data[DOMAIN]["auth_failures"]`` (a plain dict keyed by entry id,
-    ignored by the coordinator-lookup helpers which test
-    ``hasattr(value, ...)``).  Removed again by :func:`_clear_auth_failure`
-    once all counters are reset, so the domain data never holds stale
-    non-coordinator keys. (CORE-09)
+    in ``hass.data[DOMAIN][_AUTH_FAILURES]`` (a plain dict keyed by entry id,
+    ignored by the coordinator lookups, which now read
+    ``config_entry.runtime_data`` — CORE-31).  Removed again by
+    :func:`_clear_auth_failure` once all counters are reset, so the domain
+    data never holds stale non-coordinator state (CORE-09).
     """
     return _hass_data(hass).setdefault(_AUTH_FAILURES, {})
 
@@ -601,15 +610,19 @@ def _record_auth_failure(hass, config_entry, now=None):
 def _clear_auth_failure(hass, config_entry) -> None:
     """Reset the consecutive-auth-failure counter after a successful setup.
 
-    Also removes the empty ``auth_failures`` dict from ``hass.data[DOMAIN]``
-    so the domain data contains no non-coordinator keys while every entry
-    that should be live is live (``system_health`` iterates that dict and
-    reports "Unavailable" for any value lacking a ``miniserver``).
+    Also removes the empty ``auth_failures`` dict from ``hass.data[DOMAIN]`` —
+    and with the coordinator now on ``config_entry.runtime_data`` (CORE-31)
+    this is the *only* thing that key ever holds anymore, so a once-empty
+    dict is dropped from ``hass.data`` entirely: no stale ``hass.data[DOMAIN]``
+    survives the last unload.
     """
     tracker = _hass_data(hass).setdefault(_AUTH_FAILURES, {})
     tracker.pop(config_entry.entry_id, None)
-    if not tracker:
-        _hass_data(hass).pop(_AUTH_FAILURES, None)
+    domain_data = hass.data.get(DOMAIN)
+    if not tracker and isinstance(domain_data, dict):
+        domain_data.pop(_AUTH_FAILURES, None)
+        if not domain_data:
+            hass.data.pop(DOMAIN, None)
 
 
 def _should_escalate_auth_failure(consecutive_count, first_failure_time, now) -> bool:
@@ -624,6 +637,91 @@ def _should_escalate_auth_failure(consecutive_count, first_failure_time, now) ->
     retrying (WP-3.4 makes it terminal via reauth).
     """
     return consecutive_count >= AUTH_RETRY_MAX_ATTEMPTS and (now - first_failure_time) >= AUTH_RETRY_MIN_ELAPSED_SECONDS
+
+
+# --------------------------------------------------------------------------- #
+# CORE-30 (WP-5.2): repair issues
+#
+# Per-entry issue ids (``<key>_<entry_id>``): two Miniservers on one HA
+# instance must never share an issue.  All issues here are created
+# non-persistent: they re-derive themselves on the next setup, and HA drops
+# them with the entry on removal.  ``ir.async_create_issue`` with the same
+# id replaces, ``ir.async_delete_issue`` of a missing id is a no-op — so a
+# create/delete pair on every setup is structurally idempotent.
+# --------------------------------------------------------------------------- #
+
+
+def _auth_failed_issue_id(entry_id: str) -> str:
+    """The per-entry ``auth_failed`` repair issue id (CORE-30)."""
+    return f"auth_failed_{entry_id}"
+
+
+def _async_report_auth_failure(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    """Register this entry's ``auth_failed`` repair issue (CORE-30).
+
+    Called at both points where the Miniserver rejects the *stored*
+    credentials: the bounded 401 escalation in ``async_setup_entry`` (which
+    escalates to ``ConfigEntryAuthFailed`` + reauth) and the 401 that ends
+    a live session in ``run_loxone_session`` (which starts reauth directly).
+    The reauth flow, once the user submits working credentials, updates and
+    reloads the entry; a successful setup then removes the issue (see
+    :func:`_async_clear_auth_failure_issue`).  Until reauth completes, the
+    issue stays — that is the acceptance of "auth_failed (until reauth
+    completes)".
+    """
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        _auth_failed_issue_id(config_entry.entry_id),
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="auth_failed",
+        translation_placeholders={
+            "host": str(config_entry.data.get(CONF_HOST, config_entry.options.get(CONF_HOST, ""))),
+        },
+    )
+
+
+def _async_clear_auth_failure_issue(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
+    """Remove the ``auth_failed`` issue once setup succeeds (reauth done) (CORE-30)."""
+    ir.async_delete_issue(hass, DOMAIN, _auth_failed_issue_id(config_entry.entry_id))
+
+
+def _unsupported_firmware_issue_id(entry_id: str) -> str:
+    """The per-entry ``unsupported_firmware`` repair issue id (CORE-30)."""
+    return f"unsupported_firmware_{entry_id}"
+
+
+def _async_reconcile_firmware_issue(hass: HomeAssistant, config_entry: ConfigEntry, software_version: str) -> None:
+    """Create/remove the ``unsupported_firmware`` issue from the reported firmware (CORE-30).
+
+    Called on every successful setup with the Miniserver's
+    ``softwareVersion`` (string form; see ``MiniServer.software_version``).
+    A firmware that is at least :data:`MINIMUM_SUPPORTED_FIRMWARE` removes the
+    issue (a no-op when it has never been created); a confirmed too-low
+    firmware creates the WARNING issue.  Unparseable/missing versions are
+    treated as supported by :func:`meets_minimum_firmware` — the repair
+    must never fire on versions the integration cannot verify (VERIFY note
+    in ``helpers.py`` about the actual floor applies before merge).
+    """
+    issue_id = _unsupported_firmware_issue_id(config_entry.entry_id)
+    if meets_minimum_firmware(software_version):
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        is_persistent=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="unsupported_firmware",
+        translation_placeholders={
+            "version": str(software_version),
+            "minimum": ".".join(str(part) for part in MINIMUM_SUPPORTED_FIRMWARE),
+        },
+    )
 
 
 async def _persist_token_and_close(hass, config_entry, coordinator, _event) -> None:
@@ -713,6 +811,9 @@ async def async_setup_entry(hass, config_entry):
                     attempt,
                     AUTH_RETRY_MIN_ELAPSED_SECONDS // 60,
                 )
+                # CORE-30 (WP-5.2): the rejected-credential state is a repair
+                # issue until reauth completes (a successful setup removes it).
+                _async_report_auth_failure(hass, config_entry)
                 raise ConfigEntryAuthFailed(
                     f"Miniserver at {host} rejected the stored credentials {attempt} consecutive times during setup"
                 ) from err
@@ -739,6 +840,10 @@ async def async_setup_entry(hass, config_entry):
                 await coordinator.api.close()
 
     _clear_auth_failure(hass, config_entry)
+    # CORE-30 (WP-5.2): setup succeeded, so the stored credentials work (or
+    # reauth just completed with new ones) — remove this entry's auth_failed
+    # repair issue.  No-op if it was never created.
+    _async_clear_auth_failure_issue(hass, config_entry)
 
     _LOGGER.info(
         "Successfully connected to Loxone Miniserver at %s",
@@ -764,9 +869,18 @@ async def async_setup_entry(hass, config_entry):
     # the child devices that point at it via ``via_device``.
     coordinator.miniserver.async_update_device_registry()
 
+    # CORE-30 (WP-5.2): a firmware below the floor is a repair issue, not a
+    # silent accident; at or above it removes a stray issue (no-op).
+    _async_reconcile_firmware_issue(hass, config_entry, coordinator.miniserver.software_version)
+
     config_entry.async_on_unload(config_entry.add_update_listener(_entry_updated))
 
-    _hass_data(hass)[config_entry.entry_id] = coordinator
+    # CORE-31 (WP-5.2): the coordinator is owned by the config entry itself
+    # (``runtime_data``), not by a long-lived ``hass.data[DOMAIN]`` dict.
+    # HA removes the attribute when the entry unloads; platforms, services,
+    # diagnostics and entity code all read it from the entry (see
+    # ``miniserver.get_miniserver_from_hass``).
+    config_entry.runtime_data = coordinator
 
     # Platforms create their entities exclusively from the config entry
     # in their ``async_setup_entry``; the redundant
@@ -806,6 +920,10 @@ async def async_setup_entry(hass, config_entry):
                 host,
                 e,
             )
+            # CORE-30 (WP-5.2): make the rejected-credential state visible as
+            # a repair issue; the reauth completion (successful setup) removes
+            # it.
+            _async_report_auth_failure(hass, config_entry)
             config_entry.async_start_reauth(hass)
         except asyncio.CancelledError:
             raise
@@ -1050,7 +1168,9 @@ class LoxoneEntity(Entity):
             entry = getattr(self, "config_entry", None)
         if entry is None:
             return None
-        coordinator = getattr(hass_obj, "data", {}).get(DOMAIN, {}).get(entry.entry_id)
+        # CORE-31 (WP-5.2): the coordinator is reached via the config entry
+        # (``runtime_data``), not via ``hass.data[DOMAIN]``.
+        coordinator = getattr(entry, "runtime_data", None)
         return coordinator if (coordinator is not None and hasattr(coordinator, "connected")) else None
 
     @property
