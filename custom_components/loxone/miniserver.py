@@ -108,9 +108,7 @@ class MiniServer:
         """
         serial = self.serial
         if not isinstance(serial, str) or not serial:
-            _LOGGER.warning(
-                "Miniserver structure file has no msInfo.serialNr; no host device will be registered"
-            )
+            _LOGGER.warning("Miniserver structure file has no msInfo.serialNr; no host device will be registered")
             return
 
         device_registry = dr.async_get(self.hass)

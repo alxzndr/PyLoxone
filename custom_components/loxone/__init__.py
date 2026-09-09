@@ -75,7 +75,6 @@ from .const import (
     loxone_uuid_signal,
 )
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
-from .miniserver import get_miniserver_from_hass
 from .pyloxone_api.exceptions import (
     LoxoneUnauthorisedError,
     LoxoneServiceUnAvailableError,
@@ -451,6 +450,7 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
         )
         _LOGGER.error("Can't create group '%s' with error: %s", name, err)
 
+
 # CORE-15 / PS-14: the auto-groups and the control type each one collects.
 # The types are the PS-14 constants — the strings the platforms emit in
 # their ``device_type`` state attribute.  The old table matched literals
@@ -534,8 +534,9 @@ async def create_loxone_groups(hass, config_entry):
     # the master never references a group that was never created.
     master_members = [f"group.{oid}" for oid in LOXONE_GROUPS_BY_OBJECT_ID if groups.get(oid)]
     if master_members:
-        await create_group_for_loxone_entities(hass, master_members, LOXONE_GROUP_MASTER_NAME, LOXONE_GROUP_MASTER_OBJECT_ID)
-
+        await create_group_for_loxone_entities(
+            hass, master_members, LOXONE_GROUP_MASTER_NAME, LOXONE_GROUP_MASTER_OBJECT_ID
+        )
 
 
 def _hass_data(hass) -> dict:

@@ -58,7 +58,9 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
         self.type = "LightControllerV2"
-        self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+        )
 
     @property
     def mood_list_uuid(self):

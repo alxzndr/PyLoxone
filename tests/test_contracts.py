@@ -25,6 +25,7 @@ TRANSLATIONS_DIR = INTEGRATION_DIR / "translations"
 SERVICES_YAML = INTEGRATION_DIR / "services.yaml"
 MANIFEST_JSON = INTEGRATION_DIR / "manifest.json"
 
+
 def _load_en() -> dict:
     return json.loads((TRANSLATIONS_DIR / "en.json").read_text())
 
@@ -98,7 +99,6 @@ def _device_type_literals() -> set[str]:
         if value is not None and not value.startswith("Loxone "):
             literals.add(value)
     return literals
-
 
 
 def _platform_modules() -> list[str]:
@@ -259,7 +259,6 @@ def test_grouping_table_device_types_are_produced() -> None:
         f"device_type values missing from platform output: {sorted(unmatched)}. "
         f"Platforms emit {sorted(produced)}; fix the table or a platform (PS-14)."
     )
-
 
 
 # Constrain the reader: no glob side-effects.

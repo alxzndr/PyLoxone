@@ -29,7 +29,6 @@ from homeassistant.const import (
     CONF_UNIT_OF_MEASUREMENT,
     LIGHT_LUX,
     PERCENTAGE,
-    STATE_UNKNOWN,
     UnitOfEnergy,
     UnitOfPower,
     UnitOfRatio,
@@ -49,7 +48,6 @@ from . import LoxoneEntity
 from .const import (
     CONF_ACTIONID,
     DEVICE_TYPE_ANALOG,
-    DOMAIN,
     ERROR_VALUE,
     EVENT,
     THROTTLE_KEEP_ALIVE_TIME,
@@ -372,7 +370,9 @@ async def async_setup_entry(
     for irc in iter_controls(hass, config_entry, "IRoomControllerV2"):
         try:
             states = irc.get("states", {})
-            device_info = device_info_for(config_entry, irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", ""))
+            device_info = device_info_for(
+                config_entry, irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", "")
+            )
 
             if "overrideReason" in states:
                 entities.append(
@@ -799,7 +799,9 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
         self._cool_demand = 0
         self.type = "ClimateController"
 
-        self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+        )
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: every monitored state stream of the climate controller.

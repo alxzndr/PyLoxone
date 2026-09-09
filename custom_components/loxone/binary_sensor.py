@@ -15,7 +15,6 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from . import LoxoneEntity
 from .const import DEVICE_TYPE_BINARY_SENSOR
 from .helpers import device_info_for, iter_controls
-from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
 DEFAULT_NAME = "Loxone Binary Sensor"
@@ -48,7 +47,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up entry."""
-    miniserver = get_miniserver_from_hass(hass, config_entry)
     entities = []
 
     for sensor in iter_controls(hass, config_entry, "InfoOnlyDigital"):

@@ -102,7 +102,9 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
             self.type = "ColorPickerV2"
             # Standalone picker: the device identifier must be a string
             # (PC-05 — `self._light_controller_id` is `None` here).
-            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(
+                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            )
 
     @cached_property
     def unique_id(self) -> str:
@@ -209,7 +211,9 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
             self.type = "ColorPickerV2"
             # Standalone picker: the device identifier must be a string
             # (PC-05 — `self._light_controller_id` is `None` here).
-            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(
+                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            )
 
     @cached_property
     def unique_id(self) -> str:
@@ -306,4 +310,6 @@ class LumiTech(RGBColorPicker):
             )
         else:
             self.type = "LumiTech"
-            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(
+                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            )
