@@ -43,6 +43,27 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 - CI, lint and the offline test harness (WP-0.1/0.2)
 - `CHANGELOG.md`, `CONTRIBUTING.md`, `release.yaml`, `ISSUE_TEMPLATE` forms
 
+### Documentation
+
+- README, CONTRIBUTING and CI docs parity (WP-5.4, TOOL-13, TOOL-14 remainder, CORE-24 docs side):
+  - "Configuration" and "Configuration options" sections: the connection
+    fields (incl. the `verify_ssl` security note) and all five options with
+    defaults and effect — `generate_scenes`, `generate_scenes_delay` (why
+    the minimum is 3), `generate_lightcontroller_subcontrols`,
+    `generate_groups` (new-install default off vs pre-option installs)
+  - "Services" table covering **all** services of `services.yaml` (was: 1 of 7)
+  - "Entities and attributes" reference per platform (domain, extra state
+    attributes, entity services)
+  - `loxone_event` payload documented, including the multi-instance
+    `entry_id` field; logger snippet fixed (`custom_components.loxone.api`
+    never existed — the client is `custom_components.loxone.pyloxone_api`)
+  - minimum-version claim aligned with `hacs.json` (Home Assistant
+    2026.7.0+) and the Python 3.14.2 floor
+  - CONTRIBUTING: `scripts/setup`, `scripts/lint`, `pytest`, minimum
+    Python 3.14.2
+  - CI now has a `docs-services` job (and `tests/test_docs_readme.py`) that
+    fails when a `services.yaml` service is not documented in the README
+
 ### Changed
 
 - The `loxone_options` option `generate_groups` (new: default `false`;

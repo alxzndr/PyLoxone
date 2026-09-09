@@ -64,6 +64,38 @@ jobs:
         run: pytest -q
 
   # ---------------------------------------------------------------------------
+  # docs-services: every top-level key of services.yaml must be documented
+  # in the README (as loxone.<key>).  Mirrors tests/test_docs_readme.py.
+  # ---------------------------------------------------------------------------
+  docs-services:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Every services.yaml service is documented in README.md
+        run: |-
+          python - <<'PY'
+          import re, sys
+
+          keys = [
+              m.group(1)
+              for line in open("custom_components/loxone/services.yaml")
+              if (m := re.match(r"^([A-Za-z_]\w*):", line))
+          ]
+          assert keys, "services.yaml parsed to zero services"
+          readme = open("README.md").read()
+          missing = [k for k in keys if f"loxone.{k}" not in readme]
+          if missing:
+              print("services.yaml keys missing from README.md:")
+              for k in missing:
+                  print(f"  - {k}")
+              sys.exit(1)
+          print(f"README documents all {len(keys)} services of services.yaml")
+          PY
+
+  # ---------------------------------------------------------------------------
   # hassfest: validate manifest/config_flow against the Home Assistant schema.
   # ---------------------------------------------------------------------------
   hassfest:

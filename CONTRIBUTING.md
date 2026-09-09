@@ -13,7 +13,8 @@ docs](https://developers.home-assistant.io/) cover most of what you need.
 | `custom_components/loxone/pyloxone_api/` | the Loxone websocket protocol client (hass-unaware) |
 | `tests/` | pytest suite (see below) |
 | `docs/review/` | the October 2026 findings catalogue + remediation plan (WPs) |
-| `scripts/lint` | local lint script (ruff) |
+| `scripts/lint` | local lint + format script (ruff, mirrors the blocking CI subset) |
+| `scripts/setup` | devcontainer bootstrap: installs the runtime and seeds `config/` with `hass --script ensure_config` |
 
 ## Setting up a dev environment
 
@@ -21,11 +22,16 @@ docs](https://developers.home-assistant.io/) cover most of what you need.
 git clone git@github.com:JoDehli/PyLoxone
 cd PyLoxone
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-Requires **Python 3.14** (the Home Assistant runtime `requirements.txt`
-pinned at 2026.8.1 demands it).
+Requires **Python 3.14.2 or newer** (`homeassistant==2026.8.1`, the version
+pinned by `pytest-homeassistant-custom-component`, refuses to import on
+older CPythons; the Home Assistant 2026.x runtime itself has the same
+floor). The devcontainer (`.devcontainer.json`) runs
+`scripts/setup` on start, which does this plus `hass --script
+ensure_config` so `config/` is a valid Home Assistant config for local
+debug runs.
 
 ### `pytest-homeassistant-custom-component` (phcc)
 
@@ -45,13 +51,18 @@ From the repository root:
 pytest -q                                     # full suite (offline markers only)
 ruff check .                                  # lint
 ruff format --check .                         # format check
-bash scripts/lint                             # both at once
+bash scripts/lint                             # blocking lint subset + format at once
 ```
+
+The blocking subset in CI (and in `scripts/lint`) is
+`ruff check . --select F,E9,PLE,B,T20,S307,ASYNC,RUF006`.
 
 A contribution is not considered *done* until all three of the above pass.
 The `ci` GitHub Action (`.github/workflows/ci.yaml`) runs the exact same
-matrix, plus `hassfest`, `hacs`, and a translation-key-parity check
-(`de.json` must be a superset of `en.json`).
+matrix, plus `hassfest`, `hacs`, the translation-key-parity check
+(`de.json` must be a superset of `en.json`), and a docs check that every
+service in `custom_components/loxone/services.yaml` is also documented in
+`README.md` (the same audit as `tests/test_docs_readme.py`).
 
 ## Commit style
 
