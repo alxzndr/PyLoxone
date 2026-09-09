@@ -457,9 +457,7 @@ async def test_setup_opens_exactly_one_websocket(hass, mock_entry, enable_custom
     assert len(ws_connects) == 1
     assert ws_connects[0] == "ws://loxberry.local:8080/ws/rfc6455"
 
-    from custom_components.loxone.const import DOMAIN
-
-    coordinator = hass.data[DOMAIN][mock_entry.entry_id]
+    coordinator = mock_entry.runtime_data  # CORE-31
     api = coordinator.api
     assert api.connection is not None  # open() stored the socket (API-01)
     assert api.connection is sockets[0]

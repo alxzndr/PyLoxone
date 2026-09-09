@@ -135,8 +135,8 @@ async def test_two_miniservers_are_isolated(
         await _setup_entry(hass, mock_entry)
         await _setup_entry(hass, mock_entry_b)
 
-        coord_a = hass.data[DOMAIN][mock_entry.entry_id]
-        coord_b = hass.data[DOMAIN][mock_entry_b.entry_id]
+        coord_a = mock_entry.runtime_data  # CORE-31
+        coord_b = mock_entry_b.runtime_data  # CORE-31
         api_a = coord_a.api
         api_b = coord_b.api
         # two independent sessions (different connection objects)
@@ -239,5 +239,9 @@ async def test_two_miniservers_are_isolated(
         assert await hass.config_entries.async_unload(mock_entry_b.entry_id)
         assert await hass.config_entries.async_unload(mock_entry.entry_id)
         await hass.async_block_till_done()
+        # CORE-31: the coordinators are gone from the entries, and the
+        # stale ``hass.data[DOMAIN]`` twin is gone as well.
         assert mock_entry.entry_id not in hass.data.get(DOMAIN, {})
         assert mock_entry_b.entry_id not in hass.data.get(DOMAIN, {})
+        assert getattr(mock_entry, "runtime_data", None) is None
+        assert getattr(mock_entry_b, "runtime_data", None) is None

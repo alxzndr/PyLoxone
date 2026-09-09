@@ -158,6 +158,14 @@
     "yaml_config_present": {
       "title": "Loxone YAML configuration is no longer supported",
       "description": "A `loxone:` block is left in `configuration.yaml`. It was never read since the integration uses config entries, so remove it and recreate the Miniserver as a config entry (Settings > Devices & Services)."
+    },
+    "auth_failed": {
+      "title": "Loxone Miniserver rejected the stored credentials",
+      "description": "The Miniserver at {host} rejected the stored username and password. A re-authentication has been started for this entry (Settings > Devices & Services > Loxone > Re-authentication). The entry and its entities stay down until the re-authentication is completed."
+    },
+    "unsupported_firmware": {
+      "title": "Loxone Miniserver firmware is not supported",
+      "description": "The Miniserver reports firmware {version} and the integration requires at least {minimum}. Update the Miniserver firmware (Loxone Config app) and reload the entry. Until then the JSON websocket session this integration relies on may not be available."
     }
   }
 }

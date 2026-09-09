@@ -242,6 +242,63 @@ def software_version_string(version):
     return str(version)
 
 
+# CORE-30 (WP-5.2): floor for the ``unsupported_firmware`` repair issue.
+#
+# The JSON websocket protocol this integration rides on (public-key token
+# authentication, ``jdev/websocket/api/*`` downloads, token/keep-alive
+# commands such as ``jdev/sys/killtoken``) was introduced with Miniserver
+# firmware 7.0.0.
+#
+# VERIFY against a live Miniserver fleet check before merge: confirm 7.0.0
+# is exactly the floor (i.e. that versions 7.0.x actually serve the files
+# and commands the connection layer uses), because a too-low floor means
+# genuinely broken old Miniservers silently get no repair issue.
+MINIMUM_SUPPORTED_FIRMWARE: tuple[int, ...] = (7, 0, 0)
+
+
+def parse_firmware_version(version) -> tuple[int, ...] | None:
+    """Normalise a Loxone ``softwareVersion`` to a numeric part tuple.
+
+    Accepts both structures the structure file carries — the string form
+    (``"7.1.0.28"``) and the list form (``["7", "1", "0", "28"]``) — and
+    returns the parts as ints, in order. Returns ``None`` when the value is
+    missing or carries a non-numeric part (``"7.1.0.beta"``) so callers
+    can distinguish "checked and fine" from "could not check at all".
+    """
+    if isinstance(version, str):
+        parts = version.split(".")
+    elif isinstance(version, (list, tuple)):
+        parts = [str(part) for part in version]
+    else:
+        return None
+    if not parts:
+        return None
+    values: list[int] = []
+    for part in parts:
+        if not part.isdigit():
+            return None
+        values.append(int(part))
+    return tuple(values)
+
+
+def meets_minimum_firmware(version) -> bool:
+    """Core criteria of the ``unsupported_firmware`` repair issue (CORE-30).
+
+    Compares against :data:`MINIMUM_SUPPORTED_FIRMWARE` with the first three
+    parts (major/minor/micro); fewer parts count as zero beyond what exists,
+    and anything at or above the floor (including *newer* majors such as 8.x)
+    is supported. Unparseable or missing versions return ``True``: the
+    repair issue must not fire for versions the integration cannot verify —
+    the symptom of a truly unsupported Miniserver shows up in connection
+    failures instead, which already retry/reauth.
+    """
+    parsed = parse_firmware_version(version)
+    if parsed is None:
+        return True
+    comparable = tuple(list(parsed[:3]) + [0] * (3 - len(parsed[:3])))
+    return comparable >= MINIMUM_SUPPORTED_FIRMWARE
+
+
 def get_all(json_data, name) -> list[dict]:
     """Return all controls of the given type (or list of types).
 

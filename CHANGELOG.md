@@ -63,6 +63,20 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
     Python 3.14.2
   - CI now has a `docs-services` job (and `tests/test_docs_readme.py`) that
     fails when a `services.yaml` service is not documented in the README
+### Added
+
+- Repairs (CORE-30, WP-5.2): the `auth_failed` repair issue is shown while
+  the stored credentials are rejected and a reauthentication is pending, and
+  disappears once reauth completes with working credentials; the new
+  `unsupported_firmware` warning issue appears when the structure file
+  reports a firmware below 7.0.0 (the floor of the JSON websocket API the
+  integration relies on) and is removed again at/above the floor. Both
+  carry en/de/cs translations alongside the existing `yaml_config_present`
+  issue from WP-3.4. (Upstream: JoDehli/PyLoxone#486, #515 area.)
+- Config entries store their coordinator on `entry.runtime_data` instead of
+  `hass.data["loxone"]` (CORE-31, WP-5.2): nothing is left behind after the
+  last unload, and the stale empty `hass.data["loxone"]` dict no longer
+  survives (verifiable in the test suite: `tests/test_runtime_data.py`).
 
 ### Changed
 
