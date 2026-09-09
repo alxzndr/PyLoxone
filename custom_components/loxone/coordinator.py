@@ -8,9 +8,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL
+from .const import CONF_VERIFY_SSL, DEFAULT_PORT, DEFAULT_VERIFY_SSL
 from .miniserver import MiniServer
-from .pyloxone_api.connection import LoxoneConnection, LoxoneException
+from .pyloxone_api.connection import LoxoneConnection
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,29 +29,38 @@ class LoxoneCoordinator(DataUpdateCoordinator):
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
+        # CORE-12: pass the entry explicitly (the implicit ContextVar lookup
+        # is deprecated) and let the coordinator use ``_async_setup`` as its
+        # first-refresh hook instead of overriding
+        # ``async_config_entry_first_refresh`` (which is what left
+        # ``data``/``last_update_success`` unset forever).
         super().__init__(
             hass,
             logger=_LOGGER,
             name="PyLoxone Coordinator",
+            config_entry=config_entry,
             update_method=None,  # Not polling!
         )
-        self.config_entry = config_entry
-        self._username = config_entry.options[CONF_USERNAME]
-        self._password = config_entry.options[CONF_PASSWORD]
-        self._host = config_entry.options[CONF_HOST]
-        self._port = config_entry.options[CONF_PORT]
-        self._verify_ssl = config_entry.options.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        # ``.get`` (not ``[]``): a partially migrated options dict must not
+        # surface as a KeyError reported as a connection error (CORE-12).
+        options = config_entry.options
+        self._username = options.get(CONF_USERNAME, "")
+        self._password = options.get(CONF_PASSWORD, "")
+        self._host = options.get(CONF_HOST, "")
+        self._port = options.get(CONF_PORT, DEFAULT_PORT)
+        self._verify_ssl = options.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
 
         self.api: LoxoneConnection | None = None
         self.miniserver: MiniServer | None = None
-        self.listeners = []
         # CORE-28: live-ness of the websocket session, flipped by the
         # ``LoxoneConnection.run`` supervisor (API-09) via
         # :meth:`set_connected_state`. Entities combine this with their own
         # ``_attr_available`` (per-entity "value never seen yet").
         self.connected = False
-        # Stored by ``__init__.py`` so entry unload can cancel the session.
-        self._listening_task: asyncio.Task | None = None
+        # The entry's session background task, stored by ``__init__.py`` via
+        # ``config_entry.async_create_background_task`` so unload can cancel
+        # it and so it can never be garbage-collected (CORE-03).
+        self.listening_task: asyncio.Task | None = None
 
     def _on_token_changed(self, token: dict) -> None:
         """API-17: the Miniserver issued a new token - persist it now.
@@ -81,50 +90,50 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.warning("Failed to persist Loxone token change: %s", e)
 
-    async def async_config_entry_first_refresh(self) -> None:
-        _LOGGER.debug("async_config_entry_first_refresh")
-        if self.api and self.api.connection:
-            await self.api.close()
-            self.api.connection = None
+    async def _async_setup(self) -> None:
+        """Open the websocket connection (runs once, on the first refresh).
 
-        if "token" in self.config_entry.data:
-            self.api = LoxoneConnection(
-                host=self._host,
-                port=self._port,
-                username=self._username,
-                password=self._password,
-                token=self.config_entry.data,
-                verify_ssl=self._verify_ssl,
-                # API-19: parse the multi-MB LoxAPP3.json off the event loop.
-                executor=self.hass.async_add_executor_job,
-                # API-17: persist every token change, not just at shutdown.
-                token_change_callback=self._on_token_changed,
-            )
+        CORE-12: this is the coordinator's setup hook inside the stock
+        ``async_config_entry_first_refresh`` — so HA sets ``data`` and
+        ``last_update_success`` and the entry-state checks apply, and
+        ``__init__.py`` no longer re-raises our exceptions from a custom
+        override. The coordinator never polls: ``_async_update_data``
+        returns ``None`` and entities are event-driven.
+        """
+        # CORE-10: a persisted "" token is *absent*. The old
+        # ``"token" in config_entry.data`` check passed the empty token
+        # straight into ``LoxoneConnection``.
+        token = self._references_token()
+        common = dict(
+            host=self._host,
+            port=self._port,
+            username=self._username,
+            password=self._password,
+            verify_ssl=self._verify_ssl,
+            # API-19: parse the multi-MB LoxAPP3.json off the event loop.
+            executor=self.hass.async_add_executor_job,
+            # API-17: persist every token change, not just at shutdown.
+            token_change_callback=self._on_token_changed,
+        )
+        if token is not None:
+            self.api = LoxoneConnection(token=self.config_entry.data, **common)
         else:
-            self.api = LoxoneConnection(
-                host=self._host,
-                port=self._port,
-                username=self._username,
-                password=self._password,
-                verify_ssl=self._verify_ssl,
-                # API-19: parse the multi-MB LoxAPP3.json off the event loop.
-                executor=self.hass.async_add_executor_job,
-                # API-17: persist every token change, not just at shutdown.
-                token_change_callback=self._on_token_changed,
-            )
+            self.api = LoxoneConnection(**common)
         try:
             session = async_get_clientsession(self.hass)
             await self.api.open(session)
-        except LoxoneException as e:
-            _LOGGER.error("Could not connect to Loxone Miniserver")
-            raise e
-        except Exception as e:
-            _LOGGER.error("Could not connect to Loxone Miniserver")
-            raise e
-
+        except Exception:
+            # Log where it happened (host:port) and re-raise;
+            # ``__init__.py`` classifies it and closes the handle.
+            _LOGGER.error("Could not connect to Loxone Miniserver at %s:%s", self._host, self._port)
+            raise
         self.miniserver = MiniServer(self.hass, self.api.structure_file, self.config_entry)
-
         return None
+
+    def _references_token(self) -> str | None:
+        """Return the persisted token, or ``None`` if it is absent/empty."""
+        token = self.config_entry.data.get("token")
+        return token if token else None
 
     def set_connected_state(self, connected: bool) -> None:
         """``on_state`` callback of ``LoxoneConnection.run`` (API-09).
@@ -147,30 +156,27 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         async_dispatcher_send(self.hass, loxone_connected_signal(self.config_entry.entry_id), connected)
 
     async def _async_update_data(self) -> None:
-        """Fetch data from API endpoint.
+        """No polling: state changes flow over the websocket session.
 
-        This is the place to pre-process the data to lookup tables
-        so entities can quickly look up their data.
+        ``async_config_entry_first_refresh`` calls this once to seed
+        ``data``/``last_update_success``; anything else is an event.
         """
         return None
 
-    async def async_cleanup(self):
+    async def async_cleanup(self) -> None:
         """Clean up resources."""
-        if hasattr(self, "listeners"):
-            # Clean up all event listeners
-            for listener in self.listeners:
-                if listener is not None:
-                    listener()
-            self.listeners = []
-
-        # Close API connection
-        if hasattr(self, "api"):
-            # API-17: kill the token on the Miniserver *before* the socket
-            # goes away (entry removal/unload) so it does not linger
-            # server-side. kill_token() is best-effort and a no-op without
-            # a live connection.
-            try:
-                await self.api.kill_token()
-            except Exception as e:
-                _LOGGER.debug("kill_token on cleanup failed: %s", e)
-            await self.api.close()
+        # Guard: unload can race the first refresh, in which case
+        # ``self.api`` was never assigned (CORE-12).
+        api = self.api
+        self.api = None
+        if api is None:
+            return
+        # API-17: kill the token on the Miniserver *before* the socket
+        # goes away (entry removal/unload) so it does not linger
+        # server-side. kill_token() is best-effort and a no-op without
+        # a live connection.
+        try:
+            await api.kill_token()
+        except Exception as e:
+            _LOGGER.debug("kill_token on cleanup failed: %s", e)
+        await api.close()

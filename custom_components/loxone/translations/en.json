@@ -79,7 +79,13 @@
   "services": {
     "reload": {
       "name": "Pyloxone Reload",
-      "description": "Reloads the Loxone integration by reconnecting to the Miniserver and refreshing all entities. This is useful after making configuration changes in Loxone Config or when connection issues occur. All current entity states will be re\\-synchronized from the Miniserver."
+      "description": "Reloads the Loxone integration by reconnecting to the Miniserver and refreshing all entities. This is useful after making configuration changes in Loxone Config or when connection issues occur. All current entity states will be re\\-synchronized from the Miniserver.",
+      "fields": {
+        "entry_id": {
+          "name": "Config entry",
+          "description": "Optional config entry id to restrict the reload to one Miniserver instance (default: all loxone entries)."
+        }
+      }
     },
     "event_websocket_command": {
       "name": "Send Websocket command",

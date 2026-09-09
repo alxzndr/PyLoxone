@@ -12,7 +12,6 @@ from homeassistant.components.scene import Scene
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from .const import CONF_SCENE_GEN, EVENT, SENDDOMAIN
 from .helpers import get_or_create_device, iter_controls
@@ -38,16 +37,6 @@ def parse_mood_list(raw):
     if isinstance(raw, list):
         return [mood for mood in raw if isinstance(mood, dict) and mood.get("id") is not None and "name" in mood]
     return None
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up Scenes."""
-    return True
 
 
 async def async_setup_entry(

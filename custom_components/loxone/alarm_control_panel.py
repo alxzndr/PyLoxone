@@ -7,7 +7,6 @@ from homeassistant.components.alarm_control_panel.const import AlarmControlPanel
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
 from .const import SECUREDSENDDOMAIN, SENDDOMAIN
@@ -39,15 +38,6 @@ def alarm_arm_value(arm_state: AlarmControlPanelState) -> str:
     if arm_state == AlarmControlPanelState.ARMED_AWAY:
         return "delayedon/0"
     raise ValueError(f"{arm_state} is not an arm state")
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up Loxone Alarms from YAML is not supported (config entries only)."""
 
 
 async def async_setup_entry(

@@ -6,10 +6,11 @@ https://github.com/JoDehli/PyLoxone
 """
 
 import asyncio
+import contextlib
 import logging
 import re
 import time
-from functools import cached_property
+from functools import cached_property, partial
 
 import homeassistant.components.group as group
 import voluptuous as vol
@@ -19,7 +20,6 @@ from homeassistant.const import (
     CONF_PASSWORD,
     CONF_PORT,
     CONF_USERNAME,
-    EVENT_HOMEASSISTANT_STARTED,
     EVENT_HOMEASSISTANT_STOP,
 )
 from homeassistant.core import (
@@ -31,9 +31,9 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
-from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.start import async_at_started
 from homeassistant.setup import async_setup_component
 
 from .const import (
@@ -60,10 +60,8 @@ from .const import (
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
 from .miniserver import get_miniserver_from_hass
 from .pyloxone_api.exceptions import (
-    LoxoneConnectionClosedOk,
-    LoxoneConnectionError,
-    LoxoneServiceUnAvailableError,
     LoxoneUnauthorisedError,
+    LoxoneServiceUnAvailableError,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,6 +86,25 @@ CONFIG_SCHEMA = vol.Schema(
 
 _UNDEF: dict = {}
 
+# Optional key of the ``loxone.reload`` service selecting one Miniserver
+# instance by config-entry id (CORE-05: a service call must not have to
+# fan out over *every* entry; an options change reloads only the owning
+# entry via its update listener, not via this service).
+ATTR_ENTRY_ID = "entry_id"
+
+# Services registered in ``async_setup_entry`` and removed again in
+# ``async_unload_entry`` (the last three are legacy names that are no
+# longer registered as domain services but removed defensively).
+_ENTRY_SERVICES = (
+    "event_websocket_command",
+    "event_secured_websocket_command",
+    "sync_areas",
+    "reload",
+    "quick_shade",
+    "enable_sun_automation",
+    "disable_sun_automation",
+)
+
 # A Miniserver that is still booting (firmware update / reboot) answers 401 to
 # authenticated requests for a short window after its HTTP server is back up
 # (see 2026-09-02-pyloxone-401-setup-error.md).  A 401 during setup is therefore
@@ -103,59 +120,54 @@ _AUTH_FAILURES = "auth_failures"  # key in hass.data[DOMAIN]; a plain dict is no
 
 async def async_unload_entry(hass, config_entry):
     """Completely unloads the Loxone integration and closes all connections."""
-    # Get the Miniserver instance from hass.data
-    coordinator = None
-    for co in getattr(hass.data.get(DOMAIN, {}), "values", lambda: [])():
-        if hasattr(co, "config_entry") and co.config_entry.entry_id == config_entry.entry_id:
-            coordinator = co
-            break
+    # CORE-13: unload the platforms *first* and only clean up entry
+    # resources when that unload actually succeeded.  The old order tore
+    # down the connection, popped ``hass.data`` and removed the services
+    # *before* unloading platforms, and discarded a ``False`` result —
+    # leaving a zombie entry marked LOADED with a dead connection behind
+    # it.
+    unload_ok = await hass.config_entries.async_unload_platforms(config_entry, LOXONE_PLATFORMS)
+    if not unload_ok:
+        _LOGGER.error(
+            "Unloading Loxone platforms failed for Miniserver %s; keeping the entry's "
+            "listeners and connection so the unload can be retried.",
+            config_entry.entry_id,
+        )
+        return unload_ok
 
-    # Connection close
+    # Bus/dispatcher listeners, the options-update listener and the
+    # coordinator shutdown have all been registered through
+    # ``config_entry.async_on_unload`` during setup; HA fires them now
+    # that the unload succeeded (CORE-06).  What ``async_on_unload``
+    # cannot express (awaiting a cancel, killing the connection) is done
+    # here, in dependency order.
+    coordinator = _hass_data(hass).get(config_entry.entry_id)
     if coordinator is not None:
+        # Cancel the session supervisor *before* the connection drops:
+        # it otherwise wakes on the socket close and re-raises into
+        # teardown (CORE-03).  The task is the entry's tracked
+        # background task, so HA's unload would cancel it as well — the
+        # direct cancel keeps the ordering deterministic.
+        session_task = coordinator.listening_task
+        if session_task is not None and not session_task.done():
+            session_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await session_task
+
         try:
             await coordinator.async_cleanup()
         except Exception as e:
             _LOGGER.warning("Error closing connection: %s", e)
 
-            # Cancel and await the stored listening task (if any)
-        try:
-            task = getattr(coordinator, "_listening_task", None)
-            if task is not None and not task.done():
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    _LOGGER.debug(f"Error waiting for listening task to finish: {e}")
-
-            # Remove event listeners (if any still present)
-            if hasattr(coordinator, "listeners") and coordinator.listeners:
-                for listener in coordinator.listeners:
-                    try:
-                        listener()  # Unsubscribe the listener
-                    except Exception:
-                        pass
-                coordinator.listeners = []
-
-            hass.data[DOMAIN].pop(config_entry.entry_id, None)
-            # The in-flight 401-retry bookkeeping would otherwise survive the
-            # reload; drop it too (CORE-09).
-            _clear_auth_failure(hass, config_entry)
-        except Exception as e:
-            raise e
+    _hass_data(hass).pop(config_entry.entry_id, None)
+    # The in-flight 401-retry bookkeeping would otherwise survive the
+    # reload; drop it too (CORE-09).
+    _clear_auth_failure(hass, config_entry)
 
     # Services deregistrieren beim Entladen
-    hass.services.async_remove(DOMAIN, "event_websocket_command")
-    hass.services.async_remove(DOMAIN, "event_secured_websocket_command")
-    hass.services.async_remove(DOMAIN, "sync_areas")
-    hass.services.async_remove(DOMAIN, "quick_shade")
-    hass.services.async_remove(DOMAIN, "enable_sun_automation")
-    hass.services.async_remove(DOMAIN, "disable_sun_automation")
-    hass.services.async_remove(DOMAIN, "reload")
+    for service in _ENTRY_SERVICES:
+        hass.services.async_remove(DOMAIN, service)
 
-    # Unload
-    unload_ok = await hass.config_entries.async_unload_platforms(config_entry, LOXONE_PLATFORMS)
     return unload_ok
 
 
@@ -207,15 +219,6 @@ async def async_set_options(hass, config_entry):
         CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN: options_in.pop(CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN, ""),
     }
     hass.config_entries.async_update_entry(config_entry, data=config_entry.data, options=options)
-
-
-async def async_config_entry_updated(hass, entry) -> None:
-    """Handle signals of config entry being updated.
-
-    This is a static method because a class method (bound method), can not be used with weak references.
-    Causes for this is either discovery updating host address or config entry options changing.
-    """
-    pass
 
 
 async def create_group_for_loxone_entities(hass, entities, name, object_id):
@@ -317,10 +320,35 @@ def _should_escalate_auth_failure(consecutive_count, first_failure_time, now) ->
     return consecutive_count >= AUTH_RETRY_MAX_ATTEMPTS and (now - first_failure_time) >= AUTH_RETRY_MIN_ELAPSED_SECONDS
 
 
-async def async_setup_entry(hass, config_entry):
-    if DOMAIN not in hass.data:
-        hass.data[DOMAIN] = {}
+async def _persist_token_and_close(hass, config_entry, coordinator, _event) -> None:
+    """Persist the current token and close the connection on HA stop.
 
+    Module-scoped (not a nested closure): ``EventBus._async_listen_once``
+    repackages the callback into its own wrapper, which poisons
+    coroutine-bound *locally defined* functions; this is the STOP
+    handler that CORE-06 (WP-3.1) registers for life with
+    ``config_entry.async_on_unload``.
+    """
+    api = coordinator.api
+    if api is None:
+        # Cleanup already ran (e.g. a stop during unload): nothing to save.
+        return
+    token = api.get_token_dict()
+    if token:  # CORE-10: persist a token only if we actually hold one
+        hass.config_entries.async_update_entry(
+            config_entry,
+            data={
+                **config_entry.data,  # preserve existing data
+                "token": token["token"],
+                "hash_alg": token.get("hash_alg", ""),
+                "valid_until": token.get("valid_until", 0),
+            },
+        )
+    await api.close()
+
+
+async def async_setup_entry(hass, config_entry):
+    """Set up Loxone from a config entry."""
     if not config_entry.options:
         await async_set_options(hass, config_entry)
 
@@ -333,23 +361,36 @@ async def async_setup_entry(hass, config_entry):
         config_entry.options.get(CONF_PORT),
     )
 
-    # Every branch of the inner block re-raises on failure, so the ``finally``
-    # below is the single place that guarantees the (partially opened) API
-    # handle is closed on *every* setup failure — previously the 401 branch
-    # returned False (no retry, connection leaked) and the 503 branch leaked
-    # too (CORE-09).
+    # Changing the entry's options (host/port/password/scene settings)
+    # must take effect without a manual reload: schedule a reload of
+    # *this* entry (CORE-29; the old ``async_config_entry_updated`` stub
+    # was neither registered nor did anything).
+    # HA fires update listeners as tasks (`listener(hass, entry)`), so
+    # this must be a coroutine function.  Signatures beyond the entry
+    # vary by HA version; only the entry id matters (CORE-29).
+    async def _entry_updated(_updated_entry: ConfigEntry, *_args, **_kwargs) -> None:
+        hass.config_entries.async_schedule_reload(config_entry.entry_id)
+
+    config_entry.async_on_unload(config_entry.add_update_listener(_entry_updated))
+
+    # The coordinator opens the websocket connection inside
+    # ``_async_setup``, which the stock
+    # ``async_config_entry_first_refresh`` (now no longer overridden —
+    # CORE-12) runs once, sets ``data``/``last_update_success`` from, and
+    # wraps *any* failure in ``ConfigEntryNotReady`` (entry ->
+    # setup_retry with HA's automatic backoff).  The actual exception
+    # travels as ``__cause__``.  The ``finally`` below is the single
+    # place that guarantees the (partially opened) API handle is closed
+    # on *every* setup failure — previously the 401 branch returned
+    # False (no retry, connection leaked) and the 503 branch failed to
+    # close at all (CORE-09).
     entry_setup_failed = True
     try:
-        try:
-            await coordinator.async_config_entry_first_refresh()
-            entry_setup_failed = False
-        except LoxoneServiceUnAvailableError as err:
-            _LOGGER.warning(
-                "Loxone Miniserver at %s is unavailable (service restarting?). Will retry automatically",
-                host,
-            )
-            raise ConfigEntryNotReady from err
-        except LoxoneUnauthorisedError as err:
+        await coordinator.async_config_entry_first_refresh()
+        entry_setup_failed = False
+    except ConfigEntryNotReady as err:
+        cause = err.__cause__
+        if isinstance(cause, LoxoneUnauthorisedError):
             # A Miniserver coming out of a reboot answers 401 before auth is
             # ready: retry, and only after the bounded window escalate (CORE-09).
             attempt, first_attempt = _record_auth_failure(hass, config_entry)
@@ -368,33 +409,18 @@ async def async_setup_entry(hass, config_entry):
                     "Miniserver answered 401 during setup; retrying (attempt %i)",
                     attempt,
                 )
-            raise ConfigEntryNotReady from err
-        except OSError as err:
+        elif isinstance(cause, LoxoneServiceUnAvailableError):
             _LOGGER.warning(
-                "Network error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
+                "Loxone Miniserver at %s is unavailable (service restarting?). Will retry automatically",
                 host,
-                err,
             )
-            raise ConfigEntryNotReady from err
-        except (
-            LoxoneConnectionError,
-            LoxoneConnectionClosedOk,
-            TimeoutError,
-            ConnectionError,
-        ) as err:
+        else:
             _LOGGER.warning(
-                "Could not connect to Loxone Miniserver at %s: %s. Will retry automatically",
+                "Could not connect to Loxone Miniserver at %s: %r. Will retry automatically",
                 host,
-                err,
+                cause,
             )
-            raise ConfigEntryNotReady from err
-        except Exception as err:
-            _LOGGER.warning(
-                "Unexpected error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
-                host,
-                err,
-            )
-            raise ConfigEntryNotReady from err
+        raise
     finally:
         if entry_setup_failed:
             if coordinator.api is not None:
@@ -407,15 +433,14 @@ async def async_setup_entry(hass, config_entry):
         host,
     )
 
-    hass.data.setdefault(DOMAIN, {})[config_entry.entry_id] = coordinator
+    _hass_data(hass)[config_entry.entry_id] = coordinator
 
-    setup_tasks = []
+    # Platforms create their entities exclusively from the config entry
+    # in their ``async_setup_entry``; the redundant
+    # ``async_load_platform`` discovery loop passed a ``ConfigEntry``
+    # where a YAML dict was expected and created no entities at all, and
+    # its DomainPlatform was never unloaded (CORE-14).
     await hass.config_entries.async_forward_entry_setups(config_entry, LOXONE_PLATFORMS)
-    for platform in LOXONE_PLATFORMS:
-        setup_tasks.append(hass.async_create_task(async_load_platform(hass, platform, DOMAIN, {}, config_entry)))
-
-    if setup_tasks:
-        await asyncio.wait(setup_tasks)
 
     async def message_callback(message):
         """Fire message on HomeAssistant Bus."""
@@ -444,12 +469,6 @@ async def async_setup_entry(hass, config_entry):
             )
         except asyncio.CancelledError:
             raise
-
-    def start_event() -> None:
-        # A *background* task: it runs for the lifetime of the entry and
-        # must not hold up startup or ``async_block_till_done`` (API-09).
-        listening_task = hass.async_create_background_task(run_loxone_session(), name="loxone-session")
-        coordinator._listening_task = listening_task
 
     async def handle_websocket_command(call):
         """Handle websocket command services."""
@@ -503,150 +522,156 @@ async def async_setup_entry(hass, config_entry):
     async def handle_reload(call):
         """Handle the service call to reload the integration.
 
-        Per entry via ``async_schedule_reload`` (HA handles the safe
-        unload-then-load ordering), instead of unloading *every* entry and
-        then reloading them -- which unloaded each entry twice and churned
-        unrelated Miniserver instances as well (CORE-05).
+        One ``async_schedule_reload`` per entry — HA owns the safe
+        unload-then-load ordering — replacing the old full-unload-then-
+        full-reload pass that unloaded every entry twice and also churned
+        unrelated Miniserver instances (CORE-05).  An optional
+        ``entry_id`` restricts the reload to the one Miniserver that the
+        user named.
         """
         entries = hass.config_entries.async_entries(DOMAIN)
+        requested = call.data.get(ATTR_ENTRY_ID)
+        if requested is not None:
+            entries = [e for e in entries if e.entry_id == requested]
         _LOGGER.info("Reloading %i Loxone config entry(ies) via service call", len(entries))
         for entry in entries:
             hass.config_entries.async_schedule_reload(entry.entry_id)
 
-    async def loxone_discovered(event):
+    async def create_groups(_hass: HomeAssistant) -> None:
+        """Create the auto-groups, once per Miniserver lifetime.
+
+        CORE-06: this used to be a second
+        ``async_listen_once`` for ``EVENT_HOMEASSISTANT_STARTED`` whose
+        unsubscribe was discarded — and after a reload the event never
+        fires again, so group creation was silently dead.  It is now
+        scheduled with ``async_at_started`` (runs when HA starts, or
+        immediately when HA is already running) and the unsubscribe is
+        kept for unload.  The idempotence guard below keeps the
+        immediate execution (reload / new entry on a running HA) from
+        re-running group creation for an install that already has the
+        groups.
+        """
+        if _hass.states.get(f"group.{DOMAIN}_group") is not None:
+            _LOGGER.debug("Loxone auto-groups already exist; skipping group creation")
+            return
         _LOGGER.info("Creating groups")
-        miniserver = get_miniserver_from_hass(hass, config_entry)
-        if miniserver.miniserver_type < 2 and "component" in event.data:
-            if event.data["component"] == DOMAIN:
-                try:
-                    _LOGGER.info("loxone discovered")
-                    await asyncio.sleep(0.1)
-                    # await sync_areas_with_loxone()
-                    entity_ids = hass.states.async_all()
-                    sensors_analog = []
-                    sensors_digital = []
-                    switches = []
-                    covers = []
-                    lights = []
-                    dimmers = []
-                    climates = []
-                    fans = []
-                    accontrols = []
-                    numbers = []
-                    texts = []
-                    buttons = []
+        miniserver = get_miniserver_from_hass(_hass, config_entry)
+        if miniserver is None or miniserver.miniserver_type is None or miniserver.miniserver_type >= 2:
+            return
+        try:
+            _LOGGER.info("loxone discovered")
+            await asyncio.sleep(0.1)
+            # await sync_areas_with_loxone()
+            entity_ids = _hass.states.async_all()
+            sensors_analog = []
+            sensors_digital = []
+            switches = []
+            covers = []
+            lights = []
+            dimmers = []
+            climates = []
+            fans = []
+            accontrols = []
+            numbers = []
+            texts = []
+            buttons = []
 
-                    for s in entity_ids:
-                        s_dict = s.as_dict()
-                        attr = s_dict["attributes"]
-                        if "platform" in attr and attr["platform"] == DOMAIN:
-                            device_type = attr.get("device_type", "")
-                            if device_type in ["analog_sensor", "Meter"]:
-                                sensors_analog.append(s_dict["entity_id"])
-                            elif device_type == "digital_sensor":
-                                sensors_digital.append(s_dict["entity_id"])
-                            elif device_type in ["Jalousie", "Gate", "Window"]:
-                                covers.append(s_dict["entity_id"])
-                            elif device_type in ["Switch", "TimedSwitch"]:
-                                switches.append(s_dict["entity_id"])
-                            elif device_type == "Pushbutton":
-                                buttons.append(s_dict["entity_id"])
-                            elif device_type in ["LightControllerV2"]:
-                                lights.append(s_dict["entity_id"])
-                            elif device_type == "Dimmer":
-                                dimmers.append(s_dict["entity_id"])
-                            elif device_type == "IRoomControllerV2":
-                                climates.append(s_dict["entity_id"])
-                            elif device_type == "Ventilation":
-                                fans.append(s_dict["entity_id"])
-                            elif device_type == "AcControl":
-                                accontrols.append(s_dict["entity_id"])
-                            elif device_type == "Slider":
-                                numbers.append(s_dict["entity_id"])
-                            elif device_type == "TextInput":
-                                texts.append(s_dict["entity_id"])
+            for s in entity_ids:
+                s_dict = s.as_dict()
+                attr = s_dict["attributes"]
+                if "platform" in attr and attr["platform"] == DOMAIN:
+                    device_type = attr.get("device_type", "")
+                    if device_type in ["analog_sensor", "Meter"]:
+                        sensors_analog.append(s_dict["entity_id"])
+                    elif device_type == "digital_sensor":
+                        sensors_digital.append(s_dict["entity_id"])
+                    elif device_type in ["Jalousie", "Gate", "Window"]:
+                        covers.append(s_dict["entity_id"])
+                    elif device_type in ["Switch", "TimedSwitch"]:
+                        switches.append(s_dict["entity_id"])
+                    elif device_type == "Pushbutton":
+                        buttons.append(s_dict["entity_id"])
+                    elif device_type in ["LightControllerV2"]:
+                        lights.append(s_dict["entity_id"])
+                    elif device_type == "Dimmer":
+                        dimmers.append(s_dict["entity_id"])
+                    elif device_type == "IRoomControllerV2":
+                        climates.append(s_dict["entity_id"])
+                    elif device_type == "Ventilation":
+                        fans.append(s_dict["entity_id"])
+                    elif device_type == "AcControl":
+                        accontrols.append(s_dict["entity_id"])
+                    elif device_type == "Slider":
+                        numbers.append(s_dict["entity_id"])
+                    elif device_type == "TextInput":
+                        texts.append(s_dict["entity_id"])
 
-                    sensors_analog.sort()
-                    sensors_digital.sort()
-                    covers.sort()
-                    switches.sort()
-                    buttons.sort()
-                    lights.sort()
-                    climates.sort()
-                    dimmers.sort()
-                    fans.sort()
-                    accontrols.sort()
-                    numbers.sort()
-                    texts.sort()
-                    await async_setup_component(hass, "group", {})
-                    await create_group_for_loxone_entities(
-                        hass, sensors_analog, "Loxone Analog Sensors", "loxone_analog"
-                    )
-                    await create_group_for_loxone_entities(
-                        hass,
-                        sensors_digital,
-                        "Loxone Digital Sensors",
-                        "loxone_digital",
-                    )
-                    await create_group_for_loxone_entities(hass, switches, "Loxone Switches", "loxone_switches")
-                    await create_group_for_loxone_entities(hass, buttons, "Loxone Buttons", "loxone_buttons")
-                    await create_group_for_loxone_entities(hass, covers, "Loxone Covers", "loxone_covers")
-                    await create_group_for_loxone_entities(hass, lights, "Loxone LightControllers", "loxone_lights")
-                    await create_group_for_loxone_entities(hass, lights, "Loxone Dimmer", "loxone_dimmers")
-                    await create_group_for_loxone_entities(hass, climates, "Loxone Room Controllers", "loxone_climates")
-                    await create_group_for_loxone_entities(
-                        hass,
-                        fans,
-                        "Loxone Ventilation Controllers",
-                        "loxone_ventilations",
-                    )
-                    await create_group_for_loxone_entities(
-                        hass,
-                        accontrols,
-                        "Loxone AC Controllers",
-                        "loxone_accontrollers",
-                    )
-                    await create_group_for_loxone_entities(hass, numbers, "Loxone Numbers", "loxone_numbers")
-                    await create_group_for_loxone_entities(hass, texts, "Loxone Texts", "loxone_texts")
-                    await hass.async_block_till_done()
-                    await create_group_for_loxone_entities(
-                        hass,
-                        [
-                            "group.loxone_analog",
-                            "group.loxone_digital",
-                            "group.loxone_switches",
-                            "group.loxone_buttons",
-                            "group.loxone_covers",
-                            "group.loxone_lights",
-                            "group.loxone_ventilations",
-                            "group.loxone_numbers",
-                            "group.loxone_texts",
-                        ],
-                        "Loxone Group",
-                        "loxone_group",
-                    )
-                except Exception as err:
-                    _LOGGER.error(
-                        "Can't create group '%s'. Try to make at least one group manually. ("
-                        "https://www.home-assistant.io/integrations/group/)",
-                        err,
-                    )
-
-    async def stop_event(_):
-        token = coordinator.api.get_token_dict()
-        hass.config_entries.async_update_entry(
-            config_entry,
-            data={
-                **config_entry.data,  # preserve existing data
-                "token": token["token"],
-                "hash_alg": token["hash_alg"],
-                "valid_until": token["valid_until"],
-            },
-        )
-        await coordinator.api.close()
+            sensors_analog.sort()
+            sensors_digital.sort()
+            covers.sort()
+            switches.sort()
+            buttons.sort()
+            lights.sort()
+            climates.sort()
+            dimmers.sort()
+            fans.sort()
+            accontrols.sort()
+            numbers.sort()
+            texts.sort()
+            await async_setup_component(_hass, "group", {})
+            await create_group_for_loxone_entities(_hass, sensors_analog, "Loxone Analog Sensors", "loxone_analog")
+            await create_group_for_loxone_entities(
+                _hass,
+                sensors_digital,
+                "Loxone Digital Sensors",
+                "loxone_digital",
+            )
+            await create_group_for_loxone_entities(_hass, switches, "Loxone Switches", "loxone_switches")
+            await create_group_for_loxone_entities(_hass, buttons, "Loxone Buttons", "loxone_buttons")
+            await create_group_for_loxone_entities(_hass, covers, "Loxone Covers", "loxone_covers")
+            await create_group_for_loxone_entities(_hass, lights, "Loxone LightControllers", "loxone_lights")
+            await create_group_for_loxone_entities(_hass, lights, "Loxone Dimmer", "loxone_dimmers")
+            await create_group_for_loxone_entities(_hass, climates, "Loxone Room Controllers", "loxone_climates")
+            await create_group_for_loxone_entities(
+                _hass,
+                fans,
+                "Loxone Ventilation Controllers",
+                "loxone_ventilations",
+            )
+            await create_group_for_loxone_entities(
+                _hass,
+                accontrols,
+                "Loxone AC Controllers",
+                "loxone_accontrollers",
+            )
+            await create_group_for_loxone_entities(_hass, numbers, "Loxone Numbers", "loxone_numbers")
+            await create_group_for_loxone_entities(_hass, texts, "Loxone Texts", "loxone_texts")
+            await _hass.async_block_till_done()
+            await create_group_for_loxone_entities(
+                _hass,
+                [
+                    "group.loxone_analog",
+                    "group.loxone_digital",
+                    "group.loxone_switches",
+                    "group.loxone_buttons",
+                    "group.loxone_covers",
+                    "group.loxone_lights",
+                    "group.loxone_ventilations",
+                    "group.loxone_numbers",
+                    "group.loxone_texts",
+                ],
+                "Loxone Group",
+                "loxone_group",
+            )
+        except Exception as err:
+            _LOGGER.error(
+                "Can't create group '%s'. Try to make at least one group manually. ("
+                "https://www.home-assistant.io/integrations/group/)",
+                err,
+            )
 
     async def loxone_send(event):
-        """Listen for change Events from Loxone Components"""
+        """Listen for change events from Loxone components."""
         try:
             if event.event_type == SENDDOMAIN and isinstance(event.data, dict):
                 value = event.data.get(ATTR_VALUE, DEFAULT)
@@ -656,8 +681,13 @@ async def async_setup_entry(hass, config_entry):
                 if device_uuid is None:
                     device_uuid = DEFAULT
 
-                _ = asyncio.create_task(  # noqa: RUF006  # TODO(WP-3.1): store/cancel task
-                    coordinator.api.send_websocket_command(device_uuid, value)
+                # Tracked on the entry (CORE-03/RUF006): HA awaits it on
+                # unload; the old bare ``asyncio.create_task`` discarded
+                # the reference the task could be garbage-collected.
+                config_entry.async_create_background_task(
+                    hass,
+                    coordinator.api.send_websocket_command(device_uuid, value),
+                    name="loxone-send-command",
                 )
 
             elif event.event_type == SECUREDSENDDOMAIN and isinstance(event.data, dict):
@@ -670,8 +700,10 @@ async def async_setup_entry(hass, config_entry):
                     value = DEFAULT
                 if device_uuid is None:
                     device_uuid = DEFAULT
-                _ = asyncio.create_task(  # noqa: RUF006  # TODO(WP-3.1): store/cancel task
-                    coordinator.api.send_secured__websocket_command(device_uuid, value, code)
+                config_entry.async_create_background_task(
+                    hass,
+                    coordinator.api.send_secured__websocket_command(device_uuid, value, code),
+                    name="loxone-send-secured-command",
                 )
 
         except Exception as e:
@@ -682,16 +714,33 @@ async def async_setup_entry(hass, config_entry):
     hass.services.async_register(DOMAIN, "event_secured_websocket_command", handle_secured_websocket_command)
     hass.services.async_register(DOMAIN, "sync_areas", handle_sync_areas_with_loxone)
     hass.services.async_register(DOMAIN, "reload", handle_reload)
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_event)
-    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, loxone_discovered)
 
-    # Store listeners for cleanup
-    coordinator.listeners = [
-        hass.bus.async_listen(SENDDOMAIN, loxone_send),
-        hass.bus.async_listen(SECUREDSENDDOMAIN, loxone_send),
-    ]
+    # Every listener is registered-for-life with the config entry
+    # (CORE-06): previously the two ``listen_once`` subscriptions for
+    # ``EVENT_HOMEASSISTANT_STOP``/``STARTED`` discarded their unsubs and
+    # accumulated on every reload, and the two persistent send
+    # subscriptions were cleaned up by a coordinator hook that dead code
+    # skipped.
+    config_entry.async_on_unload(
+        hass.bus.async_listen_once(
+            EVENT_HOMEASSISTANT_STOP, partial(_persist_token_and_close, hass, config_entry, coordinator)
+        )
+    )
+    config_entry.async_on_unload(async_at_started(hass, create_groups))
+    config_entry.async_on_unload(hass.bus.async_listen(SENDDOMAIN, loxone_send))
+    config_entry.async_on_unload(hass.bus.async_listen(SECUREDSENDDOMAIN, loxone_send))
 
-    start_event()
+    # The in-place reconnect supervisor (API-09) is the entry's
+    # long-lived background task.  CORE-03: it now lives through
+    # ``config_entry.async_create_background_task`` — the reference is
+    # stable (the old local variable could be collected), HA keeps it
+    # through the entry lifecycle, and unload cancels it on purpose in
+    # ``async_unload_entry`` before the connection drops.
+    coordinator.listening_task = config_entry.async_create_background_task(
+        hass,
+        run_loxone_session(),
+        name="loxone-session",
+    )
 
     return True
 

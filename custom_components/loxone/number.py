@@ -11,7 +11,6 @@ from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
 from .const import SENDDOMAIN
@@ -22,16 +21,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # A Loxone Slider that ships no step defaults to integer-like steps.
 DEFAULT_SLIDER_STEP = 1.0
-
-
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    """Set up Loxone Number."""
-    return True
 
 
 async def async_setup_entry(

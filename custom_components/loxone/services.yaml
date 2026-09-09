@@ -65,10 +65,15 @@ sync_areas:
 
 reload:
   description: >
-    Reloads the Loxone integration by reconnecting to the Miniserver and 
-    refreshing all entities. This is useful after making configuration 
-    changes in Loxone Config or when connection issues occur. All current 
+    Reloads the Loxone integration by reconnecting to the Miniserver and
+    refreshing all entities. This is useful after making configuration
+    changes in Loxone Config or when connection issues occur. All current
     entity states will be re-synchronized from the Miniserver.
+  fields:
+    entry_id:
+      name: Config entry
+      description: "Optional config entry id to restrict the reload to one Miniserver instance (default: all loxone entries)."
+      example: "019c1234-5678-9abc-def0-123456789abc"
 
 enable_sun_automation:
   description: Enable Sun automation for a Loxone Jalousie (Jalousie covers with sun automation only).

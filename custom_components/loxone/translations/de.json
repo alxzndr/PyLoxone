@@ -79,7 +79,13 @@
   "services": {
     "reload": {
       "name": "Pyloxone Reload",
-      "description": "Lädt die Loxone-Integration neu, indem eine erneute Verbindung zum Miniserver hergestellt und alle Entitäten aktualisiert werden. Dies ist nützlich nach Konfigurationsänderungen in Loxone Config oder bei Verbindungsproblemen. Alle aktuellen Entitätszustände werden vom Miniserver neu synchronisiert."
+      "description": "Lädt die Loxone-Integration neu, indem eine erneute Verbindung zum Miniserver hergestellt und alle Entitäten aktualisiert werden. Dies ist nützlich nach Konfigurationsänderungen in Loxone Config oder bei Verbindungsproblemen. Alle aktuellen Entitätszustände werden vom Miniserver neu synchronisiert.",
+      "fields": {
+        "entry_id": {
+          "name": "Konfigurationseintrag",
+          "description": "Optionale Konfigurations-ID, um den Neulauf auf eine Miniserver-Instanz zu beschränken (Standard: alle loxone-Einträge)."
+        }
+      }
     },
     "event_websocket_command": {
       "name": "Websocket Kommando an Server senden",

@@ -16,6 +16,23 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Fixed
 
+- Setup/unload/reload lifecycle: the session task is tracked on the
+  config entry and cancelled on unload (CORE-03); `EVENT_HOMEASSISTANT_STOP`
+  / `STARTED` listeners no longer accumulate across reloads and the
+  startup group hook uses `homeassistant.helpers.start.async_at_started`
+  (CORE-06); an empty persisted token is no longer passed to the
+  connection (CORE-10); the coordinator passes `config_entry=` and uses
+  the stock first-refresh instead of overriding
+  `async_config_entry_first_refresh`, and `async_cleanup` guards
+  `api is None` (CORE-12); unload unloads platforms first and only
+  cleans up entry resources when that succeeds (CORE-13); the redundant
+  `async_load_platform` loop, six stub `async_setup_platform` functions
+  and the dead `PLATFORM_SCHEMA` leftovers are deleted (CORE-14);
+  changing an option now schedules a reload of that entry (CORE-29);
+  the `loxone.reload` service takes an optional `entry_id` and reloads
+  per entry via `async_schedule_reload` (CORE-05, tail of the interim
+  fix)
+
 - Sensor/binary/switch/select/number/button/scene platforms: one bad
   control or a missing detail key no longer aborts the entire platform
   (per-control `try/except` in every `async_setup_entry`, shared

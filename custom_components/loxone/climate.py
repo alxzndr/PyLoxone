@@ -11,14 +11,12 @@ import json
 import logging
 from abc import ABC
 
-from homeassistant.components.climate import PLATFORM_SCHEMA, ClimateEntity
+from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACAction, HVACMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
-from voluptuous import All, Optional, Range
 
 from . import LoxoneEntity
 from .const import CLIMATE_EVENT, CONF_HVAC_AUTO_MODE, PRESET_PAUSED_WINDOW, PRESET_SCHEDULE, SENDDOMAIN
@@ -74,29 +72,6 @@ class OperatingMode(Enum):
             if member.value[0] == mode:
                 return member
         raise ValueError(f"{mode} is not a valid number for {cls.__name__}")
-
-
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {
-        Optional(CONF_HVAC_AUTO_MODE, default=0): All(int, Range(min=0, max=2)),
-    }
-)
-
-
-# noinspection PyUnusedLocal
-async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
-) -> None:
-    # value_template = config.get(CONF_VALUE_TEMPLATE)
-    # auto_mode = 0 if config.get(CONF_HVAC_AUTO_MODE) is None else config.get(CONF_HVAC_AUTO_MODE)
-    #
-    # if value_template is not None:
-    #     value_template.hass = hass
-    # config = hass.data[DOMAIN]
-    return True
 
 
 async def async_setup_entry(
