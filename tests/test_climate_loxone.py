@@ -1,4 +1,4 @@
-"""WP-1.2 climate KeyError regression tests (`CVE-1.10` / `CVE-43`).
+"""WP-4.1 climate regression tests (PC-10, PC-13, PC-23).
 
 The 3 ``LoxoneRoomController*`` climate classes in ``custom_components/loxone/
 climate.py`` built a ``states`` dict and subscripted it with a bare
@@ -6,11 +6,12 @@ climate.py`` built a ``states`` dict and subscripted it with a bare
 
 * ``LoxoneAcControl.get_state_value`` + every property that reads a state key
   (``fan_mode``/``fan_modes``/``swing_mode``/``swing_modes``/``hvac_mode``)
-  returns the platform default when the control LACKS that state key.
+  returns the platform default when the control LACKS that state key (PC-10).
 * ``temperature_unit`` matches on degree-symbol containment, not
-  ``.find("°")`` (which returns 0 — falsy — when the format starts in ``"°"``).
+  ``.find("°")`` (which returns 0 — falsy — when the format starts in ``"°"``;
+  PC-23).
 * ``LoxoneRoomControllerV2.event_handler`` must not raise ``ValueError`` for an
-  unknown mode value (``CVE-43``); it logs a warning and keeps the state.
+  unknown mode value (PC-13); it logs a warning and keeps the state.
 """
 
 from __future__ import annotations
