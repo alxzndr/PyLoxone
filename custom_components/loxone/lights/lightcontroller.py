@@ -2,11 +2,17 @@ from collections import OrderedDict
 from functools import cached_property
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_EFFECT, ColorMode, LightEntity, LightEntityFeature
-from homeassistant.const import STATE_UNKNOWN
 
 from .. import LoxoneEntity
-from ..const import SENDDOMAIN, STATE_OFF
-from ..helpers import get_or_create_device, hass_to_lox, json_decoder, lox2hass_mapped, lox_to_hass
+from ..const import SENDDOMAIN
+from ..helpers import get_or_create_device, hass_to_lox, hass_to_lox_range, json_decoder, lox_to_hass, lox_to_hass_range
+
+# LCV2 mood ids: `changeTo/0` is the all-off mood, `changeTo/99` the
+# all-on "no mood" state, and an activeMoods payload of `[778]` means there
+# is no mood active (off).  (PC-33: the magic numbers were inline.)
+OFF_MOOD_ID = "0"
+ON_MOOD_ID = "99"
+ALL_OFF_ACTIVE_MOODS = [778]
 
 
 class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
@@ -16,13 +22,11 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
     _attr_color_mode = ColorMode.ONOFF
     _attr_supported_color_modes = {ColorMode.ONOFF}
     _attr_is_on: bool | None = None
-    _attr_state: None = None
     _attr_available = False
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._attr_state = STATE_UNKNOWN
-        self._attr_is_on = STATE_UNKNOWN
+        self._attr_is_on = None
         self._active_moods = []
         self._moodlist = []
         self._additional_moodlist = []
@@ -32,12 +36,9 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         self._master_position_uuid = None
         self._master_min_uuid = None
         self._master_max_uuid = None
-        self._master_min = STATE_UNKNOWN
-        self._master_max = STATE_UNKNOWN
+        self._master_min = None
+        self._master_max = None
         self._async_add_devices = kwargs["async_add_devices"]
-
-        self.kwargs = kwargs
-        self._uuid_dict = {}
 
         self._sub_controls = OrderedDict({})
         for uuid, control in kwargs.get("subControls", {}).items():
@@ -58,11 +59,6 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
 
         self.type = "LightControllerV2"
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
-
-    @property
-    def device_class(self):
-        """Return the class of this device, from component DEVICE_CLASSES."""
-        return self.type
 
     @property
     def mood_list_uuid(self):
@@ -127,24 +123,47 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                     dict(uuid=self.uuidAction, value="addMood/{}".format(_)),
                 )
 
+    @property
+    def _master_min_max_known(self) -> bool:
+        return self._master_min is not None and self._master_max is not None
+
+    def _hass_to_master(self, hass_level) -> float:
+        """HA brightness (1-255) → Loxone value, honouring the master
+        dimmer's min/max (PC-17) and never rounding a non-zero request to
+        0 (PC-18); shares its scaling with LoxoneDimmer."""
+        if self._master_min_max_known:
+            return hass_to_lox_range(hass_level, self._master_min, self._master_max)
+        if not hass_level:
+            return 0
+        return max(1, round(hass_to_lox(hass_level)))
+
     async def async_turn_on(self, **kwargs) -> None:
+        sent_something = False
         if ATTR_EFFECT in kwargs:
             await self.got_effect(**kwargs)
-        elif ATTR_BRIGHTNESS in kwargs and self._master_value_uuid:
+            sent_something = True
+        if ATTR_BRIGHTNESS in kwargs and self._master_value_uuid:
             self.hass.bus.async_fire(
                 SENDDOMAIN,
                 dict(
                     uuid=self._master_value_uuid,
-                    value=round(hass_to_lox(kwargs[ATTR_BRIGHTNESS])),
+                    value=self._hass_to_master(kwargs[ATTR_BRIGHTNESS]),
                 ),
             )
-        elif kwargs == {}:
-            if self.state == STATE_OFF:
-                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="changeTo/99"))
+            sent_something = True
+        # PC-33: a bare `turn_on` while off turns on, and a non-empty
+        # `turn_on` that touched no sub-control (e.g. brightness without a
+        # master dimmer) still emits a command, so a service call never
+        # silently does nothing.
+        if not sent_something:
+            if not kwargs and not self._attr_is_on:
+                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"changeTo/{ON_MOOD_ID}"))
+            elif kwargs:
+                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="on"))
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="changeTo/0"))
+        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"changeTo/{OFF_MOOD_ID}"))
         self.async_schedule_update_ha_state()
 
     async def event_handler(self, event):
@@ -155,33 +174,35 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             request_update = True
 
         if self._master_min_uuid and self._master_min_uuid in event.data:
-            self._master_min = event.data[self._master_min_uuid]
+            try:
+                self._master_min = float(event.data[self._master_min_uuid])
+            except TypeError, ValueError:
+                pass
             request_update = True
 
         if self._master_max_uuid and self._master_max_uuid in event.data:
-            self._master_max = event.data[self._master_max_uuid]
+            try:
+                self._master_max = float(event.data[self._master_max_uuid])
+            except TypeError, ValueError:
+                pass
             request_update = True
 
         if self._master_position_uuid and self._master_position_uuid in event.data:
-            if (
-                self._master_min is not None
-                and self._master_max is not None
-                and self._master_min != "unknown"
-                and self._master_max != "unknown"
-            ):
-                self._attr_brightness = lox2hass_mapped(
-                    event.data[self._master_position_uuid],
-                    self._master_min,
-                    self._master_max,
-                )
-            else:
-                self._attr_brightness = lox_to_hass(event.data[self._master_position_uuid])
-            request_update = True
+            try:
+                position = float(event.data[self._master_position_uuid])
+            except TypeError, ValueError:
+                position = None
+            if position is not None:
+                if self._master_min_max_known:
+                    self._attr_brightness = lox_to_hass_range(position, self._master_min, self._master_max)
+                else:
+                    self._attr_brightness = round(lox_to_hass(position))
+                request_update = True
 
         if self.states["activeMoods"] in event.data:
             self._active_moods = json_decoder(event.data[self.states["activeMoods"]])
             if self._active_moods is not None:
-                if self._active_moods != [778]:
+                if self._active_moods != ALL_OFF_ACTIVE_MOODS:
                     self._attr_is_on = True
                 else:
                     self._attr_is_on = False
@@ -198,10 +219,8 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
 
         if request_update:
             if not self._attr_available:
-                attr_is_on_is_not_unknown = self._attr_is_on == True or self._attr_is_on == False
-                both_master_values_are_not_unknown = (
-                    self._master_min != STATE_UNKNOWN and self._master_max != STATE_UNKNOWN
-                )
+                attr_is_on_is_not_unknown = self._attr_is_on is True or self._attr_is_on is False
+                both_master_values_are_not_unknown = self._master_min_max_known
                 if attr_is_on_is_not_unknown or both_master_values_are_not_unknown:
                     self._attr_available = True
             self.async_schedule_update_ha_state()

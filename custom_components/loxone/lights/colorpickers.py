@@ -1,7 +1,6 @@
 import logging
 from functools import cached_property
 
-import homeassistant.util.color as color_util
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
@@ -9,7 +8,6 @@ from homeassistant.components.light import (
     ColorMode,
     LightEntity,
 )
-from homeassistant.const import STATE_UNKNOWN
 
 from .. import LoxoneEntity
 from ..const import SENDDOMAIN
@@ -17,10 +15,58 @@ from ..helpers import get_or_create_device, hass_to_lox, literal_decoder, lox_to
 
 _LOGGER = logging.getLogger(__name__)
 
+# Kelvin sent when a colour picker `turn_on` needs a temperature but none has
+# ever been reported.  The documented Loxone range is 2700-6500 (PC-39); the
+# value itself is arbitrary inside that range — VERIFY on a live Miniserver.
+DEFAULT_TURN_ON_KELVIN = 4000
+
+
+def plan_turn_on(*, color_mode, hs_color, color_temp_kelvin, brightness, kwargs) -> str:
+    """Build exactly one outgoing command for an RGB colour picker `turn_on`.
+
+    The old inline branch logic could send *nothing* when only `brightness`
+    was requested while the colour mode was still unknown (PC-03, upstream PR
+    #512): neither the HS nor the colour-temp branch matched and the
+    `setBrightness` fallthrough was unreachable.  The precedence is now:
+
+    1. explicit ``hs_color``/``color_temp_kelvin`` kwargs,
+    2. the current colour mode, but only when its companion value is known,
+    3. ``setBrightness`` so that a brightness-only service call always emits
+       *something*.
+
+    The brightness used on the wire is the requested one, or the last known
+    one, or 255 if nothing has ever been reported.
+    """
+    level = kwargs.get(ATTR_BRIGHTNESS, brightness) or 255
+    if ATTR_HS_COLOR in kwargs:
+        hue, sat = kwargs[ATTR_HS_COLOR]
+        return "hsv({}, {}, {})".format(hue, sat, hass_to_lox(level))
+    if ATTR_COLOR_TEMP_KELVIN in kwargs:
+        return "temp({}, {})".format(hass_to_lox(level), kwargs[ATTR_COLOR_TEMP_KELVIN])
+    if color_mode is ColorMode.HS and hs_color is not None:
+        return "hsv({}, {}, {})".format(hs_color[0], hs_color[1], hass_to_lox(level))
+    if color_mode is ColorMode.COLOR_TEMP and color_temp_kelvin is not None:
+        return "temp({}, {})".format(hass_to_lox(level), color_temp_kelvin)
+    return "setBrightness/{}".format(hass_to_lox(level))
+
+
+def plan_temp_turn_on(*, color_temp_kelvin, brightness, kwargs) -> str:
+    """Build the outgoing command for a TunableWhite picker `turn_on`.
+
+    Defaults for the unreported state (brightness 255, a kelvin in the
+    documented 2700-6500 range) are applied *before* formatting, so a
+    `turn_on` before the first state cannot raise or emit ``None`` (PC-11).
+    """
+    if not kwargs:
+        return "On"
+    level = kwargs.get(ATTR_BRIGHTNESS, brightness) or 255
+    kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN, color_temp_kelvin) or DEFAULT_TURN_ON_KELVIN
+    return "temp({}, {})".format(hass_to_lox(level), kelvin)
+
 
 class TunableWhiteLight(LoxoneEntity, LightEntity):
     _attr_max_color_temp_kelvin = 6500
-    _attr_min_color_temp_kelvin = 2000
+    _attr_min_color_temp_kelvin = 2700
 
     _attr_supported_color_modes: set[ColorMode] = {ColorMode.COLOR_TEMP}
     _attr_available = False
@@ -28,8 +74,7 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         """Initialize the Tunable White Light."""
-        self._attr_state = STATE_UNKNOWN
-        self._attr_is_on = STATE_UNKNOWN
+        self._attr_is_on = None
         self._attr_unique_id = self.uuidAction
         self._attr_color_mode = ColorMode.UNKNOWN
         self._color_uuid = kwargs.get("states", {}).get("color", None)
@@ -48,7 +93,9 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
             self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
         else:
             self.type = "ColorPickerV2"
-            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
+            # Standalone picker: the device identifier must be a string
+            # (PC-05 — `self._light_controller_id` is `None` here).
+            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     @cached_property
     def unique_id(self) -> str:
@@ -59,31 +106,27 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
     def is_on(self) -> bool:
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
-    async def async_turn_off(self) -> None:
+    async def async_turn_off(self, **kwargs) -> None:
         self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="setBrightness/0"))
         self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
             self._attr_color_temp_kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="temp({},{})".format(hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin),
-                ),
-            )
-        elif ATTR_BRIGHTNESS in kwargs:
+        if ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="temp({},{})".format(hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin),
+        self.hass.bus.async_fire(
+            SENDDOMAIN,
+            dict(
+                uuid=self.uuidAction,
+                value=plan_temp_turn_on(
+                    color_temp_kelvin=self._attr_color_temp_kelvin,
+                    brightness=self._attr_brightness,
+                    kwargs=kwargs,
                 ),
-            )
-        else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="On"))
+            ),
+        )
+        self.async_schedule_update_ha_state()
 
     async def event_handler(self, e):
         request_update = False
@@ -118,9 +161,8 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
 
 
 class RGBColorPicker(LoxoneEntity, LightEntity):
-    __color_mode_reported = True
     _attr_max_color_temp_kelvin = 6500
-    _attr_min_color_temp_kelvin = 2000
+    _attr_min_color_temp_kelvin = 2700
     _attr_available = False
 
     _attr_supported_color_modes: set[ColorMode] = {
@@ -130,7 +172,7 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        """Initialize the LumiTech."""
+        """Initialize the RGB color picker."""
         self._attr_unique_id = self.uuidAction
         self._attr_color_mode = ColorMode.UNKNOWN
         self._color_uuid = kwargs.get("states", {}).get("color", None)
@@ -150,7 +192,9 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
             self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
         else:
             self.type = "ColorPickerV2"
-            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
+            # Standalone picker: the device identifier must be a string
+            # (PC-05 — `self._light_controller_id` is `None` here).
+            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     @cached_property
     def unique_id(self) -> str:
@@ -161,64 +205,35 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
     def is_on(self) -> bool:
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
-    async def async_turn_off(self) -> None:
+    async def async_turn_off(self, **kwargs) -> None:
         self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="setBrightness/0"))
         self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         if ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
-        else:
-            self._attr_brightness = self._attr_brightness or 255
-        if ATTR_HS_COLOR in kwargs:
-            r, g, b = color_util.color_hs_to_RGB(kwargs[ATTR_HS_COLOR][0], kwargs[ATTR_HS_COLOR][1])
-            h, s, v = color_util.color_RGB_to_hsv(r, g, b)
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="hsv({},{},{})".format(h, s, hass_to_lox(self._attr_brightness)),
-                ),
-            )
-        elif ATTR_COLOR_TEMP_KELVIN in kwargs:
+        if ATTR_COLOR_TEMP_KELVIN in kwargs:
             self._attr_color_temp_kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="temp({},{})".format(hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin),
+            self._attr_color_mode = ColorMode.COLOR_TEMP
+        if ATTR_HS_COLOR in kwargs:
+            hue, sat = kwargs[ATTR_HS_COLOR]
+            # Keep the model in the coordinate system we're told to set.
+            self._attr_hs_color = (hue, sat)
+            self._attr_color_mode = ColorMode.HS
+        self.hass.bus.async_fire(
+            SENDDOMAIN,
+            dict(
+                uuid=self.uuidAction,
+                value=plan_turn_on(
+                    color_mode=self._attr_color_mode,
+                    hs_color=self._attr_hs_color,
+                    color_temp_kelvin=self._attr_color_temp_kelvin,
+                    brightness=self._attr_brightness,
+                    kwargs=kwargs,
                 ),
-            )
-
-        elif ATTR_BRIGHTNESS in kwargs:
-            if self._attr_color_mode == ColorMode.HS:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN,
-                    dict(
-                        uuid=self.uuidAction,
-                        value="hsv({},{},{})".format(
-                            self.hs_color[0],
-                            self.hs_color[1],
-                            hass_to_lox(self._attr_brightness),
-                        ),
-                    ),
-                )
-            elif self._attr_color_mode == ColorMode.COLOR_TEMP:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN,
-                    dict(
-                        uuid=self.uuidAction,
-                        value="temp({},{})".format(
-                            hass_to_lox(self._attr_brightness),
-                            self._attr_color_temp_kelvin,
-                        ),
-                    ),
-                )
-        else:
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(uuid=self.uuidAction, value="setBrightness/{}".format(hass_to_lox(self._attr_brightness))),
-            )
+            ),
+        )
+        self.async_schedule_update_ha_state()
 
     async def event_handler(self, e):
         request_update = False

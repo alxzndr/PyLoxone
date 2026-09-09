@@ -5,7 +5,13 @@ from homeassistant.const import STATE_UNKNOWN
 
 from .. import LoxoneEntity
 from ..const import SENDDOMAIN
-from ..helpers import get_or_create_device, hass_to_lox, lox2hass_mapped, lox_to_hass
+from ..helpers import (
+    get_or_create_device,
+    hass_to_lox,
+    hass_to_lox_range,
+    lox_to_hass,
+    lox_to_hass_range,
+)
 
 
 class LoxoneDimmer(LoxoneEntity, LightEntity):
@@ -18,7 +24,7 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         """Initialize the dimmer ."""
-        self._attr_is_on = STATE_UNKNOWN
+        self._attr_is_on = None
         self._attr_unique_id = self.uuidAction
         self._position = 0.0
         self._step = 1
@@ -57,13 +63,26 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
         """Return a unique ID."""
         return self._attr_unique_id
 
+    @property
+    def _master_min_max_known(self) -> bool:
+        return isinstance(self._min, (int, float)) and isinstance(self._max, (int, float))
+
+    def _hass_to_master(self, hass_level) -> float:
+        """HA brightness (1-255) → Loxone value, honouring the control's
+        min/max (PC-17) and never rounding a non-zero request to 0 (PC-18)."""
+        if self._master_min_max_known:
+            return hass_to_lox_range(hass_level, self._min, self._max)
+        if not hass_level:
+            return 0
+        return max(1, round(hass_to_lox(hass_level)))
+
     async def async_turn_on(self, **kwargs) -> None:
         if ATTR_BRIGHTNESS in kwargs:
             self.hass.bus.async_fire(
                 SENDDOMAIN,
                 dict(
                     uuid=self.uuidAction,
-                    value=round(hass_to_lox(kwargs[ATTR_BRIGHTNESS])),
+                    value=self._hass_to_master(kwargs[ATTR_BRIGHTNESS]),
                 ),
             )
         else:
@@ -77,11 +96,17 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
     async def event_handler(self, e):
         request_update = False
         if self._min_uuid in e.data:
-            self._min = e.data[self._min_uuid]
+            try:
+                self._min = float(e.data[self._min_uuid])
+            except TypeError, ValueError:
+                pass
             request_update = True
 
         if self._max_uuid in e.data:
-            self._max = e.data[self._max_uuid]
+            try:
+                self._max = float(e.data[self._max_uuid])
+            except TypeError, ValueError:
+                pass
             request_update = True
 
         if self._step_uuid in e.data:
@@ -89,23 +114,23 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
             request_update = True
 
         if self._position_uuid in e.data:
-            if (
-                self._min is not None
-                and self._max is not None
-                and self._min != STATE_UNKNOWN
-                and self._max != STATE_UNKNOWN
-            ):
-                self._attr_brightness = lox2hass_mapped(e.data[self._position_uuid], self._min, self._max)
-            else:
-                self._attr_brightness = lox_to_hass(e.data[self._position_uuid])
-            request_update = True
+            position = e.data[self._position_uuid]
+            try:
+                position = float(position)
+            except TypeError, ValueError:
+                position = None
+            if position is not None:
+                if self._master_min_max_known:
+                    self._attr_brightness = lox_to_hass_range(position, self._min, self._max)
+                else:
+                    self._attr_brightness = round(lox_to_hass(position))
+                request_update = True
 
         self._attr_is_on = True if self._attr_brightness and self._attr_brightness > 0 else False
 
         if request_update:
             if not self._attr_available:
-                min_max_values_are_not_unknown = self._min != STATE_UNKNOWN and self._max != STATE_UNKNOWN
-                if min_max_values_are_not_unknown or self._attr_is_on != STATE_UNKNOWN:
+                if self._master_min_max_known or self._attr_is_on is not None:
                     self._attr_available = True
             self.async_schedule_update_ha_state()
 

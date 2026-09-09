@@ -33,6 +33,31 @@ class ColorPickerTypes(StrEnum):
     TUNABLEWHITE = "TunableWhite"
 
 
+#: Mapping of ``details.pickerType`` → picker entity class (PC-43).
+#:
+#: Newer Miniservers report the picker type as an *integer* (0 = RGB,
+#: 1 = kelvin, 2 = kelvin full-range), while older ones (and the
+#: LumiTech special case) use the string names in :class:`ColorPickerTypes`.
+#: The integer mapping is VERIFY — confirm it against a live Miniserver
+#: before relying on it.
+PICKER_TYPE_TO_CLASS = {
+    0: RGBColorPicker,
+    1: TunableWhiteLight,
+    2: TunableWhiteLight,
+    ColorPickerTypes.RGB: RGBColorPicker,
+    ColorPickerTypes.LUMITECH: LumiTech,
+    ColorPickerTypes.TUNABLEWHITE: TunableWhiteLight,
+}
+
+
+def picker_class_for(picker_type):
+    """Return the light entity class for a ``details.pickerType`` value, or
+    ``None`` when the type is unknown.  Handles both the integer and string
+    representations; note in particular that ``0`` (RGB) is a valid, falsy
+    value (the old truthiness check silently skipped every RGB picker)."""
+    return PICKER_TYPE_TO_CLASS.get(picker_type)
+
+
 class DimmerTypes(StrEnum):
     DIMMER = "Dimmer"
     EIBDIMMER = "EIBDimmer"
@@ -59,6 +84,9 @@ async def async_setup_entry(
     loxconfig = miniserver.lox_config.json
     entities = []
     dimmers_without_light_controller = get_all(loxconfig, ["Dimmer", "EIBDimmer"])
+    # PC-43: standalone ColorPickerV2 controls (not part of a LightControllerV2)
+    # were never created — this platform only walked subControls.
+    color_pickers_without_light_controller = get_all(loxconfig, "ColorPickerV2")
 
     switches = []
     dimmers = []
@@ -76,7 +104,7 @@ async def async_setup_entry(
 
         if "subControls" in light_controller:
             for sub_control_uuid in light_controller["subControls"]:
-                if sub_control_uuid.find("masterValue") > -1 or sub_control_uuid.find("masterColor") > 1:
+                if sub_control_uuid.find("masterValue") > -1 or sub_control_uuid.find("masterColor") > -1:
                     continue
                 sub_control = light_controller["subControls"][sub_control_uuid]
                 # Update for all entities
@@ -124,22 +152,24 @@ async def async_setup_entry(
         else:
             _LOGGER.error(f"Not implemented Dimmer Type {dimmer['type']}")
 
-    for color_picker in color_pickers:
-        if color_picker.get("details", None):
-            picker_type = color_picker["details"].get("pickerType", None)
-            if picker_type:
-                if picker_type == ColorPickerTypes.LUMITECH:
-                    new_lumitech = LumiTech(**color_picker)
-                    entities.append(new_lumitech)
-                elif picker_type == ColorPickerTypes.RGB:
-                    new_rgb_color_picker = RGBColorPicker(**color_picker)
-                    entities.append(new_rgb_color_picker)
-                elif picker_type == ColorPickerTypes.TUNABLEWHITE:
-                    new_tunablewhite_picker = TunableWhiteLight(**color_picker)
-                    entities.append(new_tunablewhite_picker)
-                else:
-                    _LOGGER.error(f"Not implemented Colorpicker Type {picker_type} for {color_picker}")
-            else:
-                _LOGGER.error("Could not read picker_type of colorpicker")
+    for color_picker in color_pickers + color_pickers_without_light_controller:
+        if "async_add_devices" not in color_picker:
+            color_picker = add_room_and_cat_to_value_values(loxconfig, color_picker)
+            color_picker.update(
+                {
+                    "async_add_devices": async_add_entities,
+                }
+            )
+
+        picker_class = picker_class_for(color_picker.get("details", {}).get("pickerType", None))
+        if picker_class is None:
+            _LOGGER.error(
+                "Not implemented Colorpicker Type %s for %s",
+                color_picker.get("details", {}).get("pickerType"),
+                color_picker.get("name"),
+            )
+            continue
+
+        entities.append(picker_class(**color_picker))
 
     async_add_entities(entities)

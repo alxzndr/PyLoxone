@@ -124,6 +124,20 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   and the `shade_postion_as_text` typo removed (PC-40/PC-41)
 - `services.yaml` - the three cover services' target narrowed to
   `integration: loxone` (kept `domain: cover`)
+- `light.py`/`lights/*` — brightness-only `turn_on` on an RGB colour
+  picker with an unknown colour mode now emits `setBrightness/…` instead
+  of nothing (PC-03, JoDehli/PyLoxone PR #512 regression); dimmers and
+  LightControllerV2 honour their (master dimmer's) min/max in both
+  directions — the full-brightness slider no longer snaps back — and HA
+  brightness 1 no longer rounds to Loxone 0 = off (PC-17/PC-18);
+  TunableWhite `turn_on` before the first state no longer raises
+  (PC-11); standalone `ColorPickerV2` controls are now created, also for
+  the integer `pickerType` values, with a proper string device
+  identifier (PC-05/PC-43); the `masterColor` subControl filter uses
+  `find() > -1` (PC-37); effect + brightness on a LightControllerV2
+  sends both (PC-33); the fake `device_class` control-type marker and
+  dead helpers removed (PS-10, PC-40 light lines); `async_turn_off`
+  accepts `**kwargs` and the kelvin floor is firmly 2700 K (PC-38/PC-39)
 
 ## 0.9.23
 

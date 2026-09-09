@@ -70,48 +70,41 @@ def lox_to_hass(lox_val):
     return (lox_val / 100.0) * 255.0
 
 
-def lox2lox_mapped(x, min_v, max_v):
-    if x <= min_v:
+def lox_to_hass_range(lox_val, min_v, max_v):
+    """Map a Loxone value in ``[min_v, max_v]`` to an HA brightness (0-255).
+
+    The full span maps to ``0`` up to ``255`` (PC-17: the old
+    ``lox2hass_mapped`` clamped at the edges but passed intermediate values
+    through unrescaled, so a dimmer with ``max_v < 100`` could never read
+    back as fully bright).  Any non-zero result is floored at ``1`` so a
+    brightness that is above the minimum never rounds to ``0`` / off
+    (PC-18).
+    """
+    if lox_val is None:
         return 0
-    if x >= max_v:
+    if max_v <= min_v:
+        # a degenerate span sits at one fixed value: at/above it counts as
+        # fully bright, below as off
+        return 255 if lox_val >= min_v else 0
+    if lox_val <= min_v:
+        return 0
+    return min(255, max(1, round(map_range(lox_val, min_v, max_v, 0, 255))))
+
+
+def hass_to_lox_range(hass_level, min_v, max_v):
+    """Map an HA brightness (1-255) to a Loxone value in ``[min_v, max_v]``
+    (the inverse of :func:`lox_to_hass_range`; PC-17: the write path used to
+    ignore ``min_v``/``max_v`` entirely).
+
+    ``0`` (or ``None``) means off and maps to ``0``.  Anything above ``0``
+    is rounded and floored at ``1`` so HA brightness ``1`` never becomes
+    Loxone ``0`` = off (PC-18).
+    """
+    if not hass_level:
+        return 0
+    if max_v <= min_v:
         return max_v
-    return x
-
-
-def lox2hass_mapped(x, min_v, max_v):
-    if x <= min_v:
-        return 0
-    if x >= max_v:
-        return lox_to_hass(max_v)
-    return lox_to_hass(x)
-
-
-# def to_hass_color_temp(temp: float):
-#     """Linear interpolation between Loxone values from 2700 to 6500"""
-#     return np.interp(temp, [2700, 6500], [500, 153])
-#
-#
-# def to_loxone_color_temp(temp: float):
-#     """Linear interpolation between HASS values from 153 to 500"""
-#     return np.interp(temp, [153, 500], [6500, 2700])
-
-
-def to_hass_color_temp(temp: float):
-    """Linear interpolation between Loxone values from 2700 to 6500"""
-    if temp <= 2700:
-        return 500
-    if temp >= 6500:
-        return 153
-    return 500 + (temp - 2700) * (153 - 500) / (6500 - 2700)
-
-
-def to_loxone_color_temp(temp: float):
-    """Linear interpolation between HASS values from 153 to 500"""
-    if temp <= 153:
-        return 6500
-    if temp >= 500:
-        return 2700
-    return 6500 + (temp - 153) * (2700 - 6500) / (500 - 153)
+    return max(1, round(map_range(hass_level, 1, 255, min_v, max_v)))
 
 
 def get_room_name_from_room_uuid(lox_config: dict, room_uuid: str):

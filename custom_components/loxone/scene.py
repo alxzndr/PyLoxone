@@ -61,8 +61,13 @@ async def async_setup_entry(
             if att.get("platform") != DOMAIN:
                 continue
 
+            # PS-10: Loxone's control type is surfaced as the explicit
+            # `device_type` state attribute, not via a light `device_class`.
+            if att.get("device_type") != "LightControllerV2":
+                continue
+
             entity = hass.data["light"].get_entity(entity_id)
-            if not entity or entity.device_class != "LightControllerV2":
+            if not entity:
                 continue
 
             for effect in entity.effect_list:
