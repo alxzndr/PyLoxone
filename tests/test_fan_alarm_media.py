@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from homeassistant.helpers import entity_registry as er
+
 import pytest
 from homeassistant.components.alarm_control_panel.const import CodeFormat
 from homeassistant.components.fan import FanEntityFeature
@@ -450,5 +452,15 @@ async def test_alarm_fixture_without_nextlevel_at_sets_up(hass, loxapp3, mock_co
 
     assert hass.config_entries.async_get_entry(mock_entry.entry_id).state is ConfigEntryState.LOADED
 
-    alarm_states = [st for st in hass.states.async_all() if (st.attributes.get("device_type") == "Alarm")]
-    assert alarm_states, "no alarm entity was created"
+    # Assert creation via the entity registry, not the state machine: once
+    # availability follows the connection (API-09/CORE-28) an entity can be
+    # `unavailable` at this point, and Home Assistant does not publish
+    # extra_state_attributes for unavailable entities, so `device_type` would
+    # be absent for reasons that have nothing to do with this test.
+    registry = er.async_get(hass)
+    alarm_entities = [
+        entry
+        for entry in registry.entities.values()
+        if entry.config_entry_id == mock_entry.entry_id and entry.domain == "alarm_control_panel"
+    ]
+    assert alarm_entities, "no alarm entity was created"

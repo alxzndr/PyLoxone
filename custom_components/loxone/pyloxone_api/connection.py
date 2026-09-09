@@ -10,6 +10,7 @@ import hashlib
 import inspect
 import json
 import logging
+import random
 import ssl
 import time
 import urllib
@@ -18,7 +19,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, NoReturn, Optional, Union
+from typing import Any, Final, NoReturn, Optional, Union
 from urllib.parse import urlparse
 
 import aiohttp
@@ -90,6 +91,13 @@ from .message import (
 from .websocket_protocol import LoxoneClientConnection
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# API-09: in-place reconnect backoff for ``LoxoneConnection.run``.
+# Attempt N (0-based) sleeps base * 2**N seconds, capped, with jitter
+# applied at the sleep site (random.uniform multiplier, see run()).
+RECONNECT_BASE_DELAY: Final = 1.0  # seconds; attempt 0 waits this long before retrying
+RECONNECT_MAX_DELAY: Final = 300.0  # cap: 5 minutes
 
 
 def time_elapsed_in_seconds():
@@ -211,6 +219,47 @@ _BODY_CARRIERS = frozenset(
 )
 
 
+def reconnect_backoff_seconds(
+    attempt: int, *, base: float = RECONNECT_BASE_DELAY, maximum: float = RECONNECT_MAX_DELAY
+) -> float:
+    """API-09: unscaled reconnect delay for 0-based ``attempt``.
+
+    Pure, hand-deducible schedule used as the regression target: attempt 0
+    waits ``base``, attempt 1 waits ``2 * base``, and so on, never more than
+    ``maximum`` (the plan's ``min(2**n, 300)``). Jitter is applied by the
+    caller (``run``) so the schedule itself stays testable.
+    """
+    return min(maximum, base * (2 ** max(attempt, 0)))
+
+
+async def _notify_state(on_state: Callable[[bool], Optional[Awaitable[None]]], connected: bool) -> None:
+    """API-09: invoke the connection-state callback (sync or async)."""
+    result = on_state(bool(connected))
+    if inspect.isawaitable(result):
+        await result
+
+
+# API-09: the session failures ``LoxoneConnection.run`` is allowed to
+# retry in place. Kept deliberately narrow: the Loxone exception types
+# (transient http/websocket-layer failures -- note
+# ``LoxoneOutOfServiceException`` and the two connection classes are NOT
+# ``LoxoneException`` subclasses), transport-level ``OSError`` /
+# ``TimeoutError``, and the websockets close errors. Anything else that
+# ends a session (``AttributeError``, ``TypeError``, ...) is a bug in our
+# own code: retrying it would convert a loud crash into a silent hang, so
+# it must propagate out of ``run()`` instead. (``LoxoneUnauthorisedError``
+# is a ``LoxoneException`` as well, but ``run`` hands it out through its
+# dedicated reauth branch before this check is ever reached.)
+RETRYABLE_SESSION_ERRORS = (
+    LoxoneException,
+    LoxoneOutOfServiceException,
+    LoxoneConnectionClosedOk,
+    LoxoneConnectionError,
+    OSError,  # and its TimeoutError subclass (3.11+)
+    websockets.exceptions.ConnectionClosed,  # covers -OK/-Error/-Timeout
+)
+
+
 class LoxoneBaseConnection:
     _URL_FORMAT = "ws://{url}/ws/rfc6455"
     _SSL_URL_FORMAT = "wss://{url}/ws/rfc6455"
@@ -279,6 +328,15 @@ class LoxoneBaseConnection:
         # API-27: one lost/restored pair per outage.
         self._confirmed_connected = False
         self._outage_active = False
+        # API-09: set by close() (HA stop / entry unload) and observed by
+        # the ``run()`` supervisor, which must not reconnect into a
+        # removed integration. Unlike ``_closed`` it is *not* reset by the
+        # in-place teardown between retries.
+        self._explicit_close = False
+        # API-09: per-instance reconnect backoff base (seconds); the
+        # integration can lower it for tests or degraded links without
+        # touching the module default.
+        self.reconnect_base_delay: float = RECONNECT_BASE_DELAY
 
         # Parse the server input to extract scheme if present
         try:
@@ -792,6 +850,185 @@ class LoxoneConnection(LoxoneBaseConnection):
         exc_tb: Optional[TracebackType],
     ) -> None:
         await self.close()
+
+    async def run(
+        self,
+        on_state: Callable[[bool], Optional[Awaitable[None]]],
+        callback: Optional[Callable[[str, Any], Optional[Awaitable[None]]]] = None,
+        *,
+        base_delay: float = RECONNECT_BASE_DELAY,
+        max_delay: float = RECONNECT_MAX_DELAY,
+    ) -> None:
+        """API-09: in-place reconnect supervisor.
+
+        Each pass performs the full session lifecycle —
+
+        1. ``open()``    (only when the websocket is gone): HTTP bootstrap,
+           public key, RSA session key, websocket connect;
+        2. auth         (inside ``start_listening``): key exchange ->
+           ``getkey2`` -> token request -> token response, or reuse of a
+           still-valid token via ``authwithtoken``;
+        3. ``enablebinstatusupdate`` (queued by the token handlers);
+        4. ``listen``   (the ``start_listening`` task group).
+
+        When a pass ends in a *recoverable* outcome (lost websocket, stale
+        token, Miniserver restart / out-of-service, …) this method closes
+        the socket, calls ``on_state(False)``, sleeps
+        ``min(2**n, 300)`` seconds with jitter (see
+        :func:`reconnect_backoff_seconds`), and retries on the **same**
+        instance — the owning config entry and its entities are never
+        reloaded (CORE-05). ``on_state(True)`` is fired after
+        ``enablebinstatusupdate`` has been issued, i.e. once the
+        Miniserver accepted the token (``_authenticated_event``);
+        ``on_state(False)`` fires only for sessions that ever went live.
+
+        ``LoxoneUnauthorisedError`` (credentials rejected, API-13) is NOT
+        recoverable: it is re-raised so the integration can start reauth
+        (WP-3.4); it must never trigger a reload (CORE-05).
+
+        Only connection-level failures -- the Loxone exception types,
+        ``OSError``, ``TimeoutError``, and websockets close errors
+        (see :data:`RETRYABLE_SESSION_ERRORS`) -- are retried. Any other
+        exception (e.g. ``AttributeError``, ``TypeError``) is a bug in
+        our own code: it is logged with a traceback and PROPAGATES out of
+        this method so it surfaces immediately, instead of being retried
+        forever (a guaranteed-fatal error would otherwise become a
+        silent hang).
+
+        ``close()`` — HA stop or entry unload — ends the loop without
+        retrying: the reconnection must not outlive the integration.
+
+        ``callback`` is forwarded to ``start_listening`` (state values ->
+        ``loxone_event`` bus event); ``on_state`` is the *connection
+        liveness* hook (defaults: no "False" signalling for a session that
+        dies before authentication ever flipped "True").
+        """
+        attempt = 0
+        while True:
+            # close() (HA stop / entry unload) may have been requested
+            # *during the backoff sleep* -- it also set the latch that
+            # start_listening would clear, so check it before touching
+            # any event (API-09: reconnecting must not outlive the
+            # integration).
+            if self._closed:
+                return
+            # Per-pass reset: close() (and stale-token handling) may have
+            # left the shutdown/auth flags set from the previous session.
+            self._shutdown_event.clear()
+            self._authenticated_event.clear()
+
+            # Plain create_task (not _spawn_task): these two tasks are the
+            # supervised session itself -- their termination IS the control
+            # flow of this loop, and _on_task_done would log a spurious
+            # "tracked task failed" WARNING at every expected close.
+            listen_task = asyncio.create_task(self.start_listening(callback), name="loxone.session")
+            # ``_authenticated_event`` is set by the token handlers -- the
+            # moment the Miniserver accepted our token and queued
+            # ``enablebinstatusupdate`` -- and serves as the "connected" marker
+            # for the ``on_state`` hook below.
+            authenticated_task = asyncio.create_task(self._authenticated_event.wait(), name="loxone.authenticated")
+            session_error: BaseException | None = None
+            available = False
+            try:
+                while True:
+                    done, _pending = await asyncio.wait(
+                        {listen_task, authenticated_task},
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if authenticated_task in done and not authenticated_task.cancelled():
+                        await authenticated_task
+                        if not available:
+                            available = True
+                            await _notify_state(on_state, True)
+                    if listen_task in done:
+                        if listen_task.cancelled():
+                            # Session torn down externally (entry unload):
+                            # leave immediately without retry.
+                            raise asyncio.CancelledError
+                        await listen_task  # re-raises the session's end, or returns (control flow)
+                        break
+            except asyncio.CancelledError:
+                session_error = asyncio.CancelledError()
+            except LoxoneUnauthorisedError as e:
+                session_error = e
+            except Exception as e:
+                session_error = e
+            finally:
+                for task in (listen_task, authenticated_task):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(listen_task, authenticated_task, return_exceptions=True)
+
+            if isinstance(session_error, asyncio.CancelledError):
+                raise session_error
+
+            # The session ended: decide recoverability. Only the
+            # connection-level failures named by the plan are retried in
+            # place (API-09); a clean (None-error) session return is also
+            # restarted.
+            recoverable = session_error is None or isinstance(session_error, RETRYABLE_SESSION_ERRORS)
+            if isinstance(session_error, LoxoneUnauthorisedError):
+                # NOT recoverable: the Miniserver rejected our credentials
+                # (API-13). Close the socket, signal the outage, and
+                # PROPAGATE so the integration can start reauth (WP-3.4).
+                # A reload is never the answer (CORE-05).
+                await self._close_and_reset()
+                _LOGGER.error(
+                    "Miniserver rejected authentication: %s. Reconnection is not attempted.",
+                    session_error,
+                )
+                await _notify_state(on_state, False)
+                raise session_error
+
+            # Teardown must be checked before the recovery close we are
+            # about to run: close() lumps ``_closed`` /
+            # ``_shutdown_event``, and this loop's own recovery close would
+            # otherwise look like an external teardown and kill the
+            # reconnect.
+            teardown_requested = self._closed or self._shutdown_event.is_set()
+            await self._close_and_reset()
+            if session_error is not None:
+                _LOGGER.debug("Loxone session ended with %s -- reconnecting", session_error)
+            else:
+                _LOGGER.debug("Loxone session ended (returned normally) -- reconnecting")
+            if available:
+                # Drop availability only if the session ever came up.
+                await _notify_state(on_state, False)
+            if teardown_requested:
+                # close() was requested externally (HA stop / entry
+                # unload): do not reconnect into a dead integration.
+                return
+            if not recoverable:
+                # A bug in our own code surfaced as a session crash.
+                # Surface it immediately instead of spinning the
+                # reconnect loop forever on a guaranteed-fatal error.
+                # (API-09/CORE-05: propagate, never reload.)
+                _LOGGER.error(
+                    "Loxone session failed with a non-retryable error -- not reconnecting: %s",
+                    session_error,
+                    exc_info=True,
+                )
+                raise session_error
+            attempt += 1
+            base_delay_ = reconnect_backoff_seconds(attempt - 1, base=base_delay, maximum=max_delay)
+            # Jitter: 0.5 .. 1.0 x the nominal delay, so many simultaneous
+            # clients do not hammer a rebooted Miniserver in unison.
+            await asyncio.sleep(base_delay_ * random.uniform(0.5, 1.0))
+
+    async def _close_and_reset(self) -> None:
+        """API-09: tear down the ended session without latching ``_closed``.
+
+        The supervising loop (``run``) must still be able to ``open()`` a
+        new session on this same instance, so the one-shot latch that
+        ``close()`` sets is cleared for the retry.
+        """
+        try:
+            await self.close()
+        except Exception as e:
+            _LOGGER.debug("Error closing session before reconnect: %s", e)
+        self._closed = False
+        self.connection = None
+        self._reconnect_event.clear()
 
     async def start_listening(self, callback: Optional[Callable[[str, Any], Optional[Awaitable[None]]]] = None) -> None:
         """Open, and start listening."""
@@ -1482,6 +1719,11 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         _LOGGER.debug("Closing connection...")
         self._closed = True
+        # API-09: an *explicit* close means "stop supervising", not
+        # "tear down this session" — the distinction is what lets the
+        # in-place reconnect reset ``_closed`` (for the retry) without
+        # ever outliving the integration.
+        self._explicit_close = True
 
         # API-15: secured commands queued before the salt was known must not
         # survive a close (stale visual salt => dropped after reconnect).

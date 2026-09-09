@@ -13,7 +13,6 @@ from functools import cached_property
 
 import homeassistant.components.group as group
 import voluptuous as vol
-import websockets
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
@@ -23,13 +22,17 @@ from homeassistant.const import (
     EVENT_HOMEASSISTANT_STARTED,
     EVENT_HOMEASSISTANT_STOP,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import (
+    HomeAssistant,
+    callback,
+)
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.discovery import async_load_platform
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 from homeassistant.setup import async_setup_component
 
@@ -54,14 +57,12 @@ from .const import (
     SENDDOMAIN,
     cfmt,
 )
-from .coordinator import LoxoneCoordinator
+from .coordinator import LoxoneCoordinator, loxone_connected_signal
 from .miniserver import get_miniserver_from_hass
 from .pyloxone_api.exceptions import (
     LoxoneConnectionClosedOk,
     LoxoneConnectionError,
-    LoxoneOutOfServiceException,
     LoxoneServiceUnAvailableError,
-    LoxoneTokenError,
     LoxoneUnauthorisedError,
 )
 
@@ -416,53 +417,39 @@ async def async_setup_entry(hass, config_entry):
     if setup_tasks:
         await asyncio.wait(setup_tasks)
 
-    async def _reload_after_delay(delay: float = 1.0) -> None:
-        await coordinator.api.close()
-        await asyncio.sleep(delay)
-        await hass.services.async_call("loxone", "reload")
-
-    def handle_task_result(task: asyncio.Task) -> None:
-        try:
-            task.result()
-        except LoxoneTokenError:
-            _LOGGER.debug("Token is not valid anymore. Delete token and try to reloading Loxone integration.")
-            # First we delete the invalid token then try to reload
-            hass.config_entries.async_update_entry(
-                config_entry,
-                data={
-                    "token": "",
-                    "hash_alg": "",
-                    "valid_until": "",
-                },
-            )
-            # Loxone-Integration neu laden
-            hass.async_create_task(_reload_after_delay(1.0))
-        except LoxoneOutOfServiceException:
-            _LOGGER.debug("Loxone LoxoneOutOfServiceException received. Try to reloading Loxone integration.")
-            # Loxone-Integration neu laden
-            hass.async_create_task(_reload_after_delay(1.0))
-        except LoxoneConnectionError:
-            _LOGGER.debug("Loxone LoxoneConnectionError received. Try to reloading Loxone integration.")
-            # Loxone-Integration neu laden
-            hass.async_create_task(_reload_after_delay(1.0))
-        except (
-            LoxoneConnectionClosedOk,
-            websockets.exceptions.ConnectionClosedOK,
-        ):
-            _LOGGER.debug(
-                "Loxone LoxoneConnectionClosedOk received. Mostly a timeout Problem. Try to reloading Loxone integration."
-            )
-            # Loxone-Integration neu laden
-            hass.async_create_task(_reload_after_delay(1.0))
-        except asyncio.exceptions.CancelledError as e:
-            _LOGGER.error(e)
-        except Exception as e:
-            raise e
-
     async def message_callback(message):
         """Fire message on HomeAssistant Bus."""
         _LOGGER.debug(f"{message}")
         hass.bus.async_fire(EVENT, message)
+
+    async def run_loxone_session() -> None:
+        """API-09: run the in-place reconnect supervisor for this entry.
+
+        Transient failures never reach here -- ``LoxoneConnection.run``
+        retries inside the API layer and the entities merely flip their
+        ``available`` flag (CORE-28). The only exit is
+        ``LoxoneUnauthorisedError`` (credentials rejected): log an ERROR
+        and stop; the reauth flow itself lands in WP-3.4. Reloading the
+        entry on connection errors is eliminated entirely (CORE-05).
+        """
+        try:
+            await coordinator.api.run(coordinator.set_connected_state, callback=message_callback)
+        except LoxoneUnauthorisedError as e:
+            coordinator.set_connected_state(False)
+            _LOGGER.error(
+                "Miniserver at %s rejected the stored credentials (%s); re-authentication is "
+                "required before the connection can be retried. Check Settings > Devices & Services.",
+                host,
+                e,
+            )
+        except asyncio.CancelledError:
+            raise
+
+    def start_event() -> None:
+        # A *background* task: it runs for the lifetime of the entry and
+        # must not hold up startup or ``async_block_till_done`` (API-09).
+        listening_task = hass.async_create_background_task(run_loxone_session(), name="loxone-session")
+        coordinator._listening_task = listening_task
 
     async def handle_websocket_command(call):
         """Handle websocket command services."""
@@ -514,14 +501,17 @@ async def async_setup_entry(hass, config_entry):
         await sync_areas_with_loxone(call.data)
 
     async def handle_reload(call):
-        """Handle the service call to reload the integration."""
-        _LOGGER.info("Reloading Loxone integration via service call")
+        """Handle the service call to reload the integration.
+
+        Per entry via ``async_schedule_reload`` (HA handles the safe
+        unload-then-load ordering), instead of unloading *every* entry and
+        then reloading them -- which unloaded each entry twice and churned
+        unrelated Miniserver instances as well (CORE-05).
+        """
         entries = hass.config_entries.async_entries(DOMAIN)
-        unloads = [hass.config_entries.async_unload(entry.entry_id) for entry in entries]
-        await asyncio.gather(*unloads)
-        loads = [hass.config_entries.async_reload(entry.entry_id) for entry in entries]
-        await asyncio.gather(*loads)
-        _LOGGER.info("Loxone integration reload complete")
+        _LOGGER.info("Reloading %i Loxone config entry(ies) via service call", len(entries))
+        for entry in entries:
+            hass.config_entries.async_schedule_reload(entry.entry_id)
 
     async def loxone_discovered(event):
         _LOGGER.info("Creating groups")
@@ -642,14 +632,6 @@ async def async_setup_entry(hass, config_entry):
                         err,
                     )
 
-    async def start_event():
-        try:
-            listening_task = asyncio.create_task(coordinator.api.start_listening(callback=message_callback))
-            listening_task.add_done_callback(handle_task_result)
-
-        except Exception as e:
-            raise e
-
     async def stop_event(_):
         token = coordinator.api.get_token_dict()
         hass.config_entries.async_update_entry(
@@ -700,7 +682,6 @@ async def async_setup_entry(hass, config_entry):
     hass.services.async_register(DOMAIN, "event_secured_websocket_command", handle_secured_websocket_command)
     hass.services.async_register(DOMAIN, "sync_areas", handle_sync_areas_with_loxone)
     hass.services.async_register(DOMAIN, "reload", handle_reload)
-
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, stop_event)
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, loxone_discovered)
 
@@ -710,7 +691,7 @@ async def async_setup_entry(hass, config_entry):
         hass.bus.async_listen(SECUREDSENDDOMAIN, loxone_send),
     ]
 
-    await start_event()
+    start_event()
 
     return True
 
@@ -761,8 +742,49 @@ class LoxoneEntity(Entity):
 
     async def async_added_to_hass(self):
         """Subscribe to the bus; HA cancels this on entity removal, so an
-        in-place reload no longer leaks ``loxone_event`` listeners (CORE-01)."""
+        in-place reload no longer leaks ``loxone_event`` listeners (CORE-01).
+
+        Also subscribe to the per-entry connection-liveness signal
+        (API-09/CORE-28) so the state re-publishes whenever the
+        Miniserver session goes live or down.
+        """
         self.async_on_remove(self.hass.bus.async_listen(EVENT, self.event_handler))
+        coordinator = self._connection_coordinator()
+        if coordinator is not None:
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    loxone_connected_signal(coordinator.config_entry.entry_id),
+                    self._on_connection_state,
+                )
+            )
+
+    @callback
+    def _on_connection_state(self, _connected: bool) -> None:
+        """Re-publish state (unavailable / concrete) on a connection flip."""
+        self.async_write_ha_state()
+
+    def _connection_coordinator(self) -> LoxoneCoordinator | None:
+        """The owning entry's :class:`LoxoneCoordinator`, or None if not resolvable."""
+        hass_obj = getattr(self, "hass", None)
+        if hass_obj is None:
+            return None
+        entry = getattr(getattr(self, "platform", None), "config_entry", None)
+        if entry is None:
+            return None
+        return self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+
+    @property
+    def available(self) -> bool:
+        """Available only while the Miniserver session is live (CORE-28).
+
+        Combines the coordinator's live reconnect state with the per-entity
+        ``_attr_available`` ("value not yet seen"), which keeps working.
+        """
+        if not super().available:
+            return False
+        coordinator = self._connection_coordinator()
+        return coordinator is None or coordinator.connected
 
     async def event_handler(self, e):
         pass

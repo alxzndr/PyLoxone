@@ -10,6 +10,7 @@ directory, which would make `custom_components.loxone` un-importable in tests.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -75,7 +76,20 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
         self.event_bus = namespace
         return self
 
-    namespace = SimpleNamespace(hass=hass)
+    namespace = SimpleNamespace(hass=hass, drops=0, current_session=None)
+
+    def drop() -> None:
+        """Drop the current stub socket mid-session, like a Miniserver
+        restart. ``LoxoneConnection.run`` must close, flip entities
+        unavailable, and come back as a fresh live session (which stays
+        live until the next ``drop()``)."""
+        namespace.drops += 1
+        session = namespace.current_session
+        namespace.current_session = None
+        if session is not None:
+            session.set()
+
+    namespace.drop = drop
 
     def feed(uuid: str, value) -> None:
         # Current state entry point (post-WP-3.2): a single bus event whose
@@ -86,11 +100,18 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
     namespace.feed = feed
 
     async def _fake_listen(self, callback=None):
-        # Do NOT start a real websocket recv loop; state updates arrive via `feed`.
-        # Returning False keeps the integration from spawning the message task.
-        return None
+        # Emulate a *live* websocket session against the API-09
+        # ``LoxoneConnection.run`` supervisor: signal the session as
+        # authenticated (the moment run() flips ``on_state(True)``)
+        # and stay connected until the test drops the socket
+        # (``namespace.drop()``) or the task is cancelled.
+        session = asyncio.Event()
+        namespace.current_session = session
+        self._authenticated_event.set()
+        await session.wait()
 
     async def _fake_close(self, *args, **kwargs):
+        self.connection = None
         return None
 
     async def _fake_send(self, entity_uuid, value, *args, **kwargs):
