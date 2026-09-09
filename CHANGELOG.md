@@ -9,6 +9,24 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ## Unreleased
 
+### Changed
+
+- Config flow rewrite (WP-3.4, entry version 5): adding a Miniserver now
+  verifies the connection first and stamps the config entry's `unique_id`
+  with the Miniserver serial, so the same Miniserver cannot be added twice.
+  Host/port/user/password/verify_ssl live in the entry **data** instead of
+  options (options keep only the preferences: `generate_groups`,
+  `generate_scenes`, `generate_scenes_delay`,
+  `generate_lightcontroller_subcontrols`); existing entries migrate v4→v5
+  automatically. Reauth: failed setup after the bounded 401 retry window
+  (5 attempts / 5 min) or a rejected live session now starts a reauth flow
+  (with HA's `config_entry_reauth` repair issue) instead of parking the
+  entry forever; form errors use translation keys (`cannot_connect`,
+  `invalid_auth`, `invalid_host`, encoding errors). A leftover YAML
+  `loxone:` block registers a persistent repair issue — the import flow it
+  was passed to never existed (CORE-19, CORE-18, CORE-09,
+  API-13 consumer side, CORE-30).
+
 ### Added
 
 - Device registry and identity (WP-3.3): the Miniserver itself is now a

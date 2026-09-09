@@ -84,14 +84,19 @@ class LoxoneCoordinator(DataUpdateCoordinator):
             config_entry=config_entry,
             update_method=None,  # Not polling!
         )
-        # ``.get`` (not ``[]``): a partially migrated options dict must not
-        # surface as a KeyError reported as a connection error (CORE-12).
+        # ENTRY VERSION 5 (CORE-19, WP-3.4): the connection keys live in
+        # ``entry.data``.  The options fallback only protects the instant
+        # of the first v5 migration if the migration did not run, and drops
+        # out of the picture with the next write to the entry (".get"
+        # without "[", so half-migrated entries don't fail as a KeyError
+        #: they get reported as a connection error (CORE-12)).
+        data = config_entry.data
         options = config_entry.options
-        self._username = options.get(CONF_USERNAME, "")
-        self._password = options.get(CONF_PASSWORD, "")
-        self._host = options.get(CONF_HOST, "")
-        self._port = options.get(CONF_PORT, DEFAULT_PORT)
-        self._verify_ssl = options.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        self._username = data.get(CONF_USERNAME, options.get(CONF_USERNAME, ""))
+        self._password = data.get(CONF_PASSWORD, options.get(CONF_PASSWORD, ""))
+        self._host = data.get(CONF_HOST, options.get(CONF_HOST, ""))
+        self._port = data.get(CONF_PORT, options.get(CONF_PORT, DEFAULT_PORT))
+        self._verify_ssl = data.get(CONF_VERIFY_SSL, options.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL))
 
         self.api: LoxoneConnection | None = None
         self.miniserver: MiniServer | None = None

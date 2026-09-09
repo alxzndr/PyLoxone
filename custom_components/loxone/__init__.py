@@ -14,7 +14,7 @@ from functools import cached_property, partial
 
 import homeassistant.components.group as group
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, ConfigEntryAuthFailed, ConfigEntryState
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -29,6 +29,7 @@ from homeassistant.core import (
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -44,7 +45,6 @@ from .const import (
     ATTR_VALUE,
     CONF_GENERATE_GROUPS,
     CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
-    CONF_SCENE_GEN,
     CONF_SCENE_GEN_DELAY,
     CONF_VERIFY_SSL,
     DEFAULT,
@@ -82,24 +82,10 @@ from .pyloxone_api.exceptions import (
 
 _LOGGER = logging.getLogger(__name__)
 
-CONFIG_SCHEMA = vol.Schema(
-    {
-        DOMAIN: vol.Schema(
-            {
-                vol.Required(CONF_USERNAME): cv.string,
-                vol.Required(CONF_PASSWORD): cv.string,
-                vol.Required(CONF_HOST): cv.string,
-                vol.Optional(CONF_PORT, default=DEFAULT_PORT): cv.port,
-                vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): cv.boolean,
-                vol.Optional(CONF_SCENE_GEN, default=True): cv.boolean,
-                vol.Optional(CONF_SCENE_GEN_DELAY, default=DEFAULT_DELAY_SCENE): cv.positive_int,
-                vol.Required(CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN, default=False): bool,
-            }
-        ),
-    },
-    extra=vol.ALLOW_EXTRA,
-)
-
+# CORE-19: the YAML `loxone:` block never worked in the config-entry era
+# (`async_setup` fired an `import` flow that no `async_step_import` ever
+# served), so there is no CONFIG_SCHEMA anymore.  A leftover block still in
+# ``configuration.yaml`` registers a repair issue instead (CORE-30).
 _UNDEF: dict = {}
 
 # The four true *domain* services.  CORE-04: they are registered exactly
@@ -145,10 +131,10 @@ RELOAD_SCHEMA = vol.Schema(
 
 # A Miniserver that is still booting (firmware update / reboot) answers 401 to
 # authenticated requests for a short window after its HTTP server is back up
-# (see 2026-09-02-pyloxone-401-setup-error.md).  A 401 during setup is therefore
-# retried, but once consecutive failures span this long we escalate to an ERROR
-# that points at the stored credentials.  WP-3.4 replaces the escalation branch
-# with `ConfigEntryAuthFailed` + reauth.  (CORE-09)
+# (see 2026-09-02-pyloxone-401-setup-error.md).  A 401 during setup is
+# therefore retried; once the failures span this long we escalate to
+# `ConfigEntryAuthFailed` + a reauth flow (with the repair issue HA raises
+# for it, CORE-09 / WP-3.4).
 AUTH_RETRY_MAX_ATTEMPTS = 5
 AUTH_RETRY_MIN_ELAPSED_SECONDS = 300
 _AUTH_FAILURES = "auth_failures"  # key in hass.data[DOMAIN]; a plain dict is not a coordinator
@@ -352,11 +338,32 @@ async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
         er_registry.async_update_entity(_[0], area_id=_[1])
 
 
+YAML_CONFIG_ISSUE_ID = "yaml_config_present"
+
+
 async def async_setup(hass, config):
-    """setup loxone"""
+    """Domain-level setup (runs once, even with pure config entries).
+
+    Registers the four domain services (CORE-04).  A leftover YAML
+    ``loxone:`` block fires a persistent, non-fixable repair issue: the
+    configuration it once carried is either ignored (the import flow is
+    gone) or has to be recreated as a config entry. (CORE-19/CORE-30)
+    """
     if DOMAIN in config:
-        hass.async_create_task(
-            hass.config_entries.flow.async_init(DOMAIN, context={"source": "import"}, data=config[DOMAIN])
+        _LOGGER.error(
+            "The YAML '%s:' block in configuration.yaml is no longer supported: the import "
+            "step the block was passed to never existed, so it was never read. Recreate the "
+            "Miniserver as a config entry (Settings > Devices & Services).",
+            DOMAIN,
+        )
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            YAML_CONFIG_ISSUE_ID,
+            is_fixable=False,
+            is_persistent=True,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="yaml_config_present",
         )
     _async_register_domain_services(hass)
     return True
@@ -367,6 +374,7 @@ async def async_migrate_entry(hass, config_entry):
     old_version = config_entry.version
     version = old_version
     options = dict(config_entry.options)
+    data = dict(config_entry.data)
 
     if version == 1:
         options[CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN] = True
@@ -383,24 +391,36 @@ async def async_migrate_entry(hass, config_entry):
         version = 4
         _LOGGER.info("Migration to version %s successful", 4)
 
+    if version == 4:
+        # CORE-19 (WP-3.4): version 5 keeps connection keys in the entry
+        # DATA (new current-version entries stored them there from day
+        # one); "options" is settings only. This way the plaintext
+        # password is no longer rediscovered as the form's suggested
+        # value in the options UI, and re-authentication / diagnostics
+        # can read it directly.
+        #
+        # unique_id: migration cannot guess the Miniserver serial; setup
+        # already stamps it (CORE-16), leaving it None for entries that
+        # have never successfully set up once, in which case the next
+        # successful setup stamps it.
+        for key, default in (
+            (CONF_HOST, ""),
+            (CONF_PORT, DEFAULT_PORT),
+            (CONF_USERNAME, ""),
+            (CONF_PASSWORD, ""),
+            (CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+        ):
+            data[key] = options.pop(key, default)
+        try:
+            data[CONF_PORT] = int(data[CONF_PORT])
+        except TypeError, ValueError:
+            data[CONF_PORT] = DEFAULT_PORT
+        version = 5
+        _LOGGER.info("Migration to version %s successful (connection keys moved to entry data)", 5)
+
     if version != old_version:
-        hass.config_entries.async_update_entry(config_entry, options=options, version=version)
+        hass.config_entries.async_update_entry(config_entry, options=options, data=data, version=version)
     return True
-
-
-async def async_set_options(hass, config_entry):
-    options_in = {**config_entry.options}
-    options = {
-        CONF_HOST: options_in.pop(CONF_HOST, ""),
-        CONF_PORT: options_in.pop(CONF_PORT, DEFAULT_PORT),
-        CONF_USERNAME: options_in.pop(CONF_USERNAME, ""),
-        CONF_PASSWORD: options_in.pop(CONF_PASSWORD, ""),
-        CONF_VERIFY_SSL: options_in.pop(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
-        CONF_SCENE_GEN: options_in.pop(CONF_SCENE_GEN, ""),
-        CONF_SCENE_GEN_DELAY: options_in.pop(CONF_SCENE_GEN_DELAY, DEFAULT_DELAY_SCENE),
-        CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN: options_in.pop(CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN, ""),
-    }
-    hass.config_entries.async_update_entry(config_entry, data=config_entry.data, options=options)
 
 
 async def create_group_for_loxone_entities(hass, entities, name, object_id):
@@ -635,16 +655,15 @@ async def _persist_token_and_close(hass, config_entry, coordinator, _event) -> N
 
 async def async_setup_entry(hass, config_entry):
     """Set up Loxone from a config entry."""
-    if not config_entry.options:
-        await async_set_options(hass, config_entry)
-
     coordinator = LoxoneCoordinator(hass, config_entry)
-    host = config_entry.options.get(CONF_HOST)
+    # Since version 5, the description of the connection is in the entry
+    # data; for entries that (abnormally) are not yet migrated, they are in options (fallback, provisional)
+    host = config_entry.data.get(CONF_HOST, config_entry.options.get(CONF_HOST, ""))
 
     _LOGGER.info(
         "Setting up Loxone integration for Miniserver at %s:%s",
         host,
-        config_entry.options.get(CONF_PORT),
+        config_entry.data.get(CONF_PORT, config_entry.options.get(CONF_PORT, DEFAULT_PORT)),
     )
 
     # Changing the entry's options (host/port/password/scene settings)
@@ -676,18 +695,27 @@ async def async_setup_entry(hass, config_entry):
         cause = err.__cause__
         if isinstance(cause, LoxoneUnauthorisedError):
             # A Miniserver coming out of a reboot answers 401 before auth is
-            # ready: retry, and only after the bounded window escalate (CORE-09).
+            # ready: retry, and only after the bounded window escalate
+            # (CORE-09; WP-3.4 turned the escalation into a real
+            # `ConfigEntryAuthFailed`, which makes HA park the entry in a
+            # `setup_error` state AND start the reauth flow — where the
+            # new credentials are verified against the Miniserver
+            # before they are stored). The 401s seen *within* the
+            # window are still just ConfigEntryNotReady retries.
             attempt, first_attempt = _record_auth_failure(hass, config_entry)
             if _should_escalate_auth_failure(attempt, first_attempt, time.monotonic()):
                 _LOGGER.error(
                     "Miniserver at %s answered 401 %i consecutive times during setup over at least %i "
-                    "minutes. Please check the stored credentials (username and password) for this "
-                    "Miniserver in Settings > Devices & Services; if they are correct the Miniserver may "
-                    "simply still be booting. Retrying automatically.",
+                    "minutes; escalating to a reauth flow. Please check the stored credentials "
+                    "(username and password) for this Miniserver in Settings > Devices & "
+                    "Services; if they are correct the Miniserver may simply still be booting.",
                     host,
                     attempt,
                     AUTH_RETRY_MIN_ELAPSED_SECONDS // 60,
                 )
+                raise ConfigEntryAuthFailed(
+                    f"Miniserver at {host} rejected the stored credentials {attempt} consecutive times during setup"
+                ) from err
             else:
                 _LOGGER.warning(
                     "Miniserver answered 401 during setup; retrying (attempt %i)",
@@ -757,22 +785,28 @@ async def async_setup_entry(hass, config_entry):
         only this entry's entities subscribed to.
 
         Transient failures never reach here -- ``LoxoneConnection.run``
-        retries inside the API layer and the entities merely flip their
-        ``available`` flag (CORE-28). The only exit is
-        ``LoxoneUnauthorisedError`` (credentials rejected): log an ERROR
-        and stop; the reauth flow itself lands in WP-3.4. Reloading the
-        entry on connection errors is eliminated entirely (CORE-05).
+        retries inside the API layer, and the entities merely flip their
+        ``available`` flag (CORE-28). The only exit that means *the stored
+        credentials no longer work* is ``LoxoneUnauthorisedError``:
+        start the reauth flow (WP-3.4 / CORE-19). A 401 immediately after
+        a reconnection is sometimes a Miniserver boot artefact -- the
+        reauth form revalidates the credentials live, so nothing is lost
+        by going through it: leaving the unchanged set in place simply
+        brings the entry back up. Reloading the entry on connection
+        errors is eliminated entirely (CORE-05).
         """
         try:
             await coordinator.api.run(coordinator.set_connected_state, callback=coordinator.handle_message)
         except LoxoneUnauthorisedError as e:
             coordinator.set_connected_state(False)
             _LOGGER.error(
-                "Miniserver at %s rejected the stored credentials (%s); re-authentication is "
-                "required before the connection can be retried. Check Settings > Devices & Services.",
+                "Miniserver at %s rejected the stored credentials (%s); starting the "
+                "reauth flow - confirm or correct the credentials in "
+                "Settings > Devices & Services.",
                 host,
                 e,
             )
+            config_entry.async_start_reauth(hass)
         except asyncio.CancelledError:
             raise
 

@@ -235,22 +235,31 @@ async def test_transient_401_retries_and_recovers(hass, loxapp3, mock_connection
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR and "credentials" in r.getMessage()]
 
 
-async def test_persistent_401_stays_in_setup_retry_and_escalates(
+async def test_persistent_401_escalates_to_reauth(
     hass, loxapp3, mock_connection, mock_entry, caplog, monkeypatch
 ) -> None:
-    """401 forever -> entry stays SETUP_RETRY (never SETUP_ERROR); after the
-    fifth attempt, >= 5 minutes after the first, an ERROR record containing
-    "credentials" exists.
+    """401 forever -> attempts inside the window stay SETUP_RETRY; the
+    fifth attempt (>= 5 min after the first) raises
+    ``ConfigEntryAuthFailed`` so the entry lands in ``SETUP_ERROR`` and
+    HA starts the reauth flow (plus the ``config_entry_reauth`` repair
+    issue).
 
-    The integration's clock (``custom_components.loxone.time``) is replaced
-    with a fake tracked by this test: wall-clock time can never span 5
-    minutes inside a test, and HA's retry timer does not advance Python's
-    clock either.  Each newly-observed failed attempt steps the fake clock
-    660 s (hand-derived: attempts 1..5 are then recorded at
-    1000/1660/2320/2980/3640; the fifth sits 2640 s after the first, over
-    the 300 s window).  The *event loop* clock is advanced separately by the
-    periodic fires inside ``_wait_until``.
+    This replaces the WP-1.5 escalation branch ("keep raising
+    ConfigEntryNotReady and log an ERROR after 5 attempts / 5 min") with
+    the reauth path (CORE-09 / WP-3.4).  401s inside the transient
+    window still retry: attempts 1..4 keep the entry in SETUP_RETRY.
+
+    The integration's clock (``custom_components.loxone.time``) is
+    replaced with a fake tracked by this test: wall-clock time can never
+    span 5 minutes inside a test, and HA's retry timer does not advance
+    Python's clock either.  Each newly-observed failed attempt steps the
+    fake clock 660 s (hand-derived: attempts 1..5 are then recorded at
+    1000/1660/2320/2980/3640; the fifth sits 2640 s after the first,
+    over the 300 s window).  The *event loop* clock is advanced
+    separately by the periodic fires inside ``_wait_until``.
     """
+    from homeassistant.helpers import issue_registry as ir
+
     import custom_components.loxone as loxone_module
 
     caplog.set_level(logging.WARNING, CAPLOG_TARGET)
@@ -280,19 +289,42 @@ async def test_persistent_401_stays_in_setup_retry_and_escalates(
         mock_entry.add_to_hass(hass)
         await hass.config_entries.async_setup(mock_entry.entry_id)
         await hass.async_block_till_done()
-        assert hass.config_entries.async_get_entry(mock_entry.entry_id).state is ConfigEntryState.SETUP_RETRY
+        entry = hass.config_entries.async_get_entry(mock_entry.entry_id)
+        # Attempt 1 is inside the transient window -> still setup retry.
+        assert entry.state is ConfigEntryState.SETUP_RETRY
         assert open_calls == [1]
-        # Wait for attempts 2 .. 5; each waits for "one more" attempt than
-        # seen so far.
-        while len(open_calls) < 5:
-            target = len(open_calls) + 1
+        # Attempts 2..4 are still inside the window (< 5 attempts), so
+        # every retry keeps the entry in SETUP_RETRY.
+        for target in (2, 3, 4):
             await _wait_until(hass, lambda t=target: len(open_calls) >= t, message=f"attempt {target} to run")
+            await _wait_until(
+                hass,
+                lambda e=entry: e.state is ConfigEntryState.SETUP_RETRY,
+                message="the entry to settle in the retry state",
+            )
+        # The fifth attempt (>= 300 s after the first) escalates.
+        await _wait_until(hass, lambda: len(open_calls) >= 5, message="the fifth attempt to run")
+        await hass.async_block_till_done()
 
     entry = hass.config_entries.async_get_entry(mock_entry.entry_id)
-    # All five attempts ran; the entry is in the retry state, never in
-    # setup_error.
     assert open_calls == [1, 1, 1, 1, 1]
-    assert entry.state is not ConfigEntryState.SETUP_ERROR
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+
+    # HA started the reauth flow for this entry.
+    progress = hass.config_entries.flow.async_progress()
+    reauth_flows = [
+        f
+        for f in (progress.values() if isinstance(progress, dict) else progress)
+        if isinstance(f, dict)
+        and f.get("handler") == "loxone"
+        and (f.get("context") or {}).get("source") == "reauth"
+        and (f.get("context") or {}).get("entry_id") == mock_entry.entry_id
+    ]
+    assert reauth_flows, f"expected a reauth flow in progress, got: {progress!r}"
+
+    # HA registers the config_entry_reauth repair issue for it.
+    issue = ir.async_get(hass).async_get_issue("homeassistant", f"config_entry_reauth_loxone_{mock_entry.entry_id}")
+    assert issue is not None
 
     # The fifth failure (2640 s after the first) must have escalated to an
     # ERROR pointing at the stored credentials.
