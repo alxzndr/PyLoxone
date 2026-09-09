@@ -64,8 +64,12 @@ CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN = "generate_lightcontroller_subcontrols"
 CONF_VERIFY_SSL = "verify_ssl"
 DEFAULT_FORCE_UPDATE = False
 
-SUPPORT_SUN_AUTOMATION = 1024
-SUPPORT_QUICK_SHADE = 2048
+# Loxone-only cover feature bits. These are NOT `CoverEntityFeature` values;
+# they live far above HA's cover-feature range (highest bit is 128 as of
+# 2026.8) so that a future HA release cannot silently claim them (PC-27).
+# Kept out of `CoverEntityFeature` itself: platforms OR plain ints in.
+SUPPORT_SUN_AUTOMATION = 1 << 12  # 4096
+SUPPORT_QUICK_SHADE = 1 << 13  # 8192
 
 SERVICE_ENABLE_SUN_AUTOMATION = "enable_sun_automation"
 SERVICE_DISABLE_SUN_AUTOMATION = "disable_sun_automation"

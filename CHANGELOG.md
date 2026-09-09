@@ -106,6 +106,24 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   is reachable (PC-43); unknown `playState` values map to `idle` instead
   of leaving the entity stateless (PC-41); missing `playState`/`volume`
   state uuids no longer crash event handling (PC-16)
+- `cover.py` (Jalousie/Gate/Window) - a Window `stop_cover` now sends a
+  real `stop` instead of driving the window to the opposite end when
+  closing (PC-07, JoDehli/PyLoxone#501); `Gate.stop_cover` no longer
+  re-sends the opposite direction but sends `stop` (VERIFY on a live
+  Miniserver). The Jalousie-only services `enable_sun_automation` /
+  `disable_sun_automation`/`quick_shade` only reach Jalousies that
+  advertise the capability — a Gate/Window target raises
+  `ServiceValidationError`, not `AttributeError` (PC-14) — and run on the
+  event loop. The custom feature bits moved to `1 << 12`/`1 << 13`, far
+  out of HA's cover-feature range (PC-27). Missing optional states
+  (`targetPosition`, `direction`, `shadePosition`, `animation`, …) no
+  longer `KeyError` (PC-15/PC-16, JoDehli/PyLoxone#501);
+  `Jalousie.__init__` no longer injects empty-string keys into the shared
+  structure JSON (PC-36); `manualLamelle` commands use an explicit
+  3-decimal format with a documented jitter constant (PC-19); dead code
+  and the `shade_postion_as_text` typo removed (PC-40/PC-41)
+- `services.yaml` - the three cover services' target narrowed to
+  `integration: loxone` (kept `domain: cover`)
 
 ## 0.9.23
 
