@@ -8,6 +8,8 @@ https://github.com/JoDehli/pyloxone-api
 import asyncio
 import logging
 
+import base64
+
 import aiohttp
 
 from .const import TIMEOUT
@@ -17,6 +19,25 @@ from .exceptions import (
     LoxoneUnauthorisedError,
     LoxoneUnrecognizedCommandError,
 )
+
+
+def _basic_auth_header(username: str, password: str) -> str:
+    """Return a UTF-8 Basic auth header value.
+
+    ``aiohttp.BasicAuth`` and the ``auth=`` request parameter are deprecated
+    and are removed in aiohttp 4. ``encode_basic_auth`` is the replacement,
+    but it only exists from aiohttp 3.12, so fall back to building the header
+    directly on older releases.
+
+    The encoding must stay UTF-8: latin-1 is aiohttp's historical default and
+    it breaks non-ASCII credentials (JoDehli/PyLoxone#506).
+    """
+    encode = getattr(aiohttp, "encode_basic_auth", None)
+    if encode is not None:
+        return encode(username, password, encoding="utf-8")
+    token = base64.b64encode(f"{username}:{password}".encode()).decode("ascii")
+    return f"Basic {token}"
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,7 +98,7 @@ class LoxoneAsyncHttpClient:
         try:
             _LOGGER.debug("Making GET request to: %s", url)
             request_kwargs = {
-                "auth": aiohttp.BasicAuth(self.username, self.password, encoding="utf-8"),
+                "headers": {"Authorization": _basic_auth_header(self.username, self.password)},
                 "timeout": aiohttp.ClientTimeout(total=self.timeout),
             }
             if self.scheme == "https":

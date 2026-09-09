@@ -86,3 +86,33 @@ def test_websocket_verifies_certificates_by_default() -> None:
     )
 
     assert connection._websocket_ssl_context() is None
+
+
+# --------------------------------------------------------------------------- #
+# aiohttp Basic auth header (BasicAuth/auth= are removed in aiohttp 4)
+# --------------------------------------------------------------------------- #
+def test_basic_auth_header_is_utf8() -> None:
+    """Non-ASCII credentials must encode as UTF-8 (JoDehli/PyLoxone#506).
+
+    aiohttp's historical default was latin-1, which is what broke those
+    logins in the first place.
+    """
+    import base64
+
+    from custom_components.loxone.pyloxone_api.loxone_http_client import _basic_auth_header
+
+    header = _basic_auth_header("bjørn", "pässwörd")
+    scheme, _, token = header.partition(" ")
+    assert scheme == "Basic"
+    assert base64.b64decode(token).decode("utf-8") == "bjørn:pässwörd"
+
+
+def test_basic_auth_header_without_encode_basic_auth(monkeypatch) -> None:
+    """The fallback path (aiohttp < 3.12) produces the same header."""
+    import base64
+
+    from custom_components.loxone.pyloxone_api import loxone_http_client
+
+    monkeypatch.delattr(loxone_http_client.aiohttp, "encode_basic_auth", raising=False)
+    header = loxone_http_client._basic_auth_header("bjørn", "pässwörd")
+    assert base64.b64decode(header.split()[1]).decode("utf-8") == "bjørn:pässwörd"
