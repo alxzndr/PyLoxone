@@ -113,6 +113,11 @@ async def async_setup_entry(
                 sub_control.update(
                     {
                         "lightcontroller_id": light_controller.get("uuidAction", None),
+                        # PC-04 (extension): share the parent controller's
+                        # fixed device payload, so the controller's name and
+                        # suggested_area survive no-matter which sub-control
+                        # is registered first (sub-controls carry no room).
+                        "device_info": new_light_controller._attr_device_info,
                         "lightcontroller_name": light_controller.get("name", None),
                         "config_entry": config_entry,
                         "async_add_devices": async_add_entities,

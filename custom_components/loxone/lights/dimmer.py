@@ -6,6 +6,7 @@ from homeassistant.core import callback
 
 from .. import LoxoneEntity
 from ..helpers import (
+    device_info_for,
     get_or_create_device,
     hass_to_lox,
     hass_to_lox_range,
@@ -45,10 +46,10 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self._light_controller_id, self.name, self.type, self.room, True)
         else:
             self.type = "Dimmer"
-            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
 
         state_attributes = {
             "device_type": self.type,
@@ -149,10 +150,10 @@ class EIBDimmer(LoxoneDimmer):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self._light_controller_id, self.name, self.type, self.room, True)
         else:
             self.type = "EIBDimmer"
-            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
 
     @cached_property
     def icon(self):

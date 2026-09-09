@@ -34,7 +34,6 @@ from homeassistant.helpers.device_registry import DeviceEntry
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.start import async_at_started
-from homeassistant.setup import async_setup_component
 
 from .const import (
     ATTR_AREA_CREATE,
@@ -43,6 +42,7 @@ from .const import (
     ATTR_ENTRY_ID,
     ATTR_UUID,
     ATTR_VALUE,
+    CONF_GENERATE_GROUPS,
     CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
     CONF_SCENE_GEN,
     CONF_SCENE_GEN_DELAY,
@@ -51,6 +51,21 @@ from .const import (
     DEFAULT_DELAY_SCENE,
     DEFAULT_PORT,
     DEFAULT_VERIFY_SSL,
+    DEVICE_TYPE_AC,
+    DEVICE_TYPE_ANALOG,
+    DEVICE_TYPE_BINARY_SENSOR,
+    DEVICE_TYPE_DIMMER,
+    DEVICE_TYPE_GATE,
+    DEVICE_TYPE_IRC,
+    DEVICE_TYPE_JALOUSIE,
+    DEVICE_TYPE_LCV2,
+    DEVICE_TYPE_PUSHBUTTON,
+    DEVICE_TYPE_SLIDER,
+    DEVICE_TYPE_SWITCH,
+    DEVICE_TYPE_TEXT_INPUT,
+    DEVICE_TYPE_TIMED_SWITCH,
+    DEVICE_TYPE_VENTILATION,
+    DEVICE_TYPE_WINDOW,
     DOMAIN,
     EVENT,
     LOXONE_PLATFORMS,
@@ -390,6 +405,28 @@ async def async_set_options(hass, config_entry):
 
 
 async def create_group_for_loxone_entities(hass, entities, name, object_id):
+    entity_id = f"group.{object_id}"
+    # CORE-15: the auto-groups must *converge* on this entry's current
+    # loxone entities, not just be created once.  Two things break a
+    # bare re-``async_create_group`` of an existing group:
+    #
+    # * the platform ignores a re-added Group whose unique id it already
+    #   knows ("Entity id already exists - ignoring"), so a group whose
+    #   *state* went away (the user removed it) would stay gone; and
+    # * a master group re-tracks its members the moment any subgroup's
+    #   state is rewritten, so checking "state present?" too late holds
+    #   a stale member list.
+    #
+    # So: when the group entity still exists on the platform, always
+    # (re)point it at the freshly discovered members; only create fresh
+    # when no such entity exists at all.
+    component = group.async_get_component(hass)
+    entity = component.get_entity(entity_id)
+    if entity is not None and hasattr(entity, "async_update_tracked_entity_ids"):
+        if tuple(sorted(entity.tracking)) != tuple(sorted(entities)):
+            entity.async_update_tracked_entity_ids(list(entities))
+        entity.async_write_ha_state()
+        return
     try:
         await group.Group.async_create_group(
             hass,
@@ -413,12 +450,92 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
             order=None,
         )
         _LOGGER.error("Can't create group '%s' with error: %s", name, err)
-    except Exception as e:
-        _LOGGER.error(
-            "Can't create group '%s'. Try to make at least one group manually. ("
-            "https://www.home-assistant.io/integrations/group/)",
-            e,
-        )
+
+# CORE-15 / PS-14: the auto-groups and the control type each one collects.
+# The types are the PS-14 constants — the strings the platforms emit in
+# their ``device_type`` state attribute.  The old table matched literals
+# no platform emitted (``"analog_sensor"``, ``"digital_sensor"``,
+# ``"TimedSwitch"``), so those groups were always empty; it grouped
+# "Loxone Dimmer" with the ``lights`` list while ``dimmers`` sat unused;
+# and the master group dropped dimmers/climates/accontrollers entirely.
+LOXONE_GROUP_MASTER_OBJECT_ID = "loxone_group"
+LOXONE_GROUP_MASTER_NAME = "Loxone Group"
+LOXONE_GROUPS_BY_OBJECT_ID: dict[str, tuple[str, tuple[str, ...]]] = {
+    "loxone_analog": ("Loxone Analog Sensors", (DEVICE_TYPE_ANALOG,)),
+    "loxone_digital": ("Loxone Digital Sensors", (DEVICE_TYPE_BINARY_SENSOR,)),
+    "loxone_switches": ("Loxone Switches", (DEVICE_TYPE_SWITCH, DEVICE_TYPE_TIMED_SWITCH)),
+    "loxone_buttons": ("Loxone Buttons", (DEVICE_TYPE_PUSHBUTTON,)),
+    "loxone_covers": ("Loxone Covers", (DEVICE_TYPE_JALOUSIE, DEVICE_TYPE_GATE, DEVICE_TYPE_WINDOW)),
+    "loxone_lights": ("Loxone LightControllers", (DEVICE_TYPE_LCV2,)),
+    "loxone_dimmers": ("Loxone Dimmers", (DEVICE_TYPE_DIMMER,)),
+    "loxone_climates": ("Loxone Room Controllers", (DEVICE_TYPE_IRC, DEVICE_TYPE_AC)),
+    "loxone_ventilations": ("Loxone Ventilation Controllers", (DEVICE_TYPE_VENTILATION,)),
+    "loxone_accontrollers": ("Loxone AC Controllers", (DEVICE_TYPE_AC,)),
+    "loxone_numbers": ("Loxone Numbers", (DEVICE_TYPE_SLIDER,)),
+    "loxone_texts": ("Loxone Texts", (DEVICE_TYPE_TEXT_INPUT,)),
+}
+
+
+async def loxone_discovered(hass, config_entry):
+    """Collect this entry's entities for the auto-groups, keyed by group object id.
+
+    Every state of *this integration* (``platform == loxone``) is matched
+    against the PS-14 constants in :data:`LOXONE_GROUPS_BY_OBJECT_ID` via
+    the ``device_type`` state attribute; empty groups are not returned.
+    """
+    found: dict[str, list[str]] = {}
+    for state in hass.states.async_all():
+        attributes = state.attributes
+        if attributes.get("platform") != DOMAIN:
+            continue
+        device_type = attributes.get("device_type")
+        for object_id, (_name, types) in LOXONE_GROUPS_BY_OBJECT_ID.items():
+            if device_type in types:
+                found.setdefault(object_id, []).append(state.entity_id)
+    for object_id in found:
+        found[object_id] = sorted(found[object_id])
+    return {oid: ids for oid, ids in found.items() if ids}
+
+
+async def create_loxone_groups(hass, config_entry):
+    """Create the auto-groups once per install (CORE-15).
+
+    Gated on the entry's ``generate_groups`` option: the config flow
+    stamps new installs with ``False`` (default off), while pre-option
+    installs never carry the key — an absent key keeps the old behaviour
+    (groups on).  Idempotent: a ``group.loxone_group`` state means the
+    groups exist and a reload must not run group creation again.
+    """
+    if not config_entry.options.get(CONF_GENERATE_GROUPS, True):
+        _LOGGER.debug("generate_groups is off for %s; skipping auto-group creation", config_entry.title)
+        return
+
+    if hass.states.get(f"group.{LOXONE_GROUP_MASTER_OBJECT_ID}") is not None:
+        _LOGGER.debug("Loxone auto-groups already exist; skipping group creation")
+        return
+
+    # The at-started job can race the platforms: entity states (and with
+    # them the user extras that carry ``device_type``/``platform``) may not
+    # be written yet.  Let the pending work settle before scanning.  (The
+    # post-group-creation ``async_block_till_done`` of the old code that
+    # only ran *before creating the master group* is gone — this one is
+    # what makes the scan see the entities.)
+    await hass.async_block_till_done()
+
+    groups = await loxone_discovered(hass, config_entry)
+    for object_id, (name, _types) in LOXONE_GROUPS_BY_OBJECT_ID.items():
+        entity_ids = groups.get(object_id)
+        if not entity_ids:
+            continue
+        await create_group_for_loxone_entities(hass, entity_ids, name, object_id)
+
+    # CORE-15: the master group is assembled from the non-empty subgroups
+    # *including* dimmers/climates/accontrollers — built members only, so
+    # the master never references a group that was never created.
+    master_members = [f"group.{oid}" for oid in LOXONE_GROUPS_BY_OBJECT_ID if groups.get(oid)]
+    if master_members:
+        await create_group_for_loxone_entities(hass, master_members, LOXONE_GROUP_MASTER_NAME, LOXONE_GROUP_MASTER_OBJECT_ID)
+
 
 
 def _hass_data(hass) -> dict:
@@ -539,8 +656,6 @@ async def async_setup_entry(hass, config_entry):
     async def _entry_updated(_updated_entry: ConfigEntry, *_args, **_kwargs) -> None:
         hass.config_entries.async_schedule_reload(config_entry.entry_id)
 
-    config_entry.async_on_unload(config_entry.add_update_listener(_entry_updated))
-
     # The coordinator opens the websocket connection inside
     # ``_async_setup``, which the stock
     # ``async_config_entry_first_refresh`` (now no longer overridden —
@@ -601,6 +716,27 @@ async def async_setup_entry(hass, config_entry):
         host,
     )
 
+    # CORE-16: the config flow rarely sets ``config_entry.unique_id``;
+    # the Miniserver serial is the host's identity.  Stamp it before the
+    # option-update listener is registered, below, so the stamp itself
+    # doesn't schedule a reload.
+    serial = coordinator.miniserver.serial
+    if serial and config_entry.unique_id != serial:
+        hass.config_entries.async_update_entry(config_entry, unique_id=serial)
+
+    # CORE-20 / PS-20: the tuple is linked to the Miniserver's host
+    # device that the platforms' entities attach to.  Stored on the
+    # entry — one object that both setup-time handles, and the
+    # entity constructors, can reach.
+    config_entry.loxone_via = (DOMAIN, serial) if serial else None
+
+    # CORE-16: register the host device (the first-ever caller of
+    # ``async_update_device_registry``) *before* the platforms create
+    # the child devices that point at it via ``via_device``.
+    coordinator.miniserver.async_update_device_registry()
+
+    config_entry.async_on_unload(config_entry.add_update_listener(_entry_updated))
+
     _hass_data(hass)[config_entry.entry_id] = coordinator
 
     # Platforms create their entities exclusively from the config entry
@@ -640,137 +776,15 @@ async def async_setup_entry(hass, config_entry):
             raise
 
     async def create_groups(_hass: HomeAssistant) -> None:
-        """Create the auto-groups, once per Miniserver lifetime.
+        """Create the auto-groups, once per install.
 
-        CORE-06: this used to be a second
-        ``async_listen_once`` for ``EVENT_HOMEASSISTANT_STARTED`` whose
-        unsubscribe was discarded — and after a reload the event never
-        fires again, so group creation was silently dead.  It is now
-        scheduled with ``async_at_started`` (runs when HA starts, or
-        immediately when HA is already running) and the unsubscribe is
-        kept for unload.  The idempotence guard below keeps the
-        immediate execution (reload / new entry on a running HA) from
-        re-running group creation for an install that already has the
-        groups.
+        CORE-06: ran at HA-started via ``async_at_started`` (immediately
+        when HA is already running, as after a reload) with the
+        unsubscribe kept for unload.  All of the decisions moved to
+        :func:`create_loxone_groups` (option gate, idempotence, the
+        fixed PS-14 matching table).
         """
-        if _hass.states.get(f"group.{DOMAIN}_group") is not None:
-            _LOGGER.debug("Loxone auto-groups already exist; skipping group creation")
-            return
-        _LOGGER.info("Creating groups")
-        miniserver = get_miniserver_from_hass(_hass, config_entry)
-        if miniserver is None or miniserver.miniserver_type is None or miniserver.miniserver_type >= 2:
-            return
-        try:
-            _LOGGER.info("loxone discovered")
-            await asyncio.sleep(0.1)
-            # await sync_areas_with_loxone()
-            entity_ids = _hass.states.async_all()
-            sensors_analog = []
-            sensors_digital = []
-            switches = []
-            covers = []
-            lights = []
-            dimmers = []
-            climates = []
-            fans = []
-            accontrols = []
-            numbers = []
-            texts = []
-            buttons = []
-
-            for s in entity_ids:
-                s_dict = s.as_dict()
-                attr = s_dict["attributes"]
-                if "platform" in attr and attr["platform"] == DOMAIN:
-                    device_type = attr.get("device_type", "")
-                    if device_type in ["analog_sensor", "Meter"]:
-                        sensors_analog.append(s_dict["entity_id"])
-                    elif device_type == "digital_sensor":
-                        sensors_digital.append(s_dict["entity_id"])
-                    elif device_type in ["Jalousie", "Gate", "Window"]:
-                        covers.append(s_dict["entity_id"])
-                    elif device_type in ["Switch", "TimedSwitch"]:
-                        switches.append(s_dict["entity_id"])
-                    elif device_type == "Pushbutton":
-                        buttons.append(s_dict["entity_id"])
-                    elif device_type in ["LightControllerV2"]:
-                        lights.append(s_dict["entity_id"])
-                    elif device_type == "Dimmer":
-                        dimmers.append(s_dict["entity_id"])
-                    elif device_type == "IRoomControllerV2":
-                        climates.append(s_dict["entity_id"])
-                    elif device_type == "Ventilation":
-                        fans.append(s_dict["entity_id"])
-                    elif device_type == "AcControl":
-                        accontrols.append(s_dict["entity_id"])
-                    elif device_type == "Slider":
-                        numbers.append(s_dict["entity_id"])
-                    elif device_type == "TextInput":
-                        texts.append(s_dict["entity_id"])
-
-            sensors_analog.sort()
-            sensors_digital.sort()
-            covers.sort()
-            switches.sort()
-            buttons.sort()
-            lights.sort()
-            climates.sort()
-            dimmers.sort()
-            fans.sort()
-            accontrols.sort()
-            numbers.sort()
-            texts.sort()
-            await async_setup_component(_hass, "group", {})
-            await create_group_for_loxone_entities(_hass, sensors_analog, "Loxone Analog Sensors", "loxone_analog")
-            await create_group_for_loxone_entities(
-                _hass,
-                sensors_digital,
-                "Loxone Digital Sensors",
-                "loxone_digital",
-            )
-            await create_group_for_loxone_entities(_hass, switches, "Loxone Switches", "loxone_switches")
-            await create_group_for_loxone_entities(_hass, buttons, "Loxone Buttons", "loxone_buttons")
-            await create_group_for_loxone_entities(_hass, covers, "Loxone Covers", "loxone_covers")
-            await create_group_for_loxone_entities(_hass, lights, "Loxone LightControllers", "loxone_lights")
-            await create_group_for_loxone_entities(_hass, lights, "Loxone Dimmer", "loxone_dimmers")
-            await create_group_for_loxone_entities(_hass, climates, "Loxone Room Controllers", "loxone_climates")
-            await create_group_for_loxone_entities(
-                _hass,
-                fans,
-                "Loxone Ventilation Controllers",
-                "loxone_ventilations",
-            )
-            await create_group_for_loxone_entities(
-                _hass,
-                accontrols,
-                "Loxone AC Controllers",
-                "loxone_accontrollers",
-            )
-            await create_group_for_loxone_entities(_hass, numbers, "Loxone Numbers", "loxone_numbers")
-            await create_group_for_loxone_entities(_hass, texts, "Loxone Texts", "loxone_texts")
-            await _hass.async_block_till_done()
-            await create_group_for_loxone_entities(
-                _hass,
-                [
-                    "group.loxone_analog",
-                    "group.loxone_digital",
-                    "group.loxone_switches",
-                    "group.loxone_buttons",
-                    "group.loxone_covers",
-                    "group.loxone_lights",
-                    "group.loxone_ventilations",
-                    "group.loxone_numbers",
-                    "group.loxone_texts",
-                ],
-                "Loxone Group",
-                "loxone_group",
-            )
-        except Exception as err:
-            _LOGGER.error(
-                "Can't create group '%s'. Try to make at least one group manually. ("
-                "https://www.home-assistant.io/integrations/group/)",
-                err,
-            )
+        await create_loxone_groups(_hass, config_entry)
 
     async def loxone_send(event):
         """Outbound commands fired on the bus by external users.

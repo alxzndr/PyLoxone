@@ -39,18 +39,24 @@ from homeassistant.const import (
     UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from . import LoxoneEntity
-from .const import CONF_ACTIONID, DOMAIN, ERROR_VALUE, EVENT, THROTTLE_KEEP_ALIVE_TIME, loxone_climate_demand_signal
-from .helpers import clean_unit, get_or_create_device, iter_controls
+from .const import (
+    CONF_ACTIONID,
+    DEVICE_TYPE_ANALOG,
+    DOMAIN,
+    ERROR_VALUE,
+    EVENT,
+    THROTTLE_KEEP_ALIVE_TIME,
+    loxone_climate_demand_signal,
+)
+from .helpers import clean_unit, device_info_for, get_miniserver_type, iter_controls, software_version_string
 from .miniserver import get_miniserver_from_hass
-
-NEW_SENSOR = "sensors"
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -294,14 +300,27 @@ async def async_setup_entry(
     miniserver = get_miniserver_from_hass(hass, config_entry)
 
     loxconfig = miniserver.lox_config.json
-    entities: list[Any] = [LoxoneKeepAliveSensor(miniserver.serial)]
+
+    # PS-20: the keep-alive and version sensors belong to the Miniserver
+    # host device (identifiers = (DOMAIN, serial)), not to no device at
+    # all.  Skipped (as before) when the structure file has no serial /
+    # software version.
+    ms_device_info: DeviceInfo | None = None
+    if miniserver.serial:
+        ms_device_info = device_info_for(
+            config_entry,
+            miniserver.serial,
+            miniserver.name,
+            get_miniserver_type(miniserver.miniserver_type),
+        )
+    entities: list[Any] = [LoxoneKeepAliveSensor(miniserver.serial, ms_device_info)]
 
     if "softwareVersion" in loxconfig:
-        entities.append(LoxoneVersionSensor(miniserver.serial, loxconfig["softwareVersion"]))
+        entities.append(LoxoneVersionSensor(miniserver.serial, loxconfig["softwareVersion"], ms_device_info))
 
     for sensor in iter_controls(hass, config_entry, "InfoOnlyAnalog"):
         try:
-            sensor.update({"type": "analog"})
+            sensor.update({"type": "analog", "config_entry": config_entry})
             entities.append(LoxoneSensor(**sensor))
         except Exception:
             # One bad control must not abort the whole sensor platform
@@ -310,6 +329,7 @@ async def async_setup_entry(
 
     for sensor in iter_controls(hass, config_entry, "TextInput"):
         try:
+            sensor.update({"config_entry": config_entry})
             entities.append(LoxoneTextSensor(**sensor))
         except Exception:
             _LOGGER.exception("Skipping TextInput control %s", sensor.get("name", "?"))
@@ -317,7 +337,7 @@ async def async_setup_entry(
     for sensor in iter_controls(hass, config_entry, "Meter"):
         _LOGGER.debug("Found Meter: %s", sensor.get("name"))
         try:
-            device_info = LoxoneMeterSensor.create_device_info_from_sensor(sensor)
+            device_info = LoxoneMeterSensor.create_device_info_from_sensor(sensor, config_entry)
             for state_key in METER_STATE_CLASSES:
                 if state_key not in sensor.get("states", {}):
                     continue
@@ -343,7 +363,7 @@ async def async_setup_entry(
     for ctrl_type in ("ClimateController", "ClimateControllerUS"):
         for ctrl in iter_controls(hass, config_entry, ctrl_type):
             try:
-                ctrl_kwargs = {**ctrl, "type": "climate_controller", "hass": hass}
+                ctrl_kwargs = {**ctrl, "type": "climate_controller", "hass": hass, "config_entry": config_entry}
                 entities.append(LoxoneClimateController(**ctrl_kwargs))
             except Exception:
                 _LOGGER.exception("Skipping %s control %s", ctrl_type, ctrl.get("name", "?"))
@@ -352,7 +372,7 @@ async def async_setup_entry(
     for irc in iter_controls(hass, config_entry, "IRoomControllerV2"):
         try:
             states = irc.get("states", {})
-            device_info = get_or_create_device(irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", ""))
+            device_info = device_info_for(config_entry, irc["uuidAction"], irc["name"], "RoomControllerV2", irc.get("room", ""))
 
             if "overrideReason" in states:
                 entities.append(
@@ -386,14 +406,10 @@ async def async_setup_entry(
         except Exception:
             _LOGGER.exception("Skipping IRoomControllerV2 control %s", irc.get("name", "?"))
 
-    @callback
-    def async_add_sensors(_):
-        async_add_entities(_, True)
-
-    miniserver.listeners.append(
-        async_dispatcher_connect(hass, miniserver.async_signal_new_device(NEW_SENSOR), async_add_sensors)
-    )
-
+    # CORE-17: the old code subscribed to an ``async_signal_new_device``
+    # signal that no code path ever sent and leaked the unsubscribe on
+    # ``MiniServer.listeners`` (never iterated).  Sensors are created
+    # exclusively from the structure file.
     async_add_entities(entities, update_before_add=True)
 
 
@@ -452,10 +468,20 @@ class LoxoneKeepAliveSensor(LoxoneEntity, SensorEntity):
     _attr_icon = "mdi:information-outline"
     _attr_unique_id = "loxone_keep_alive_sensor_uuid"
     _attr_device_class = SensorDeviceClass.TIMESTAMP  # tell HA this is a timestamp
+    # PS-20: diagnostic on the Miniserver device, hidden in the UI by
+    # default (it is a connection heartbeat, not a measurement).
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
 
-    def __init__(self, miniserver_serial, **kwargs):
+    def __init__(self, miniserver_serial, device_info: DeviceInfo | None = None, **kwargs):
         super().__init__(**kwargs)
         self._miniserver_serial = miniserver_serial
+        # PS-20: attach to the Miniserver host device (identifiers
+        # (DOMAIN, serial)); a structure file without a serial yields
+        # ``device_info is None`` and a device-less entity (no
+        # ``(DOMAIN, None)`` identifier).
+        if device_info is not None:
+            self._attr_device_info = device_info
         self._attr_native_value = None
 
     @cached_property
@@ -492,14 +518,19 @@ class LoxoneVersionSensor(LoxoneEntity, SensorEntity):
     _attr_name = "Loxone Software Version"
     _attr_icon = "mdi:information-outline"
     _attr_unique_id = "loxone_software_version_uuid"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, minisersver_serial, version_list, **kwargs):
+    def __init__(self, miniserver_serial, version, device_info: DeviceInfo | None = None, **kwargs):
         super().__init__(**kwargs)
-        self._miniserver_serial = minisersver_serial
-        try:
-            self._attr_native_value = ".".join([str(x) for x in version_list])
-        except Exception:
-            self._attr_native_value = STATE_UNKNOWN
+        self._miniserver_serial = miniserver_serial
+        # PS-20: ``software_version_string`` handles list-form *and*
+        # string-form versions (the old join split the string into
+        # characters); an unusable value stays ``None`` (HA renders
+        # unknown) instead of the literal string "unknown".
+        parsed = software_version_string(version)
+        self._attr_native_value = parsed if parsed else None
+        if device_info is not None:
+            self._attr_device_info = device_info
 
     @cached_property
     def unique_id(self) -> str:
@@ -512,8 +543,14 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.type = "TextInput"
         self._state = None
         self._state_uuid = self.states.get("text") or self.uuidAction
+        # CORE-20 / device link: a fresh device built from the control's
+        # own identity (previously no device at all).
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self.name, self.type, kwargs.get("room", "")
+        )
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: the ``text`` state stream (falls back to uuidAction).
@@ -526,11 +563,6 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
             if self._state is not None:
                 self._state = str(self._state)
             self.async_write_ha_state()
-
-    @property
-    def device_class(self):
-        """Return the class of this device, from component DEVICE_CLASSES."""
-        return self.type
 
     @property
     def native_value(self):
@@ -558,9 +590,13 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         # Register-level classification from the Meter setup (PS-21); popped
         # here so the generic kwarg loop in LoxoneEntity does not try to
         # setattr them as plain attributes.
+        forced_device_info = kwargs.pop("device_info", None)
         forced_device_class = kwargs.pop("device_class", None)
         forced_state_class = kwargs.pop("state_class", None)
         super().__init__(**kwargs)
+        # CORE-20: a forced device (fan sub-sensors pass the parent's,
+        # Meter sub-sensors pass the meter's own) wins over the default.
+        self._forced_device_info = forced_device_info
         details = getattr(self, "details", None)
         details = details if isinstance(details, dict) else {}
         lox_format = details.get("format", "")
@@ -617,12 +653,14 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         elif numeric:
             self._attr_state_class = SensorStateClass.MEASUREMENT
 
-        _uuid = self.unique_id
-        if self._parent_id:
-            _uuid = self._parent_id
-
-        self.type = "Sensor analog"
-        self._attr_device_info = get_or_create_device(_uuid, self.name, self.type, self.room)
+        # PS-14: the group table matches the "Sensor analog" constant
+        # (the old extras value appended "_sensor" to it, and the old
+        # device identifier used the parent id for sub-sensors, so the
+        # shared dict was seeded by whichever sibling was built first).
+        self.type = DEVICE_TYPE_ANALOG
+        self._attr_device_info = self._forced_device_info or device_info_for(
+            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+        )
 
     def _parse_digits_after_decimal(self, format_string: Any):
         """Parse digits after the decimal point from the format string."""
@@ -646,30 +684,22 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         """Return device specific state attributes."""
         return {
             **self._attr_extra_state_attributes,
-            "device_type": self.type + "_sensor",
+            "device_type": self.type,
         }
 
 
 class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
-    def __init__(self, **kwargs):
-        device_info = kwargs.pop("device_info", None)
-        super().__init__(**kwargs)
-        if device_info:
-            self._attr_device_info = device_info
-
     @staticmethod
-    def create_device_info_from_sensor(sensor) -> DeviceInfo:
+    def create_device_info_from_sensor(sensor, config_entry=None) -> DeviceInfo:
+        # PS-20 device link: the meter device carries its own (DOMAIN,
+        # uuid) identifier, the control's name and model, and links to
+        # the Miniserver host device; all sub-registers share it.
         try:
             # For legacy Meter
             model = sensor["details"]["type"].capitalize() + " Meter"
         except KeyError, TypeError:
             model = "Meter"
-        return DeviceInfo(
-            identifiers={(DOMAIN, sensor["uuidAction"])},
-            name=sensor["name"],
-            manufacturer="Loxone",
-            model=model,
-        )
+        return device_info_for(config_entry, sensor["uuidAction"], sensor["name"], model, sensor.get("room", ""))
 
 
 class LoxoneRoomControllerTemperatureSensor(SensorEntity):
@@ -769,7 +799,7 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
         self._cool_demand = 0
         self.type = "ClimateController"
 
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: every monitored state stream of the climate controller.

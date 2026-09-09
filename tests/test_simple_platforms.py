@@ -727,15 +727,19 @@ async def test_scenes_created_from_mood_list_event(hass, mock_connection, mock_e
     await hass.async_block_till_done()
 
     scene_ids = hass.states.async_entity_ids(SCENE_DOMAIN)
-    assert "scene.living_light_controller_relax" in scene_ids
-    assert "scene.living_light_controller_party" in scene_ids
+    # HA 2026.x prefixes the device's area to the scene object id because the
+    # scene name starts with the device name and the LCV2 device carries the
+    # room as suggested_area (WP-3.3: room resolution is now idempotent, so
+    # the light platform finally sees the room).
+    assert "scene.parlour_living_light_controller_relax" in scene_ids
+    assert "scene.parlour_living_light_controller_party" in scene_ids
 
     # The scenes carry the LCV2 device (device link): the device holds the
     # (DOMAIN, uuidAction) identifier used by get_or_create_device.
     reg_device = dr.async_get(hass).async_get_device(identifiers={("loxone", LCV2_ACTION_UUID)})
     assert reg_device is not None
     entity_reg = er.async_get(hass)
-    scene_entry = entity_reg.async_get("scene.living_light_controller_relax")
+    scene_entry = entity_reg.async_get("scene.parlour_living_light_controller_relax")
     assert scene_entry.device_id == reg_device.id
 
     # A second delivery of the same list must not duplicate the scenes.

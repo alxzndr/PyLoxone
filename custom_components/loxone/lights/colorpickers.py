@@ -11,7 +11,7 @@ from homeassistant.components.light import (
 from homeassistant.core import callback
 
 from .. import LoxoneEntity
-from ..helpers import get_or_create_device, hass_to_lox, literal_decoder, lox_to_hass
+from ..helpers import device_info_for, hass_to_lox, literal_decoder, lox_to_hass
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,12 +90,19 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
+            # The device is the *controller's* device: name it after the
+            # controller (the entity's own name carries the "- Sub"
+            # suffix, which must not overwrite the shared device name in
+            # the registry (CORE-20/PC-05 device identity)).
+            controller_name = self._light_controller_name or self._name
+            self._attr_device_info = device_info_for(
+                kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room
+            )
         else:
             self.type = "ColorPickerV2"
             # Standalone picker: the device identifier must be a string
             # (PC-05 — `self._light_controller_id` is `None` here).
-            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
 
     @cached_property
     def unique_id(self) -> str:
@@ -190,12 +197,19 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
+            # The device is the *controller's* device: name it after the
+            # controller (the entity's own name carries the "- Sub"
+            # suffix, which must not overwrite the shared device name in
+            # the registry (CORE-20/PC-05 device identity)).
+            controller_name = self._light_controller_name or self._name
+            self._attr_device_info = device_info_for(
+                kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room
+            )
         else:
             self.type = "ColorPickerV2"
             # Standalone picker: the device identifier must be a string
             # (PC-05 — `self._light_controller_id` is `None` here).
-            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
 
     @cached_property
     def unique_id(self) -> str:
@@ -282,7 +296,14 @@ class LumiTech(RGBColorPicker):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
-            self._attr_device_info = get_or_create_device(self._light_controller_id, self.name, self.type, self.room)
+            # The device is the *controller's* device: name it after the
+            # controller (the entity's own name carries the "- Sub"
+            # suffix, which must not overwrite the shared device name in
+            # the registry (CORE-20/PC-05 device identity)).
+            controller_name = self._light_controller_name or self._name
+            self._attr_device_info = device_info_for(
+                kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room
+            )
         else:
             self.type = "LumiTech"
-            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+            self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)

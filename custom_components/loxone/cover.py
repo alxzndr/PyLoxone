@@ -20,7 +20,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_platform
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
@@ -32,12 +31,10 @@ from .const import (
     SUPPORT_QUICK_SHADE,
     SUPPORT_SUN_AUTOMATION,
 )
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device, map_range
+from .helpers import add_room_and_cat_to_value_values, device_info_for, get_all, map_range
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
-
-NEW_COVERS = "covers"
 
 # Loxone ignores a `manualLamelle/<position>` command whose value equals the
 # one currently in effect; a small random sub-percent delta (at most 0.9%,
@@ -144,9 +141,10 @@ async def async_setup_entry(
             new_jalousie = LoxoneJalousie(**cover)
             entities.append(new_jalousie)
 
-    miniserver.listeners.append(
-        async_dispatcher_connect(hass, miniserver.async_signal_new_device(NEW_COVERS), async_add_entities)
-    )
+    # CORE-17: the old code subscribed to an ``async_signal_new_device``
+    # signal that no code path ever sent and leaked the unsubscribe on
+    # ``MiniServer.listeners`` (never iterated).  Covers are created
+    # exclusively from the structure file.
     async_add_entities(entities)
 
     # Only Jalousies expose these; `required_features` keeps the service from
@@ -191,7 +189,9 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         self._animation = 0
         if "animation" in self.details:
             self._animation = self.details["animation"]
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+        )
 
     @property
     def supported_features(self):
@@ -294,7 +294,9 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
         self._direction = 0
 
         self.type = "Window"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+        )
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: the optional position / direction / targetPosition streams.
@@ -436,7 +438,9 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         self._closed = self.current_cover_position <= 0
 
         self.type = "Jalousie"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+        )
 
     @property
     def supported_features(self):

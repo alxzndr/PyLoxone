@@ -25,28 +25,6 @@ TRANSLATIONS_DIR = INTEGRATION_DIR / "translations"
 SERVICES_YAML = INTEGRATION_DIR / "services.yaml"
 MANIFEST_JSON = INTEGRATION_DIR / "manifest.json"
 
-# Device-type literals the grouping table (`loxone_discovered` in __init__.py)
-# currently matches on (based on the table at commit 7561247).
-GROUP_TABLE_LITERALS = {
-    "analog_sensor",
-    "Meter",
-    "digital_sensor",
-    "Jalousie",
-    "Gate",
-    "Window",
-    "Switch",
-    "TimedSwitch",
-    "Pushbutton",
-    "LightControllerV2",
-    "Dimmer",
-    "IRoomControllerV2",
-    "Ventilation",
-    "AcControl",
-    "Slider",
-    "TextInput",
-}
-
-
 def _load_en() -> dict:
     return json.loads((TRANSLATIONS_DIR / "en.json").read_text())
 
@@ -66,20 +44,61 @@ def _flat_keys(d: dict, prefix: str = "") -> set[str]:
     return out
 
 
+def _const_module():
+    """The loxone ``const`` module (the PS-14 constants live there)."""
+    import custom_components.loxone.const as c
+
+    return c
+
+
+def _resolve_device_type_token(token: str) -> str | None:
+    """A device-type token: a quoted literal (``"Sensor analog"``) or a PS-14
+    constant identifier (``DEVICE_TYPE_ANALOG``) — since WP-3.3 both sides of
+    the table legally use either form.  Non-device tokens (e.g.
+    ``self.type``) resolve to ``None``."""
+    t = token.strip()
+    if len(t) >= 2 and t[0] == t[-1] and t[0] in "\"'":
+        return t[1:-1]
+    if re.fullmatch(r"[A-Z][A-Z0-9_]*", t):
+        value = getattr(_const_module(), t, None)
+        if isinstance(value, str):
+            return value
+    return None
+
+
 def _device_type_literals() -> set[str]:
-    """Extract the quoted literals of `device_type == X` / `in [...]` in
-    `loxone_discovered` -- the strings the grouping table currently matches."""
+    """The strings the grouping table matches.
+
+    The table is the ``LOXONE_GROUPS_BY_OBJECT_ID`` dict in
+    ``__init__.py``: ``{object_id: (group name, (type token, ...))}``.
+    """
     src = (INTEGRATION_DIR / "__init__.py").read_text()
-    func_start = src.index("async def loxone_discovered")
-    # Stop at the next top-level def after loxone_discovered to bound the scan.
-    nxt = src.find("\n    async def ", func_start + 1)
-    if nxt == -1:
-        nxt = src.find("\nasync def ", func_start + 1)
-    body = src[func_start:nxt]
+    m = re.search(r"LOXONE_GROUPS_BY_OBJECT_ID.*?=\s*\{", src)
+    assert m, "LOXONE_GROUPS_BY_OBJECT_ID not found in __init__.py"
+    start = m.end() - 1  # the opening brace
+    depth = 0
+    end = start
+    for i in range(start, len(src)):
+        if src[i] == "{":
+            depth += 1
+        elif src[i] == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    body = src[start : end + 1]
+    tokens = re.findall(r"DEVICE_TYPE_[A-Z0-9_]+", body)
+    tokens += re.findall(r'"([^"]*)"', body)
     literals: set[str] = set()
-    for m in re.finditer(r"device_type\s*(?:==|in)\s*([^;]+(?:\]\)?|\))", body):
-        literals |= set(re.findall(r'["\']([^"\']+)["\']', m.group(1)))
+    for token in tokens:
+        # skip the group display names ("Loxone Analog Sensors", ...)
+        if token.startswith("Loxone "):
+            continue
+        value = _resolve_device_type_token(token)
+        if value is not None and not value.startswith("Loxone "):
+            literals.add(value)
     return literals
+
 
 
 def _platform_modules() -> list[str]:
@@ -208,33 +227,39 @@ def test_all_platform_modules_import() -> None:
 # 7.  device_type literals in the grouping table are all produced by some
 #     platform  (PS-14)
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(
-    strict=True,
-    reason="PS-14: the grouping table expects 'analog_sensor', 'digital_sensor' "
-    "and 'TimedSwitch', but the platforms use 'Sensor analog', 'digital' and "
-    "'TimeSwitch'; three auto-groups are always empty. Consolidate to "
-    "constants before removing this xfail.",
-)
 def test_grouping_table_device_types_are_produced() -> None:
-    """Every string literal in __init__.py's grouping table must be produced by
-    some platform's control class."""
-    literal_table = _device_type_literals()
-    assert literal_table, "device_type table extraction returned empty"
-    # Expected: production of all literals in the current table.
-    platform_literals: set[str] = set()
-    for path in INTEGRATION_DIR.glob("*.py"):
-        text = path.read_text()
-        # e.g. `self.type = "TimeSwitch"` or `self.type = "Sensor analog"`.
-        for m in re.finditer(r"self\.type\s*=\s*[\"']([^\"']+)[\"']", text):
-            platform_literals.add(m.group(1))
+    """Every string in ``LOXONE_GROUPS_BY_OBJECT_ID`` must be emitted by some
+    platform class (PS-14; consolidated on the ``const`` constants in
+    WP-3.3 — the xfail that pinned the old mismatch is gone).
 
-    # PS-14 reports yesterday's device_type strings.  Use today's table.
-    unmatched = literal_table - platform_literals
+    "Emitted" = assigned to ``self.type`` or written into the
+    ``device_type`` state attribute, as a quoted literal or via a
+    ``const`` identifier.  Both sides resolve to the same strings,
+    so either form is legal on either side.
+    """
+    table_literals = _device_type_literals()
+    assert table_literals, "device_type table extraction returned empty"
+
+    produced: set[str] = set()
+    self_type_re = re.compile(r"self\.type\s*=\s*(\"[^\"]+\"|'[^']+'|[a-zA-Z_][a-zA-Z0-9_.]*)")
+    device_type_re = re.compile(r"(?:^|[,({\s])\"device_type\"\s*:\s*(\"[^\"]+\"|'[^']+'|[a-zA-Z_][a-zA-Z0-9_.]*)")
+    for path in INTEGRATION_DIR.rglob("*.py"):  # includes the lights/ subpackage
+        text = path.read_text()
+        for m in self_type_re.finditer(text):
+            value = _resolve_device_type_token(m.group(1))
+            if value is not None:
+                produced.add(value)
+        for m in device_type_re.finditer(text):
+            value = _resolve_device_type_token(m.group(1))
+            if value is not None:
+                produced.add(value)
+
+    unmatched = table_literals - produced
     assert not unmatched, (
-        f"device_type literals missing from platform output: {sorted(unmatched)}. "
-        f"Platforms use {sorted(platform_literals)}; rewrite in one of the "
-        "tables (PS-14)."
+        f"device_type values missing from platform output: {sorted(unmatched)}. "
+        f"Platforms emit {sorted(produced)}; fix the table or a platform (PS-14)."
     )
+
 
 
 # Constrain the reader: no glob side-effects.

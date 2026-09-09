@@ -5,7 +5,7 @@ from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_EFFECT, ColorMo
 from homeassistant.core import callback
 
 from .. import LoxoneEntity
-from ..helpers import get_or_create_device, hass_to_lox, hass_to_lox_range, json_decoder, lox_to_hass, lox_to_hass_range
+from ..helpers import device_info_for, hass_to_lox, hass_to_lox_range, json_decoder, lox_to_hass, lox_to_hass_range
 
 # LCV2 mood ids: `changeTo/0` is the all-off mood, `changeTo/99` the
 # all-on "no mood" state, and an activeMoods payload of `[778]` means there
@@ -58,7 +58,7 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
         self.type = "LightControllerV2"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = device_info_for(kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room)
 
     @property
     def mood_list_uuid(self):

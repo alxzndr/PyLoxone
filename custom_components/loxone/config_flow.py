@@ -26,11 +26,13 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_GENERATE_GROUPS,
     CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
     CONF_SCENE_GEN,
     CONF_SCENE_GEN_DELAY,
     CONF_VERIFY_SSL,
     DEFAULT_DELAY_SCENE,
+    DEFAULT_GENERATE_GROUPS,
     DEFAULT_IP,
     DEFAULT_PORT,
     DEFAULT_VERIFY_SSL,
@@ -40,6 +42,12 @@ from .const import (
 
 async def validate_loxone_setup(handler: SchemaCommonFlowHandler, user_input: dict[str, Any]) -> dict[str, Any]:
     """Validate Loxone setup."""
+    # CORE-15: new installs are stamped with the auto-group option set to
+    # its default (OFF); the options page cannot unset it without an
+    # explicit user choice (see ``validate_loxone_options``).
+    if CONF_GENERATE_GROUPS not in user_input:
+        user_input[CONF_GENERATE_GROUPS] = DEFAULT_GENERATE_GROUPS
+
     # Validate latin-1 encoding for username and password
     try:
         if CONF_USERNAME in user_input:
@@ -60,6 +68,24 @@ async def validate_loxone_setup(handler: SchemaCommonFlowHandler, user_input: di
         user_input[CONF_SCENE_GEN_DELAY] = int(user_input[CONF_SCENE_GEN_DELAY])
 
     return user_input
+
+
+async def validate_loxone_options(handler: SchemaCommonFlowHandler, user_input: dict[str, Any]) -> dict[str, Any]:
+    """Validate Loxone options.
+
+    Preserves the entry's ``generate_groups`` flag (CORE-15): pre-option
+    installs never carry the key, and a key-less options save must not
+    flip their group behaviour — the stored value (or the pre-option
+    default ``True``) is what gets saved.
+    """
+    # Fill the stored value (or the pre-option default ``True``) in
+    # *before* ``validate_loxone_setup`` is asked to stamp the fresh-entry
+    # default — after that point the key exists and the stamp skips it.
+    if user_input.get(CONF_GENERATE_GROUPS) is None:
+        entry = getattr(handler, "config_entry", None)
+        options = getattr(entry, "options", None) or {}
+        user_input[CONF_GENERATE_GROUPS] = options.get(CONF_GENERATE_GROUPS, True)
+    return await validate_loxone_setup(handler, user_input)
 
 
 DATA_SCHEMA_SETUP = vol.Schema(
@@ -106,7 +132,7 @@ CONFIG_FLOW = {
 OPTIONS_FLOW = {
     "init": SchemaFlowFormStep(
         schema=DATA_SCHEMA_OPTIONS,
-        validate_user_input=validate_loxone_setup,
+        validate_user_input=validate_loxone_options,
     ),
 }
 

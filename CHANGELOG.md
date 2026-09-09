@@ -11,10 +11,55 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
+- Device registry and identity (WP-3.3): the Miniserver itself is now a
+  device in the registry (`Miniserver <serial>`, model
+  `ControlVersion8.61.0` already reported by the server, the real
+  software version instead of `unknown` as reported by a version sensor
+  that now lands on that same device with `entity_category: diagnostic`),
+  and every platform's `device_info` is built from that one helper with
+  per-call payloads: no more module-level device cache (CORE-20/CORE-16,
+  #477 #490). Rooms flow into `suggested_area` correctly now that room/
+  category name resolution is idempotent, so later platforms no longer
+  blank out the room of earlier ones; scene entity object ids pick up the
+  device's area prefix in 2026.x for that reason
 - CI, lint and the offline test harness (WP-0.1/0.2)
 - `CHANGELOG.md`, `CONTRIBUTING.md`, `release.yaml`, `ISSUE_TEMPLATE` forms
 
+### Changed
+
+- The `loxone_options` option `generate_groups` (new: default `false`;
+  missing key keeps groups on for pre-option installs) gates the Loxone
+  auto-groups; group membership now converges on the entry's current
+  entities — a removed group is recreated with its members, and the
+  master group includes dimmers/climates/accontrollers instead of
+  dropping them (CORE-15)
+- `generate_groups` default off for new installs (config flow); options
+  flow preserves stored values
+
 ### Fixed
+
+- Ventilation device identity: the fan now carries its own name/model
+  (`Ventilation 2` / `Ventilation` — the PS-14 constant, not the literal
+  `unknown` the string did not match) instead of reporting under a
+  presence-detection derivative; the presence/humidity/temperature sub
+  sensors share the fan's device (PC-04)
+- `device_info` no longer references a non-existing `via_device`;
+  Miniserver device linking via `via_device` stays a follow-up until the
+  remaining platforms migrate (they still build payloads through the
+  compat shim) (PS-17)
+- Structure file is no longer mutated in place: `get_all` hands out deep
+  copies, so platform setup (room resolution, `type` rewrites, runtime
+  references, Intercom sub-control name joins) can no longer poison a
+  later setup in the same process — the silent "platform set up zero
+  entities on the second reload" class of bug is gone (CORE-20 support)
+- Scene mood-list subscription is entry-scoped (`async_on_unload`)
+  instead of appending to the dead `MiniServer.listeners` list, which
+  was never called back and leaked on unload (CORE-17)
+- New config entries are stamped with `unique_id` = Miniserver serial at
+  setup time (idempotency against reload loops)
+- `get_or_create_device` raises on an empty uuid (PC-05) and the dead
+  `device_class` properties on ventilation/text sensors are deleted
+  (PS-10/PC-35)
 
 - Setup/unload/reload lifecycle: the session task is tracked on the
   config entry and cancelled on unload (CORE-03); `EVENT_HOMEASSISTANT_STOP`
@@ -227,7 +272,6 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   (PC-23, #398); all remaining direct state/details indexing uses
   `.get()` (PC-16 climate lines); f-string logging replaced with lazy
   formatting (PC-41 climate lines)
-
 ## 0.9.23
 
 &mdash; (version number; release notes back-ported after first cut)

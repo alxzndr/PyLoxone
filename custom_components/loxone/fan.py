@@ -14,7 +14,8 @@ from typing import Any
 
 from . import LoxoneEntity
 from .binary_sensor import LoxoneDigitalSensor
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
+from .const import DEVICE_TYPE_VENTILATION
+from .helpers import add_room_and_cat_to_value_values, device_info_for, get_all
 from .miniserver import get_miniserver_from_hass
 from .sensor import LoxoneSensor
 
@@ -117,6 +118,15 @@ async def async_setup_entry(
             }
         )
 
+        # PC-04: construct the *parent* control first.  Its
+        # ``_attr_device_info`` is the seed for the shared device entry,
+        # so the device must be named/typed after the fan — not after
+        # whichever sub-sensor happened to be built first (upstream
+        # PR #513).
+        ventilation = LoxoneVentilation(**fan)
+        entities.append(ventilation)
+        parent_device_info = ventilation._attr_device_info
+
         if fan["details"]["hasPresence"] and "presence" in fan["states"]:
             presence = {
                 "parent_id": fan["uuidAction"],
@@ -126,6 +136,7 @@ async def async_setup_entry(
                 "cat": fan.get("cat", ""),
                 "name": fan["name"] + " - Presence",
                 "device_class": "presence",
+                "device_info": parent_device_info,
                 "async_add_devices": async_add_entities,
                 "config_entry": config_entry,
             }
@@ -139,6 +150,7 @@ async def async_setup_entry(
                 "cat": fan.get("cat", ""),
                 "name": fan["name"] + " - Humidity",
                 "details": {"format": "%.1f%"},
+                "device_info": parent_device_info,
                 "device_class": "humidity",
                 "async_add_devices": async_add_entities,
                 "config_entry": config_entry,
@@ -153,6 +165,7 @@ async def async_setup_entry(
                 "cat": fan.get("cat", ""),
                 "name": fan["name"] + " - Air Quality",
                 "details": {"format": "%.1fppm"},
+                "device_info": parent_device_info,
                 "device_class": "carbon_dioxide",
                 "async_add_devices": async_add_entities,
                 "config_entry": config_entry,
@@ -167,13 +180,12 @@ async def async_setup_entry(
                 "cat": fan.get("cat", ""),
                 "name": fan["name"] + " - Temperature",
                 "details": {"format": "%.1f°C"},
+                "device_info": parent_device_info,
                 "device_class": "temperature",
                 "async_add_devices": async_add_entities,
                 "config_entry": config_entry,
             }
             entities.append(LoxoneSensor(**temperature))
-
-        entities.append(LoxoneVentilation(**fan))
 
     async_add_entities(entities)
 
@@ -188,7 +200,6 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         """Initialize the fan."""
         super().__init__(**kwargs)
 
-        self._device_class = None
         self._state = STATE_UNKNOWN
         self._format = self._get_format(kwargs.get("details", {}).get("format", ""))
         self._attr_available = True
@@ -197,8 +208,15 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         self._stateAttribValues = {}
         self._details = kwargs["details"]
 
-        self.type = "Fan"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        # PS-14: the control type is "Ventilation" (the Loxone control
+        # family), which the group table matches.
+        self.type = DEVICE_TYPE_VENTILATION
+        # CORE-20: a fresh ``_attr_device_info`` per entity; PS-10/PS-17
+        # device link: the name/model/area are the fan's own and the
+        # Miniserver host device is the ``via_device``.
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+        )
 
     @property
     def extra_state_attributes(self):
@@ -244,14 +262,6 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         return "mdi:fan"
 
     @property
-    def device_class(self):
-        """Return the class of this device, from component DEVICE_CLASSES."""
-        if not hasattr(self, "_device_class"):
-            return None
-        else:
-            return self._device_class
-
-    @property
     def is_on(self) -> bool:
         """Return if device is on."""
         if self.percentage:
@@ -273,13 +283,6 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
     def percentage(self) -> int | None:
         """Return the current speed percentage (int, 0..100) (PC-30)."""
         return fan_speed_percentage(self.get_state_value("speed"))
-
-    @device_class.setter
-    def device_class(self, device_class):
-        if not hasattr(self, "_device_class"):
-            self._device_class = device_class
-        else:
-            self._device_class = device_class
 
     def get_state_value(self, name: str):
         """Return the last value for *name*, or ``None`` if the control does

@@ -14,8 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import CONF_SCENE_GEN, EVENT, SENDDOMAIN
-from .helpers import get_or_create_device, iter_controls
-from .miniserver import get_miniserver_from_hass
+from .helpers import device_info_for, iter_controls
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,8 +57,6 @@ async def async_setup_entry(
     if not config_entry.options.get(CONF_SCENE_GEN, False):
         return
 
-    miniserver = get_miniserver_from_hass(hass, config_entry)
-
     @callback
     def add_scene_entities(entities):
         if entities:
@@ -72,7 +69,13 @@ async def async_setup_entry(
         if not mood_list_uuid:
             continue
 
-        device_info = get_or_create_device(
+        # PS-17 device link: the scenes share the controller's device
+        # (a fresh payload per build; CORE-20), linked to the Miniserver
+        # host device via ``via_device``.
+        # PS-17 device link: the scenes share the controller's device
+        # (a fresh payload per build; CORE-20).
+        device_info = device_info_for(
+            config_entry,
             controller["uuidAction"],
             controller.get("name", "LightControllerV2"),
             "LightControllerV2",
@@ -116,7 +119,10 @@ async def async_setup_entry(
                 return
             emit_scenes(parsed)
 
-        miniserver.listeners.append(hass.bus.async_listen(EVENT, on_mood_list_event))
+        # CORE-17: the mood-list bus subscription is entry-scoped (the
+        # dead ``MiniServer.listeners`` list was never iterated, so these
+        # listeners leaked on unload).
+        config_entry.async_on_unload(hass.bus.async_listen(EVENT, on_mood_list_event))
 
     return True
 

@@ -9,16 +9,15 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass, Bina
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .helpers import get_or_create_device, iter_controls
+from .const import DEVICE_TYPE_BINARY_SENSOR
+from .helpers import device_info_for, iter_controls
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
-NEW_SENSOR = "binairy_sensors"
 DEFAULT_NAME = "Loxone Binary Sensor"
 
 LOXONE_DEVICE_CLASS_MAP: dict[str, BinarySensorDeviceClass] = {
@@ -54,7 +53,7 @@ async def async_setup_entry(
 
     for sensor in iter_controls(hass, config_entry, "InfoOnlyDigital"):
         try:
-            sensor.update({"type": "digital"})
+            sensor.update({"type": "digital", "config_entry": config_entry})
             entities.append(LoxoneDigitalSensor(**sensor))
         except Exception:
             # One bad control must not abort the whole binary_sensor platform
@@ -63,29 +62,24 @@ async def async_setup_entry(
 
     for sensor in iter_controls(hass, config_entry, "PresenceDetector"):
         try:
-            sensor.update({"type": "presence"})
+            sensor.update({"type": "presence", "config_entry": config_entry})
             entities.append(LoxoneDigitalSensor(**sensor))
         except Exception:
             _LOGGER.exception("Skipping PresenceDetector control %s", sensor.get("name", "?"))
 
     for sensor in iter_controls(hass, config_entry, "SmokeAlarm"):
         try:
-            sensor.update({"type": "smoke"})
+            sensor.update({"type": "smoke", "config_entry": config_entry})
             entities.append(LoxoneDigitalSensor(**sensor))
         except Exception:
             _LOGGER.exception("Skipping SmokeAlarm control %s", sensor.get("name", "?"))
 
-    @callback
-    def async_add_binary_sensors(_):
-        async_add_entities(_, True)
-
-    miniserver.listeners.append(
-        async_dispatcher_connect(
-            hass,
-            miniserver.async_signal_new_device("sensors"),
-            async_add_binary_sensors,
-        )
-    )
+    # CORE-17: the old code connected each platform to an
+    # ``async_signal_new_device`` dispatcher signal that was never sent
+    # (``async_dispatcher_send`` had no callers) and appended the
+    # unsubscribes to ``MiniServer.listeners``, which was never iterated,
+    # so the subscriptions leaked on every reload.  Entities are created
+    # exclusively from the structure file; there is nothing to subscribe to.
     async_add_entities(entities)
 
 
@@ -132,25 +126,40 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
         else:
             self._attr_device_class = None
 
-        if self._parent_id:
-            self.uuidAction = self._parent_id
-
+        # PC-04: ``parent_id`` only marks "sub-sensor of another control";
+        # the device linkage happens via the parent's ``device_info``
+        # (passed as kwarg).  The old code overwrote ``self.uuidAction``
+        # with the parent id here, so ``unique_id`` — defined as
+        # ``self.uuidAction`` — collided with the parent's and the shared
+        # device dict (CORE-20) was seeded with the sub-sensor's
+        # name/model (upstream PR #513).  The state uuid stays the
+        # unique id.
         if self._from_loxone_config:
-            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
-        else:
-            self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, "")
-
-        if self._from_loxone_config:
+            # CORE-20: a fresh ``_attr_device_info`` per entity; a
+            # sub-sensor inherits the *parent* control's device, a
+            # standalone control builds its own.
+            parent_device_info = kwargs.get("device_info")
+            self._attr_device_info = parent_device_info or device_info_for(
+                kwargs.get("config_entry"),
+                self.unique_id,
+                self.name,
+                self.type,
+                self.room,
+            )
+            # PS-14: the group table matches the single "digital_sensor"
+            # constant; the individual Loxone subtype (digital/presence/
+            # smoke) lives in the extra attribute and in device_class.
             self._attr_extra_state_attributes.update(
                 {
                     "state_uuid": self._state_uuid,
-                    "device_type": self.type,
+                    "device_type": DEVICE_TYPE_BINARY_SENSOR,
+                    "device_type_sub": self.type,
                 }
             )
         else:
             self._attr_extra_state_attributes.update(
                 {
-                    "device_type": self._attr_device_class,
+                    "device_type": DEVICE_TYPE_BINARY_SENSOR,
                 }
             )
 
