@@ -254,8 +254,6 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         if update:
             self.schedule_update_ha_state()
 
-        # _LOGGER.debug(f"State attribs after event handling: {self._stateAttribValues}")
-
     @property
     def icon(self):
         """Return the fan icon."""
@@ -317,7 +315,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         self,
         percentage: int | None = None,
         preset_mode: str | None = None,
-        **kwargs: Any,
+        **_kwargs: Any,
     ) -> None:
         """Turn the fan on."""
         if preset_mode:
@@ -326,7 +324,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
             self.set_percentage(percentage)
         _LOGGER.debug("Turn on")
 
-    async def async_turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, **_kwargs: Any) -> None:
         """Turn the fan off."""
         if not self.is_on:
             return

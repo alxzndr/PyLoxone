@@ -275,10 +275,10 @@ def match_sensor_description(
 
 
 async def async_setup_platform(
-    hass: HomeAssistant,
+    _hass: HomeAssistant,
     config: ConfigType,
     async_add_devices: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    _discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up Loxone Sensor from yaml"""
     # Devices from yaml
@@ -616,12 +616,10 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         if precision is not None:
             self._attr_suggested_display_precision = precision
 
-        # Device class is detected automatically from unit/category/name.
-        # To override for a specific entity, use HA's customize in configuration.yaml:
-        #   homeassistant:
-        #     customize:
-        #       sensor.my_sensor:
-        #         device_class: battery
+        # Device class is detected from unit/category/name;
+        # per-entity overrides remain possible via HA's entry-specific
+        # customization (customizing the entity's device_class/type in
+        # configuration.yaml still wins over the automatic match).
         desc = match_sensor_description(
             unit=self._attr_native_unit_of_measurement,
             name=self._lox_name,

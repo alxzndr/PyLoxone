@@ -28,9 +28,11 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff==0.15.20
 
-      # Blocking: seven rule families that catch genuine bugs, not style noise.
+      # Blocking: the defect families (WP-0.1) plus the ratcheted-in
+      # advisory groups (WP-5.3: F401/G004/ERA001/B006/BLE001/TRY400/ARG).
+      # The set only ever grows; tests/test_lint_ratchet.py pins it.
       - name: ruff check (defect subset, blocking)
-        run: ruff check . --select F,E9,PLE,B,T20,S307,ASYNC,RUF006
+        run: ruff check . --select F,E9,PLE,B,T20,S307,ASYNC,RUF006,F401,G004,ERA001,B006,BLE001,TRY400,ARG
 
       # Advisory: the full `ruff.toml` (`select = ALL`) pass. Not blocking until
       # the WP-5.3 lint ratchet has worked its way through the backlog.

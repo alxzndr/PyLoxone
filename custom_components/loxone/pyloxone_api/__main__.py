@@ -3,7 +3,7 @@ A quick test of the pyloxone_api module
 
 From the command line, run:
 
-> python -m pyloxone_api host port username password
+> python -m custom_components.loxone.pyloxone_api <host> <port> <username> <password>
 
 where host, port, username and password are your Loxone login credentials
 
@@ -19,7 +19,7 @@ _LOGGER = logging.getLogger("pyloxone_api")
 _LOGGER.setLevel(logging.DEBUG)
 _LOGGER.addHandler(logging.StreamHandler())
 # If you want to see what is going on at the websocket level, uncomment the following
-# linesW
+# lines:
 
 
 async def call_back_loxone(data) -> None:
@@ -38,6 +38,6 @@ async def main() -> None:
 
 if __name__ == "__main__":
     try:
-        r = asyncio.run(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
         sys.exit()

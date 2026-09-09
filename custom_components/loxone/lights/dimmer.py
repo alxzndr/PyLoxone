@@ -87,7 +87,7 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
             self._send("On")
         self.async_schedule_update_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **_kwargs) -> None:
         self._send("Off")
         self.async_schedule_update_ha_state()
 

@@ -528,8 +528,8 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         # the controller's own states until a ClimateController speaks up (PC-28)
         self._demand: int | None = None
 
-        # Copy timer modes: the structure file is shared and must never be
-        # mutated (PC-16)
+        # Copy timer modes (PC-16): every entry becomes a fresh dict, because
+        # the structure file is shared and must never be modified in place.
         self._modeList = [dict(m) for m in _parse_mode_list(details.get("timerModes"), "timerModes")]
         if not any(m.get("id") == "stop" for m in self._modeList):
             self._modeList.append({"id": "stop", "name": PRESET_SCHEDULE})

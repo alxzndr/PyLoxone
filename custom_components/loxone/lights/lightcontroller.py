@@ -151,7 +151,7 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                 self._send("on")
         self.async_schedule_update_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **_kwargs) -> None:
         self._send(f"changeTo/{OFF_MOOD_ID}")
         self.async_schedule_update_ha_state()
 

@@ -21,8 +21,8 @@ class LxJsonKeySalt:
         self.salt = salt
         self.hash_alg = hash_alg or "SHA1"
 
-    def read_user_salt_response(self, reponse):
-        js = json.loads(reponse, strict=False)
+    def read_user_salt_response(self, response):
+        js = json.loads(response, strict=False)
         value = js["LL"]["value"]
         self.key = value["key"]
         self.salt = value["salt"]

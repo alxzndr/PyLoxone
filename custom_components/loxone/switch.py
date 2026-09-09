@@ -127,11 +127,11 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
         """Return the icon to use for device if any."""
         return self._icon
 
-    def turn_on(self, **kwargs):
+    def turn_on(self, **_kwargs):
         """Turn the switch on."""
         self._do_turn_on()
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **_kwargs):
         """HA's switch domain dispatches the service to ``async_turn_on``
         only; running in the event loop keeps the outbound send's
         background task valid."""
@@ -143,11 +143,11 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
             self._attr_is_on = True
             self.schedule_update_ha_state()
 
-    def turn_off(self, **kwargs):
+    def turn_off(self, **_kwargs):
         """Turn the device off."""
         self._do_turn_off()
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **_kwargs):
         self._do_turn_off()
 
     def _do_turn_off(self):
@@ -239,11 +239,11 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
         """Return the icon to use for device if any."""
         return self._icon
 
-    def turn_on(self, **kwargs):
+    def turn_on(self, **_kwargs):
         """Turn the switch on."""
         self._do_turn_on()
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **_kwargs):
         """HA's switch domain dispatches the service to ``async_turn_on``
         only; running in the event loop keeps the outbound send's
         background task valid."""
@@ -255,11 +255,11 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
             self._attr_is_on = True
             self.schedule_update_ha_state()
 
-    def turn_off(self, **kwargs):
+    def turn_off(self, **_kwargs):
         """Turn the device off."""
         self._do_turn_off()
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **_kwargs):
         self._do_turn_off()
 
     def _do_turn_off(self):
@@ -319,11 +319,11 @@ class LoxoneIntercomSubControl(LoxoneSwitch):
             self.unique_id, self._lox_name, self.type, self.room
         )
 
-    def turn_on(self, **kwargs):
+    def turn_on(self, **_kwargs):
         """Turn the switch on."""
         self._do_turn_on()
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **_kwargs):
         """Switch-domain service dispatch (event loop)."""
         self._do_turn_on()
 
@@ -368,11 +368,11 @@ class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
         self._attr_device_info = get_or_create_device(self.uuidAction, self._lox_name, "RoomControllerV2", self.room)
         self._attr_unique_id = f"{self.uuidAction}_override"
 
-    def turn_on(self, **kwargs):
+    def turn_on(self, **_kwargs):
         """Trigger comfort override (mode 1)."""
         self._do_turn_on()
 
-    async def async_turn_on(self, **kwargs):
+    async def async_turn_on(self, **_kwargs):
         """Switch-domain service dispatch (event loop)."""
         self._do_turn_on()
 
@@ -381,11 +381,11 @@ class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
         self._attr_is_on = True
         self.schedule_update_ha_state()
 
-    def turn_off(self, **kwargs):
+    def turn_off(self, **_kwargs):
         """Stop the active override."""
         self._do_turn_off()
 
-    async def async_turn_off(self, **kwargs):
+    async def async_turn_off(self, **_kwargs):
         """Switch-domain service dispatch (event loop)."""
         self._do_turn_off()
 
@@ -441,11 +441,11 @@ class LoxoneLightPresenceSwitch(LoxoneSwitch):
         self._attr_name = "Presence Detection"
         self._attr_unique_id = self._presence_id
 
-    def async_turn_on(self, **kwargs: Any) -> None:
+    def async_turn_on(self, **_kwargs: Any) -> None:
         self._send("on", uuid=self.uuidAction + "/presence")
         self.async_schedule_update_ha_state()
 
-    async def async_turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, **_kwargs: Any) -> None:
         self._send("off", uuid=self.uuidAction + "/presence")
         self.async_schedule_update_ha_state()
 

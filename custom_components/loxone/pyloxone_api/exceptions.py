@@ -1,9 +1,12 @@
 """
-Component to create an interface to the Loxone Miniserver.
+Exception classes of the pyloxone_api package.
 
-For more details about this component, please refer to the documentation at
-https://github.com/JoDehli/pyloxone-api
+The Loxone-typed exceptions (token, auth, connection) that the
+connection layer raises, plus the explicit failure tuple the graceful
+handlers catch instead of a broad ``except Exception``.
 """
+
+import struct
 
 
 class LoxoneException(Exception):
@@ -58,3 +61,32 @@ class LoxoneMaxNumOfConnectionsError(LoxoneRequestError):
 
 class LoxoneUnrecognizedCommandError(LoxoneRequestError):
     """Unrecognized command"""
+
+
+#: The failure types a Loxone websocket session can legitimately surface
+#: from its transport, protocol and bootstrap code paths.  Graceful
+#: handlers in this library and in the integration catch *this tuple* so a
+#: broad, swallowing ``except Exception`` stays out of the codebase
+#: (BLE001): an exception class outside it is a bug in our own code and
+#: should propagate to the task boundary (where HA and the session supervisor
+#: log it) instead of being silently consumed by a resilience loop.
+#: ``OSError`` subsumes the ``ConnectionError`` family; on 3.11+ ``TimeoutError``
+#: is the same class as ``asyncio.TimeoutError``.
+#
+#: Caveat: deliberately contains no third-party (aiohttp/websockets)
+#: classes — the public surface of those libraries is wider and flatter
+#: (anything can wrap them). The typed layers above translate before
+#: they cross this boundary.
+SESSION_TRANSPORT_ERRORS = (
+    LoxoneException,
+    LoxoneConnectionClosedOk,
+    LoxoneConnectionError,
+    ConnectionError,
+    TimeoutError,
+    OSError,
+    ValueError,
+    RuntimeError,
+    TypeError,
+    KeyError,
+    struct.error,
+)

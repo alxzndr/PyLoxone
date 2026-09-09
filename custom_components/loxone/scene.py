@@ -145,7 +145,7 @@ class Loxonelightscene(Scene):
         if device_info is not None:
             self._attr_device_info = device_info
 
-    async def async_activate(self, **kwargs):
+    async def async_activate(self, **_kwargs):
         """Activate scene. Try to get entities into requested state."""
         self.hass.bus.async_fire(
             SENDDOMAIN,

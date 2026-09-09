@@ -100,10 +100,10 @@ def jalousie_device_class(animation):
 
 
 async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    _hass: HomeAssistant,
+    _config: ConfigType,
+    _async_add_entities: AddEntitiesCallback,
+    _discovery_info: DiscoveryInfoType | None = None,
 ) -> bool:
     """Set up the Loxone covers.
 
@@ -223,21 +223,21 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         """Return if the cover is opening."""
         return self._is_opening
 
-    def open_cover(self, **kwargs):
+    def open_cover(self, **_kwargs):
         """Open the cover."""
         if self._position == 100.0:
             return
         self._send("open")
         self.schedule_update_ha_state()
 
-    def close_cover(self, **kwargs):
+    def close_cover(self, **_kwargs):
         """Close the cover."""
         if self._position == 0:
             return
         self._send("close")
         self.schedule_update_ha_state()
 
-    def stop_cover(self, **kwargs):
+    def stop_cover(self, **_kwargs):
         """Stop the cover (PC-07)."""
         self._send(gate_stop_command())
         self.schedule_update_ha_state()
@@ -375,13 +375,13 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
     def is_closed(self):
         return self._closed
 
-    def open_cover(self, **kwargs: Any) -> None:
+    def open_cover(self, **_kwargs: Any) -> None:
         self._send("fullopen")
 
-    def close_cover(self, **kwargs: Any) -> None:
+    def close_cover(self, **_kwargs: Any) -> None:
         self._send("fullclose")
 
-    def stop_cover(self, **kwargs):
+    def stop_cover(self, **_kwargs):
         """Stop the cover (PC-07): a real stop, regardless of direction.
 
         Previously a closing window was sent `fullopen` and an opening one
@@ -620,7 +620,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
 
         return device_att
 
-    def close_cover(self, **kwargs):
+    def close_cover(self, **_kwargs):
         """Close the cover."""
         if self._position == 0:
             return
@@ -632,7 +632,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         self._send("FullDown")
         self.schedule_update_ha_state()
 
-    def open_cover(self, **kwargs):
+    def open_cover(self, **_kwargs):
         """Open the cover."""
         if self._position == 100.0:
             return
@@ -643,7 +643,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         self._send("FullUp")
         self.schedule_update_ha_state()
 
-    def stop_cover(self, **kwargs):
+    def stop_cover(self, **_kwargs):
         """Stop the cover."""
         self._send("stop")
 
@@ -653,15 +653,15 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         mapped_pos = map_range(position, 0, 100, 100, 0)
         self._send(f"manualPosition/{mapped_pos}")
 
-    def open_cover_tilt(self, **kwargs):
+    def open_cover_tilt(self, **_kwargs):
         """Open the cover slats (shade open)."""
         self._send(_lamelle_command(0.0))
 
-    def stop_cover_tilt(self, **kwargs):
+    def stop_cover_tilt(self, **_kwargs):
         """Stop the cover."""
         self._send("stop")
 
-    def close_cover_tilt(self, **kwargs):
+    def close_cover_tilt(self, **_kwargs):
         """Close the cover slats (shade closed)."""
         self._send(_lamelle_command(100.0))
 
@@ -671,14 +671,14 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         mapped_pos = map_range(tilt_position, 0, 100, 100, 0)
         self._send(_lamelle_command(mapped_pos))
 
-    async def enable_sun_automation(self, **kwargs: Any) -> None:
+    async def enable_sun_automation(self, **_kwargs: Any) -> None:
         """Enable the sun automation (PC-14: run on the event loop)."""
         self._send("auto")
 
-    async def disable_sun_automation(self, **kwargs: Any) -> None:
+    async def disable_sun_automation(self, **_kwargs: Any) -> None:
         """Disable the sun automation (PC-14: run on the event loop)."""
         self._send("NoAuto")
 
-    async def quick_shade(self, **kwargs: Any) -> None:
+    async def quick_shade(self, **_kwargs: Any) -> None:
         """Move the slats to the Loxone-computed shade position."""
         self._send("shade")

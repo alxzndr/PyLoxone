@@ -26,10 +26,10 @@ LOXONE_DEVICE_CLASS_MAP: dict[str, BinarySensorDeviceClass] = {
 
 
 async def async_setup_platform(
-    hass: HomeAssistant,
+    _hass: HomeAssistant,
     config: ConfigType,
     async_add_devices: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    _discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up Loxone Sensor from yaml"""
     # Devices from yaml

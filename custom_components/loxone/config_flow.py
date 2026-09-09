@@ -52,7 +52,7 @@ from .const import (
     DOMAIN,
 )
 from .pyloxone_api.connection import LoxoneConnection
-from .pyloxone_api.exceptions import LoxoneUnauthorisedError
+from .pyloxone_api.exceptions import LoxoneUnauthorisedError, SESSION_TRANSPORT_ERRORS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -218,7 +218,7 @@ async def test_loxone_connection(
         # is a guarded no-op for an unconnected instance).
         try:
             await api.close()
-        except Exception as e:
+        except SESSION_TRANSPORT_ERRORS as e:
             _LOGGER.debug("Closing the config-flow connection after the test failed: %s", e)
     serial = _serial_from(api)
     return serial
@@ -238,7 +238,7 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
         self._last_serial: str = ""
 
     @staticmethod
-    def async_get_options_flow(config_entry):
+    def async_get_options_flow(_config_entry):
         """Options flows carry preferences only (CORE-19); the default
         ``ConfigFlow`` implementation aborts with ``UnknownHandler``."""
         return LoxoneOptionsFlow()
@@ -268,7 +268,7 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
             # The reference check passed, so this is a constructor-level
             # input failure (e.g. "host cannot be parsed" with a scheme).
             return ERR_INVALID_HOST
-        except Exception as err:
+        except SESSION_TRANSPORT_ERRORS as err:
             _LOGGER.warning(
                 "Loxone connection test against %s:%s failed: %s",
                 normalised[CONF_HOST],

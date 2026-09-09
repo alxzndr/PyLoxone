@@ -18,6 +18,7 @@ from .const import (
 )
 from .miniserver import MiniServer
 from .pyloxone_api.connection import LoxoneConnection
+from .pyloxone_api.exceptions import SESSION_TRANSPORT_ERRORS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         try:
             await self.config_entry.async_update_entry(data=data)
             _LOGGER.debug("Loxone token persisted")
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             _LOGGER.warning("Failed to persist Loxone token change: %s", e)
 
     async def _async_setup(self) -> None:
@@ -178,7 +179,7 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         except Exception:
             # Log where it happened (host:port) and re-raise;
             # ``__init__.py`` classifies it and closes the handle.
-            _LOGGER.error("Could not connect to Loxone Miniserver at %s:%s", self._host, self._port)
+            _LOGGER.exception("Could not connect to Loxone Miniserver at %s:%s", self._host, self._port)
             raise
         self.miniserver = MiniServer(self.hass, self.api.structure_file, self.config_entry)
         self.known_uuids = _collect_structure_uuids(self.api.structure_file)
@@ -263,6 +264,6 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         # a live connection.
         try:
             await api.kill_token()
-        except Exception as e:
+        except SESSION_TRANSPORT_ERRORS as e:
             _LOGGER.debug("kill_token on cleanup failed: %s", e)
         await api.close()

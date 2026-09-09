@@ -64,10 +64,10 @@ class DimmerTypes(StrEnum):
 
 
 async def async_setup_platform(
-    hass: HomeAssistant,
-    config: ConfigType,
-    async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    _hass: HomeAssistant,
+    _config: ConfigType,
+    _async_add_entities: AddEntitiesCallback,
+    _discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up Loxone Light Controller."""
     return True
@@ -135,7 +135,7 @@ async def async_setup_entry(
                     color_pickers.append(sub_control)
 
                 else:
-                    _LOGGER.debug(f"Not supported type found {sub_control['type']}")
+                    _LOGGER.debug("Not supported type found in light controller: %s", sub_control["type"])
 
     for switch in switches:
         new_switch = LoxoneLightSwitch(**switch)
@@ -158,7 +158,7 @@ async def async_setup_entry(
             new_eib_dimmer = EIBDimmer(**dimmer)
             entities.append(new_eib_dimmer)
         else:
-            _LOGGER.error(f"Not implemented Dimmer Type {dimmer['type']}")
+            _LOGGER.error("Not implemented Dimmer Type %s", dimmer["type"])
 
     for color_picker in color_pickers + color_pickers_without_light_controller:
         if "async_add_devices" not in color_picker:

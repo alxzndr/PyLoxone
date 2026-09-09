@@ -77,8 +77,9 @@ from .const import (
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
 from .helpers import MINIMUM_SUPPORTED_FIRMWARE, meets_minimum_firmware
 from .pyloxone_api.exceptions import (
-    LoxoneUnauthorisedError,
     LoxoneServiceUnAvailableError,
+    LoxoneUnauthorisedError,
+    SESSION_TRANSPORT_ERRORS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,7 +88,6 @@ _LOGGER = logging.getLogger(__name__)
 # (`async_setup` fired an `import` flow that no `async_step_import` ever
 # served), so there is no CONFIG_SCHEMA anymore.  A leftover block still in
 # ``configuration.yaml`` registers a repair issue instead (CORE-30).
-_UNDEF: dict = {}
 
 # The four true *domain* services.  CORE-04: they are registered exactly
 # once in ``async_setup`` (guarded by ``has_service``) and removed only
@@ -187,7 +187,7 @@ async def async_unload_entry(hass, config_entry):
 
         try:
             await coordinator.async_cleanup()
-        except Exception as e:
+        except SESSION_TRANSPORT_ERRORS as e:
             _LOGGER.warning("Error closing connection: %s", e)
 
     # The in-flight 401-retry bookkeeping would otherwise survive the
@@ -477,7 +477,7 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
             object_id=object_id,
             order=None,
         )
-        _LOGGER.error("Can't create group '%s' with error: %s", name, err)
+        _LOGGER.exception("Can't create group '%s' with error: %s", name, err)
 
 
 # CORE-15 / PS-14: the auto-groups and the control type each one collects.
@@ -505,7 +505,7 @@ LOXONE_GROUPS_BY_OBJECT_ID: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
-async def loxone_discovered(hass, config_entry):
+async def loxone_discovered(hass, _config_entry):
     """Collect this entry's entities for the auto-groups, keyed by group object id.
 
     Every state of *this integration* (``platform == loxone``) is matched
@@ -802,7 +802,7 @@ async def async_setup_entry(hass, config_entry):
             # window are still just ConfigEntryNotReady retries.
             attempt, first_attempt = _record_auth_failure(hass, config_entry)
             if _should_escalate_auth_failure(attempt, first_attempt, time.monotonic()):
-                _LOGGER.error(
+                _LOGGER.exception(
                     "Miniserver at %s answered 401 %i consecutive times during setup over at least %i "
                     "minutes; escalating to a reauth flow. Please check the stored credentials "
                     "(username and password) for this Miniserver in Settings > Devices & "
@@ -913,7 +913,7 @@ async def async_setup_entry(hass, config_entry):
             await coordinator.api.run(coordinator.set_connected_state, callback=coordinator.handle_message)
         except LoxoneUnauthorisedError as e:
             coordinator.set_connected_state(False)
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Miniserver at %s rejected the stored credentials (%s); starting the "
                 "reauth flow - confirm or correct the credentials in "
                 "Settings > Devices & Services.",
@@ -982,7 +982,7 @@ async def async_setup_entry(hass, config_entry):
             # the reference the task could be garbage-collected.
             config_entry.async_create_background_task(hass, coro, name="loxone-send-command")
         except Exception as e:
-            _LOGGER.error(e)
+            _LOGGER.exception(e)
 
     # CORE-04: the four loxone domain services are registered once for
     # the whole integration in ``async_setup`` — re-registering them
@@ -1020,7 +1020,7 @@ async def async_setup_entry(hass, config_entry):
 
 
 async def async_remove_config_entry_device(
-    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: DeviceEntry
+    _hass: HomeAssistant, _config_entry: ConfigEntry, _device_entry: DeviceEntry
 ) -> bool:
     """Remove a config entry from a device."""
     return True
@@ -1071,7 +1071,7 @@ class LoxoneEntity(Entity):
                 try:
                     setattr(self, key, value)
                 except AttributeError:
-                    _LOGGER.error("Could not set %s=%r for %s", key, value, type(self).__name__)
+                    _LOGGER.exception("Could not set %s=%r for %s", key, value, type(self).__name__)
                 except Exception:
                     _LOGGER.exception("Could not set %s=%r for %s", key, value, type(self).__name__)
 

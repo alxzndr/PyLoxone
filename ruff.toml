@@ -20,9 +20,17 @@ ignore = [
 
 [lint.per-file-ignores]
 # Test suites are allowed to be less strict about style, docs and magic numbers.
-"tests/**" = ["S101", "ANN", "D", "PLR2004"]
+"tests/**" = ["S101", "ANN", "D", "PLR2004", "ARG", "ERA001"]
 # pyloxone_api/__main__.py is a standalone command-line test tool; printing is its purpose.
 "custom_components/loxone/pyloxone_api/__main__.py" = ["T201"]
+# BLE001 (blind except) in the connection core: the resilience design of this
+# file is that the event handlers *and* the session supervisor never die --
+# a broad, logged swallow is the documented contract (API-27: "lost connection
+# once per outage", the run() crash boundary that test_run_propagates_
+# programming_errors_without_retry pins). All other swallowing broad catches
+# were narrowed to SESSION_TRANSPORT_ERRORS (WP-5.3); the one remaining
+# `except Exception` in run() is the last defense against a bug in our own code.
+"custom_components/loxone/pyloxone_api/connection.py" = ["BLE001"]
 
 [lint.flake8-pytest-style]
 fixture-parentheses = false

@@ -88,7 +88,7 @@ class LoxoneButton(LoxoneEntity, ButtonEntity):
                 self._last_pressed = dt_util.utcnow().isoformat()
             self.async_write_ha_state()
 
-    def press(self, **kwargs):
+    def press(self, **_kwargs):
         """Press the button."""
         self._send("pulse")
         self.schedule_update_ha_state()

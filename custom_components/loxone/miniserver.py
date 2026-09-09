@@ -12,7 +12,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @callback
-def get_miniserver_from_hass(hass, config_entry):
+def get_miniserver_from_hass(_hass, config_entry):
     """Return the Miniserver for this specific config entry.
 
     Returns ``None`` (not ``KeyError``) when the entry's coordinator or

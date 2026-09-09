@@ -55,11 +55,11 @@ class LoxoneLightSwitch(LoxoneEntity, LightEntity):
 
         self._attr_extra_state_attributes.update(state_attributes)
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
+    async def async_turn_on(self, **_kwargs: Any) -> None:
         self._send("on")
         self.async_schedule_update_ha_state()
 
-    async def async_turn_off(self, **kwargs: Any) -> None:
+    async def async_turn_off(self, **_kwargs: Any) -> None:
         self._send("off")
         self.async_schedule_update_ha_state()
 

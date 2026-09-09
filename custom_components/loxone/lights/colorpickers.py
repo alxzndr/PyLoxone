@@ -110,7 +110,7 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
     def is_on(self) -> bool:
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **_kwargs) -> None:
         self._send("setBrightness/0")
         self.async_schedule_update_ha_state()
 
@@ -214,7 +214,7 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
     def is_on(self) -> bool:
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
-    async def async_turn_off(self, **kwargs) -> None:
+    async def async_turn_off(self, **_kwargs) -> None:
         self._send("setBrightness/0")
         self.async_schedule_update_ha_state()
 
