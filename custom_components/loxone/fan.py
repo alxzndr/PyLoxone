@@ -134,7 +134,7 @@ async def async_setup_entry(
                 "type": "presence",
                 "room": fan.get("room", ""),
                 "cat": fan.get("cat", ""),
-                "name": fan["name"] + " - Presence",
+                "name": "Presence",
                 "device_class": "presence",
                 "device_info": parent_device_info,
                 "async_add_devices": async_add_entities,
@@ -148,7 +148,7 @@ async def async_setup_entry(
                 "type": "analog",
                 "room": fan.get("room", ""),
                 "cat": fan.get("cat", ""),
-                "name": fan["name"] + " - Humidity",
+                "name": "Humidity",
                 "details": {"format": "%.1f%"},
                 "device_info": parent_device_info,
                 "device_class": "humidity",
@@ -163,7 +163,7 @@ async def async_setup_entry(
                 "type": "analog",
                 "room": fan.get("room", ""),
                 "cat": fan.get("cat", ""),
-                "name": fan["name"] + " - Air Quality",
+                "name": "Air Quality",
                 "details": {"format": "%.1fppm"},
                 "device_info": parent_device_info,
                 "device_class": "carbon_dioxide",
@@ -178,7 +178,7 @@ async def async_setup_entry(
                 "type": "analog",
                 "room": fan.get("room", ""),
                 "cat": fan.get("cat", ""),
-                "name": fan["name"] + " - Temperature",
+                "name": "Temperature",
                 "details": {"format": "%.1f°C"},
                 "device_info": parent_device_info,
                 "device_class": "temperature",
@@ -215,7 +215,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         # device link: the name/model/area are the fan's own and the
         # Miniserver host device is the ``via_device``.
         self._attr_device_info = device_info_for(
-            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
         )
 
     @property

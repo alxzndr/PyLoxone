@@ -9,7 +9,6 @@ import json
 import logging
 import re
 from dataclasses import replace
-from functools import cached_property
 from typing import Any
 
 import homeassistant.helpers.config_validation as cv
@@ -347,7 +346,9 @@ async def async_setup_entry(
                     "type": "analog",
                     "room": sensor.get("room", ""),
                     "cat": sensor.get("cat", ""),
-                    "name": f"{sensor['name']} {METER_NAME_SUFFIX[state_key]}",
+                    # WP-5.1: short sub-entity name — the device is named
+                    # after the Meter, so no meter-name prefix (CORE-26).
+                    "name": METER_NAME_SUFFIX[state_key],
                     "details": {"format": format_value},
                     "device_class": METER_STATE_CLASSES[state_key][0],
                     "state_class": METER_STATE_CLASSES[state_key][1],
@@ -377,7 +378,9 @@ async def async_setup_entry(
             if "overrideReason" in states:
                 entities.append(
                     LoxoneRoomControllerOverrideSensor(
-                        name=f"{irc['name']} Override Reason",
+                        # WP-5.1: short sub-entity name — the device is named
+                        # after the room controller (CORE-26).
+                        name="Override Reason",
                         uuid=states["overrideReason"],
                         device_info=device_info,
                         parent_uuid=irc["uuidAction"],
@@ -387,7 +390,7 @@ async def async_setup_entry(
             if "comfortTemperature" in states:
                 entities.append(
                     LoxoneRoomControllerTemperatureSensor(
-                        name=f"{irc['name']} Comfort Temperature",
+                        name="Comfort Temperature",
                         uuid=states["comfortTemperature"],
                         device_info=device_info,
                         parent_uuid=irc["uuidAction"],
@@ -397,7 +400,7 @@ async def async_setup_entry(
             if "comfortTemperatureCool" in states:
                 entities.append(
                     LoxoneRoomControllerTemperatureSensor(
-                        name=f"{irc['name']} Comfort Temperature Cool",
+                        name="Comfort Temperature (Cool)",
                         uuid=states["comfortTemperatureCool"],
                         device_info=device_info,
                         parent_uuid=irc["uuidAction"],
@@ -415,25 +418,25 @@ async def async_setup_entry(
 
 class LoxoneCustomSensor(LoxoneEntity, SensorEntity):
     def __init__(self, **kwargs):
-        self._attr_name = kwargs.pop("name", None)
+        # Device-less (YAML) entry: the entity carries the control name
+        # itself (there is no device to inherit it from); an unnamed
+        # sensor falls back to the default name.
+        name = kwargs.pop("name", None)
         self._attr_state_class = kwargs.pop("state_class", None)
         self._attr_device_class = kwargs.pop("device_class", None)
         self._attr_native_unit_of_measurement = kwargs.pop("unit_of_measurement", None)
         self._attr_native_value = None  # Initialize state
         # Must be after the kwargs.pop functions!
         super().__init__(**kwargs)
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID.
-
-        A YAML sensor without a name still gets a usable unique id (PS-07):
-        the uuidAction alone, or uuidAction+name when a name is given.
-        """
-        name = self._attr_name
-        if name:
-            return f"{self.uuidAction}-{name}"
-        return self.uuidAction
+        self._attr_name = name or DEFAULT_NAME
+        # CORE-26: the unique id is set as an attribute (not via the
+        # deleted ``cached_property`` override).  A YAML sensor without a
+        # name still gets a usable unique id (PS-07): the uuidAction
+        # alone, or "uuidAction-name" when a name is given.  Done after
+        # ``super()`` because the base constructor sets ``_attr_unique_id``
+        # from the bare uuidAction.
+        uuid = kwargs.get("uuidAction")
+        self._attr_unique_id = f"{uuid}-{name}" if (uuid is not None and name) else uuid
 
     @callback
     def event_handler(self, e):
@@ -476,6 +479,10 @@ class LoxoneKeepAliveSensor(LoxoneEntity, SensorEntity):
     def __init__(self, miniserver_serial, device_info: DeviceInfo | None = None, **kwargs):
         super().__init__(**kwargs)
         self._miniserver_serial = miniserver_serial
+        # CORE-26: the per-instance unique id replaces the deleted
+        # ``cached_property`` override (same string, stored as an
+        # ``_attr_unique_id`` attribute).
+        self._attr_unique_id = f"{self._miniserver_serial}-loxone_keep_alive_sensor_uuid"
         # PS-20: attach to the Miniserver host device (identifiers
         # (DOMAIN, serial)); a structure file without a serial yields
         # ``device_info is None`` and a device-less entity (no
@@ -483,11 +490,6 @@ class LoxoneKeepAliveSensor(LoxoneEntity, SensorEntity):
         if device_info is not None:
             self._attr_device_info = device_info
         self._attr_native_value = None
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return f"{self._miniserver_serial}-{self._attr_unique_id}"
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: the special keep-alive stream injected by the coordinator.
@@ -523,6 +525,10 @@ class LoxoneVersionSensor(LoxoneEntity, SensorEntity):
     def __init__(self, miniserver_serial, version, device_info: DeviceInfo | None = None, **kwargs):
         super().__init__(**kwargs)
         self._miniserver_serial = miniserver_serial
+        # CORE-26: the per-instance unique id replaces the deleted
+        # ``cached_property`` override (same string, stored as an
+        # ``_attr_unique_id`` attribute).
+        self._attr_unique_id = f"{self._miniserver_serial}-loxone_software_version_uuid"
         # PS-20: ``software_version_string`` handles list-form *and*
         # string-form versions (the old join split the string into
         # characters); an unusable value stays ``None`` (HA renders
@@ -531,11 +537,6 @@ class LoxoneVersionSensor(LoxoneEntity, SensorEntity):
         self._attr_native_value = parsed if parsed else None
         if device_info is not None:
             self._attr_device_info = device_info
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return f"{self._miniserver_serial}-{self._attr_unique_id}"
 
 
 class LoxoneTextSensor(LoxoneEntity, SensorEntity):
@@ -549,7 +550,7 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
         # CORE-20 / device link: a fresh device built from the control's
         # own identity (previously no device at all).
         self._attr_device_info = device_info_for(
-            kwargs.get("config_entry"), self.uuidAction, self.name, self.type, kwargs.get("room", "")
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, kwargs.get("room", "")
         )
 
     def _state_uuids(self) -> frozenset[str]:
@@ -594,6 +595,11 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         forced_device_class = kwargs.pop("device_class", None)
         forced_state_class = kwargs.pop("state_class", None)
         super().__init__(**kwargs)
+        # WP-5.1: sub-sensors (Meter registers, Ventilation fan readings)
+        # keep their short name; the device is named after the parent
+        # control (CORE-26).
+        if kwargs.get("parent_id"):
+            self._attr_name = self._lox_name
         # CORE-20: a forced device (fan sub-sensors pass the parent's,
         # Meter sub-sensors pass the meter's own) wins over the default.
         self._forced_device_info = forced_device_info
@@ -618,7 +624,7 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         #         device_class: battery
         desc = match_sensor_description(
             unit=self._attr_native_unit_of_measurement,
-            name=self.name,
+            name=self._lox_name,
             category=kwargs.get("cat", ""),
         )
 
@@ -639,7 +645,7 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
             desc is not None
             and forced_state_class is None
             and desc.state_class == SensorStateClass.TOTAL_INCREASING
-            and not _metering_indicated(self.name, kwargs.get("cat", ""))
+            and not _metering_indicated(self._lox_name, kwargs.get("cat", ""))
         ):
             desc = replace(desc, state_class=SensorStateClass.MEASUREMENT)
 
@@ -659,7 +665,7 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         # shared dict was seeded by whichever sibling was built first).
         self.type = DEVICE_TYPE_ANALOG
         self._attr_device_info = self._forced_device_info or device_info_for(
-            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
         )
 
     def _parse_digits_after_decimal(self, format_string: Any):
@@ -705,6 +711,7 @@ class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
 class LoxoneRoomControllerTemperatureSensor(SensorEntity):
     """Sensor for IRoomControllerV2 comfort temperature states."""
 
+    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -743,6 +750,7 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
     ``entity.sensor.loxone.override_reason.state.<slug>`` (CORE-22).
     """
 
+    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_translation_key = "override_reason"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -800,7 +808,7 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
         self.type = "ClimateController"
 
         self._attr_device_info = device_info_for(
-            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
         )
 
     def _state_uuids(self) -> frozenset[str]:

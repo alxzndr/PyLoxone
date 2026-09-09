@@ -73,7 +73,7 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
         is_secured = bool(kwargs.get("isSecured"))
         self._attr_code_arm_required = is_secured
         self._attr_code_format = CodeFormat.NUMBER if is_secured else None
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, "Alarm", self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, "Alarm", self.room)
 
     @property
     def supported_features(self):

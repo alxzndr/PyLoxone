@@ -635,7 +635,15 @@ def test_v2_legacy_rgc_still_builds_from_legacy_states():
     )
     e.async_write_ha_state = lambda *a, **k: None
     e.schedule_update_ha_state = lambda *a, **k: None
-    assert e.name == "Foyer Climate"
+    # WP-5.1 CORE-26: the thermostat is the device's *primary* entity.
+    # The control's name ("Foyer Climate") lands on the device; the
+    # entity carries no own name and adopts the device name for
+    # display (``e.name`` is ``None``; the registry composes
+    # "room / Foyer Climate"), so the user-visible label is unchanged
+    # minus the previous duplication.
+    assert e.has_entity_name is True
+    assert e._attr_name is None
+    assert e._attr_device_info["name"] == "Foyer Climate"
     assert e.target_temperature is None
     assert e.current_temperature is None
     assert e.hvac_mode == HVACMode.OFF

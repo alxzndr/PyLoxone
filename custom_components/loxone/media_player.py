@@ -122,7 +122,7 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
         self._volume = 0
 
         self.type = "AudioZoneV2"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: the volume / playState state streams.

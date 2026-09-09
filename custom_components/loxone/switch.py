@@ -7,7 +7,6 @@ https://github.com/JoDehli/PyLoxone
 
 from __future__ import annotations
 
-from functools import cached_property
 import json
 import logging
 from typing import Any
@@ -19,7 +18,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .helpers import add_room_and_cat_to_value_values, get_or_create_device, iter_controls
+from .helpers import add_room_and_cat_to_value_values, device_info_for, get_or_create_device, iter_controls
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,8 +50,10 @@ async def async_setup_entry(
                 for sub_name in switch_entity.get("subControls", {}) or {}:
                     subcontrol = switch_entity["subControls"][sub_name]
                     subcontrol = add_room_and_cat_to_value_values(loxconfig, subcontrol)
-                    subcontrol.update({"name": "{} - {}".format(switch_entity["name"], subcontrol["name"])})
-
+                    # WP-5.1: the sub-control keeps its *own* name — the
+                    # device is named after the Intercom (its payload is
+                    # passed alongside), so prefixing the master name
+                    # would duplicate it in the UI (has_entity_name).
                     # PS-05: a sub-control without an `active` state cannot
                     # report at all -- skip it instead of raising on every event.
                     if not subcontrol.get("states", {}).get("active"):
@@ -62,6 +63,14 @@ async def async_setup_entry(
                         )
                         continue
 
+                    subcontrol["parent_id"] = switch_entity.get("uuidAction")
+                    subcontrol["device_info"] = device_info_for(
+                        config_entry,
+                        switch_entity.get("uuidAction"),
+                        switch_entity.get("name"),
+                        "Intercom",
+                        switch_entity.get("room", ""),
+                    )
                     new_switch = LoxoneIntercomSubControl(**subcontrol)
                     entities.append(new_switch)
             elif switch_entity["type"] == "IRoomControllerV2":
@@ -109,7 +118,9 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
             self._deactivation_delay_total = ""
 
         self.type = "TimeSwitch"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        # WP-5.1: primary entity — the device (named after the control)
+        # provides the display name; nothing to store in ``_attr_name``.
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     @property
     def icon(self):
@@ -219,7 +230,9 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
         self._assumed = False
 
         self.type = "Switch"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        # WP-5.1: primary entity — the device (named after the control)
+        # provides the display name; nothing to store in ``_attr_name``.
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     @property
     def icon(self):
@@ -298,7 +311,13 @@ class LoxoneIntercomSubControl(LoxoneSwitch):
         LoxoneSwitch.__init__(self, **kwargs)
 
         self.type = "IntercomSubControl"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        # WP-5.1: sub-entity of the Intercom device — carries only its
+        # own (short) name and the master's device payload (CORE-26).
+        self._parent_id = kwargs.get("parent_id")
+        self._attr_name = self._lox_name
+        self._attr_device_info = kwargs.get("device_info") or get_or_create_device(
+            self.unique_id, self._lox_name, self.type, self.room
+        )
 
     def turn_on(self, **kwargs):
         """Turn the switch on."""
@@ -340,17 +359,14 @@ class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._override_uuid = self.states.get("overrideEntries")
-        self._base_name = self.name  # Original IRC name before modification
-        self._attr_name = f"{self.name} Comfort Override"
+        # WP-5.1: sub-entity short name — the device is named after the
+        # room controller, so only the suffix is stored (CORE-26).
+        self._attr_name = "Comfort Override"
         self.type = "RoomControllerOverride"
 
         # Use uuidAction (not unique_id) so this groups with the climate entity
-        self._attr_device_info = get_or_create_device(self.uuidAction, self._base_name, "RoomControllerV2", self.room)
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return unique ID based on override state UUID."""
-        return f"{self.uuidAction}_override"
+        self._attr_device_info = get_or_create_device(self.uuidAction, self._lox_name, "RoomControllerV2", self.room)
+        self._attr_unique_id = f"{self.uuidAction}_override"
 
     def turn_on(self, **kwargs):
         """Trigger comfort override (mode 1)."""
@@ -416,17 +432,14 @@ class LoxoneLightPresenceSwitch(LoxoneSwitch):
     def __init__(self, **kwargs):
         # PS-06: same key as the setup guard (states["presence"]), and a
         # .get() so a missing state skips via the setup's try/except instead
-        # of a KeyError here. The default name is set on _attr_name, not by
-        # overwriting the LoxoneEntity.name cached property.
+        # of a KeyError here.
         self._presence_id = kwargs.get("states", {}).get("presence")
         super().__init__(**kwargs)
-        self._attr_device_info = get_or_create_device(self.uuidAction, self.name, "LightControllerV2", self.room)
-        self._attr_name = f"{self.name} Presence Detection"
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return self._presence_id
+        # WP-5.1: sub-entity short name — the device is named after the
+        # light controller, so only the suffix is stored (CORE-26).
+        self._attr_device_info = get_or_create_device(self.uuidAction, self._lox_name, "LightControllerV2", self.room)
+        self._attr_name = "Presence Detection"
+        self._attr_unique_id = self._presence_id
 
     def async_turn_on(self, **kwargs: Any) -> None:
         self._send("on", uuid=self.uuidAction + "/presence")

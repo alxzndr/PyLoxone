@@ -190,7 +190,7 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         if "animation" in self.details:
             self._animation = self.details["animation"]
         self._attr_device_info = device_info_for(
-            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
         )
 
     @property
@@ -295,7 +295,7 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
 
         self.type = "Window"
         self._attr_device_info = device_info_for(
-            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
         )
 
     def _state_uuids(self) -> frozenset[str]:
@@ -439,7 +439,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
 
         self.type = "Jalousie"
         self._attr_device_info = device_info_for(
-            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
         )
 
     @property

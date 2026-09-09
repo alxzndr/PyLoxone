@@ -10,7 +10,7 @@ import contextlib
 import logging
 import re
 import time
-from functools import cached_property, partial
+from functools import partial
 
 import homeassistant.components.group as group
 import voluptuous as vol
@@ -1035,14 +1035,38 @@ class LoxoneEntity(Entity):
     _attr_should_poll = False
     # Keep the recorder from logging these high-churn / low-signal attributes.
     _unrecorded_attributes = frozenset({"uuid", "platform", "room", "category", "state_uuid", "device_type"})
+    # WP-5.1 (CORE-26): entity names are interpreted relative to the
+    # device.  Primary entities therefore carry *no* name of their own
+    # (the device name — which is the control's own name — is what the
+    # UI shows), and sub-entities carry short names ("Override Reason",
+    # "Total", …).  Without this, the UI rendered
+    # "Living Room Light Switch Living Room Light Switch": the entity
+    # name repeated its device's name.
+    _attr_has_entity_name = True
+    # Default entity name: empty (= adopt the device name).  Sub-entities
+    # set a short instance value in their ``__init__``; the Miniserver
+    # diagnostic sensors and the device-less YAML entries keep an explicit
+    # name.
+    _attr_name: str | None = None
 
     def __init__(self, **kwargs):
+        # The control's raw name from the structure file.  With
+        # ``has_entity_name`` an empty ``_attr_name`` means "inherit the
+        # device name", so the raw name is kept apart: it names the
+        # *device*, drives classification, and sub-entities take it as
+        # their own short name.
+        self._lox_name = kwargs.get("name")
+        if uuid := kwargs.get("uuidAction"):
+            # CORE-26: set as an ``_attr_unique_id``; the old
+            # ``functools.cached_property`` override (and the ones the
+            # platforms repeated) bypassed HA's registry/language logic
+            # and is deleted with it.
+            self._attr_unique_id = uuid
         for key, value in kwargs.items():
+            if key == "name":
+                continue
             if not hasattr(self, key):
-                if key == "name":
-                    self._attr_name = value
-                else:
-                    setattr(self, key, value)
+                setattr(self, key, value)
             else:
                 try:
                     setattr(self, key, value)
@@ -1214,18 +1238,9 @@ class LoxoneEntity(Entity):
         ``.data`` attribute access.
         """
 
-    @cached_property
-    def name(self):
-        return self._attr_name
-
     @staticmethod
     def _get_format(lox_format):
         search = re.search(cfmt, lox_format, flags=re.X)
         if search:
             return search.group(0).strip()
         return None
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return self.uuidAction

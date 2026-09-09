@@ -305,7 +305,10 @@ class TestRgbColorPicker:
     def test_subcontrol_uses_the_light_controller_device(self):
         light = self.picker(lightcontroller_id="ctl-lcv2", lightcontroller_name="Hall")
         assert light._attr_device_info["identifiers"] == {("loxone", "ctl-lcv2")}
-        assert light._attr_name == "Hall-Solo RGB"
+        # WP-5.1: the picker is a *light-controller sub-entity*.  It
+        # carries a short name; the parent controller device contributes
+        # the "Hall" part (the UI shows "Hall Solo RGB").
+        assert light._attr_name == "Solo RGB"
 
 
 class TestPlanTurnOn:

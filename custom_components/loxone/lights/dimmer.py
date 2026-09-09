@@ -38,20 +38,25 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
         self._light_controller_id = kwargs.get("lightcontroller_id", None)
         self._light_controller_name = kwargs.get("lightcontroller_name", None)
 
-        self._name = self._attr_name
-        if self._light_controller_name:
-            self._attr_name = f"{self._light_controller_name}-{self._attr_name}"
-
+        # WP-5.1: a LightControllerV2 sub-dimmer carries only its own
+        # short name — its device is the controller's device, named after
+        # the controller (CORE-26).  A standalone dimmer inherits the
+        # device name and stores no entity name.
+        if self._light_controller_id:
+            self._attr_name = self._lox_name
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
+            # The device is the *controller's* device: name it after the
+            # controller (CORE-20/PC-05 device identity).
+            controller_name = self._light_controller_name or self._lox_name
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self._light_controller_id, self.name, self.type, self.room, True
+                kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room, True
             )
         else:
             self.type = "Dimmer"
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+                kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
             )
 
         state_attributes = {
@@ -61,11 +66,6 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
             state_attributes.update({"light_controller": self._light_controller_name})
 
         self._attr_extra_state_attributes.update(state_attributes)
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return self._attr_unique_id
 
     @property
     def _master_min_max_known(self) -> bool:
@@ -153,13 +153,16 @@ class EIBDimmer(LoxoneDimmer):
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
+            # The device is the *controller's* device: name it after the
+            # controller (CORE-20/PC-05 device identity).
+            controller_name = self._light_controller_name or self._lox_name
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self._light_controller_id, self.name, self.type, self.room, True
+                kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room, True
             )
         else:
             self.type = "EIBDimmer"
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+                kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
             )
 
     @cached_property

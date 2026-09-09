@@ -116,6 +116,12 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
         self._state = STATE_UNKNOWN
         self._format = self._get_format(kwargs.get("details", {}).get("format", ""))
         self._parent_id = kwargs.get("parent_id", None)
+        # WP-5.1: sub-sensors (the Ventilation fan's presence/humidity/
+        # air-quality/temperature) keep their short name — the device is
+        # named after the parent control, so the full control name must
+        # not be repeated on the entity (CORE-26).
+        if self._parent_id:
+            self._attr_name = self._lox_name
         self._on_state = STATE_ON
         self._off_state = STATE_OFF
         self._attr_available = True
@@ -140,7 +146,7 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
             self._attr_device_info = parent_device_info or device_info_for(
                 kwargs.get("config_entry"),
                 self.unique_id,
-                self.name,
+                self._lox_name,
                 self.type,
                 self.room,
             )
@@ -207,7 +213,12 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
 class LoxoneCustomBinarySensor(LoxoneEntity, BinarySensorEntity):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._name = kwargs["name"]
+        # YAML-configured, device-less entry: keep the control name as an
+        # explicit entity name (there is no device to inherit one from).
+        # CORE-26: stored as ``_attr_name``; the old ``name`` property
+        # override is deleted with it (it bypassed HA's name logic and
+        # blocked suggested-object-id derivation).
+        self._attr_name = kwargs["name"]
         self._state = STATE_UNKNOWN
         self._on_state = STATE_ON
         self._off_state = STATE_OFF
@@ -243,8 +254,3 @@ class LoxoneCustomBinarySensor(LoxoneEntity, BinarySensorEntity):
             else:
                 self._state = self._off_state
             self.async_write_ha_state()
-
-    @property
-    def name(self):
-        """Return the name of the sensor."""
-        return self._name

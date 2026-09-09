@@ -122,7 +122,7 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         self._attr_current_option = None
 
         self.type = "Radio"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     @property
     def icon(self):
@@ -168,11 +168,11 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         # caller of the select service.
         if self._locked:
             raise HomeAssistantError(
-                f"Loxone Radio block {self.name or self.uuidAction} is locked and ignores selections"
+                f"Loxone Radio block {self._lox_name or self.uuidAction} is locked and ignores selections"
             )
         number = self._option_to_num.get(option)
         if number is None:
-            _LOGGER.warning("Unknown option '%s' for Loxone select %s", option, self.name)
+            _LOGGER.warning("Unknown option '%s' for Loxone select %s", option, self._lox_name)
             return
         if number == self._all_off_num:
             self._send("reset")

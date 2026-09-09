@@ -88,7 +88,7 @@ async def async_setup_entry(
         def build_scenes(mood_list, controller=controller, device_info=device_info):
             return [
                 Loxonelightscene(
-                    name=f"{controller.get('name', 'Light')} - {mood['name']}",
+                    name=mood["name"],  # WP-5.1: mood name only; device is the LCV2's (CORE-26)
                     mood_id=mood["id"],
                     uuid=controller["uuidAction"],
                     light_controller_id=controller["uuidAction"],

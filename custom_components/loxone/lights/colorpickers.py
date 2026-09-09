@@ -83,10 +83,10 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
         self._light_controller_id = kwargs.get("lightcontroller_id", None)
         self._light_controller_name = kwargs.get("lightcontroller_name", None)
 
-        self._name = self._attr_name
-        if self._light_controller_name:
-            self._attr_name = f"{self._light_controller_name}-{self._attr_name}"
-
+        # WP-5.1: LCV2 sub-lights keep their own (short) names; the
+        # device is the controller's, named after the controller (CORE-26).
+        if self._light_controller_id:
+            self._attr_name = self._lox_name
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
@@ -94,7 +94,7 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
             # controller (the entity's own name carries the "- Sub"
             # suffix, which must not overwrite the shared device name in
             # the registry (CORE-20/PC-05 device identity)).
-            controller_name = self._light_controller_name or self._name
+            controller_name = self._light_controller_name or self._lox_name
             self._attr_device_info = device_info_for(
                 kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room
             )
@@ -103,13 +103,8 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
             # Standalone picker: the device identifier must be a string
             # (PC-05 — `self._light_controller_id` is `None` here).
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+                kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
             )
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return self._attr_unique_id
 
     @property
     def is_on(self) -> bool:
@@ -192,10 +187,10 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
         self._light_controller_id = kwargs.get("lightcontroller_id", None)
         self._light_controller_name = kwargs.get("lightcontroller_name", None)
 
-        self._name = self._attr_name
-        if self._light_controller_name:
-            self._attr_name = f"{self._light_controller_name}-{self._attr_name}"
-
+        # WP-5.1: LCV2 sub-lights keep their own (short) names; the
+        # device is the controller's, named after the controller (CORE-26).
+        if self._light_controller_id:
+            self._attr_name = self._lox_name
         if self._light_controller_id:
             self.type = "LightControllerV2"
             self._attr_entity_registry_enabled_default = kwargs.get("enabled_default", True)
@@ -203,7 +198,7 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
             # controller (the entity's own name carries the "- Sub"
             # suffix, which must not overwrite the shared device name in
             # the registry (CORE-20/PC-05 device identity)).
-            controller_name = self._light_controller_name or self._name
+            controller_name = self._light_controller_name or self._lox_name
             self._attr_device_info = device_info_for(
                 kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room
             )
@@ -212,13 +207,8 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
             # Standalone picker: the device identifier must be a string
             # (PC-05 — `self._light_controller_id` is `None` here).
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+                kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
             )
-
-    @cached_property
-    def unique_id(self) -> str:
-        """Return a unique ID."""
-        return self._attr_unique_id
 
     @property
     def is_on(self) -> bool:
@@ -304,12 +294,12 @@ class LumiTech(RGBColorPicker):
             # controller (the entity's own name carries the "- Sub"
             # suffix, which must not overwrite the shared device name in
             # the registry (CORE-20/PC-05 device identity)).
-            controller_name = self._light_controller_name or self._name
+            controller_name = self._light_controller_name or self._lox_name
             self._attr_device_info = device_info_for(
                 kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room
             )
         else:
             self.type = "LumiTech"
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+                kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
             )

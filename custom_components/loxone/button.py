@@ -63,7 +63,7 @@ class LoxoneButton(LoxoneEntity, ButtonEntity):
         # LoxoneEntity builds the device_info from the platform defaults in
         # abstract, so mirror the other platforms here (PS-16: the bespoke
         # DeviceInfo in button.py diverged from them).
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     @property
     def icon(self):

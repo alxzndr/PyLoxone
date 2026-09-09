@@ -369,7 +369,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
             else:
                 self._all_uuids.add(value)
 
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: every state stream the handler consumes (values may be
@@ -544,7 +544,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         cool_possible = possible_capabilities & 2
         self._range_possible = bool(heat_possible and cool_possible)
 
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     async def async_added_to_hass(self):
         """Register listeners once the entity is added to HA.
@@ -859,7 +859,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             return  # informational only — controlled by timer / fix-frozen value
         mode_id = next((mode["id"] for mode in self._modeList if mode["name"] == preset_mode), None)
         if mode_id is None:
-            _LOGGER.debug("Unknown preset mode %r for %s (%s)", preset_mode, self.name, self.type)
+            _LOGGER.debug("Unknown preset mode %r for %s (%s)", preset_mode, self._lox_name, self.type)
             return
         if mode_id == "stop":
             # PC-20: the correct command is setOperatingMode/0, not setOperationMode/0
@@ -887,7 +887,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         self._fan_modes = _parse_mode_list(self._stateAttribUuids.get("fanspeeds"), "fanspeeds")
         self._airflow_modes = _parse_mode_list(self._stateAttribUuids.get("airflows"), "airflows")
 
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: every state stream the handler consumes.
@@ -1037,7 +1037,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         """Set new target fan mode (PC-24: never sends ``setFan/None``)."""
         fan_id = next((o["id"] for o in self._fan_modes if o["name"] == fan_mode), None)
         if fan_id is None:
-            _LOGGER.debug("Unknown fan mode %r for %s (%s)", fan_mode, self.name, self.type)
+            _LOGGER.debug("Unknown fan mode %r for %s (%s)", fan_mode, self._lox_name, self.type)
             return
         self._send(f"setFan/{fan_id}")
 
@@ -1060,7 +1060,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         """Set new target swing mode (PC-24: never sends ``setAirDir/None``)."""
         airflow_id = next((o["id"] for o in self._airflow_modes if o["name"] == swing_mode), None)
         if airflow_id is None:
-            _LOGGER.debug("Unknown swing mode %r for %s (%s)", swing_mode, self.name, self.type)
+            _LOGGER.debug("Unknown swing mode %r for %s (%s)", swing_mode, self._lox_name, self.type)
             return
         self._send(f"setAirDir/{airflow_id}")
 

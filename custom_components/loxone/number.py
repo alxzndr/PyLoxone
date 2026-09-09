@@ -79,7 +79,7 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
             self._attr_native_unit_of_measurement = unit
             desc = match_sensor_description(
                 unit=unit,
-                name=getattr(self, "name", "") or "",
+                name=self._lox_name or "",
                 category=kwargs.get("cat", ""),
             )
             if desc is not None and numeric:
@@ -89,7 +89,7 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
                 self._attr_suggested_display_precision = precision
 
         self.type = "Slider"
-        self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
 
     @staticmethod
     def _parse_digits_after_decimal(format_string):

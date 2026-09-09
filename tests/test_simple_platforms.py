@@ -466,11 +466,11 @@ async def test_override_reason_states_are_slugs(hass):
 
 def test_override_reason_translations_carry_the_slug_path():
     # The entity resolves states through
-    # ``entity.sensor.loxone.override_reason.state.<slug>`` -- verify the
-    # (previously dead) translation file actually carries that path.
+    # ``entity.sensor.override_reason.state.<slug>`` (HA core layout,
+    # WP-5.1) -- verify the translation files actually carry that path.
     for lang in ("en", "de", "cs"):
         data = json.loads((REPO_ROOT / "custom_components/loxone/translations" / f"{lang}.json").read_text())
-        states = data["entity"]["sensor"]["loxone"]["override_reason"]["state"]
+        states = data["entity"]["sensor"]["override_reason"]["state"]
         for slug in ("none", "eco_override", "fixed", "unknown"):
             assert slug in states
 
@@ -501,10 +501,12 @@ def test_presence_switch_constructs_from_states():
     _stub_write(e)
     assert e._presence_id == "presence-uuid-01"
     assert e.unique_id == "presence-uuid-01"
-    # The name is appended on _attr_name; the name property sees the
-    # suffixed value (plain str, not an overwritten cached property).
-    assert e._attr_name == "Living Light Controller Presence Detection"
-    assert "Presence Detection" in e.name
+    # WP-5.1: the presence switch is a *sub-entity* of the light
+    # controller.  It carries the short name "Presence Detection";
+    # the parent control device contributes "Living Light Controller"
+    # (the UI shows "Living Light Controller Presence Detection").
+    assert e._attr_name == "Presence Detection"
+    assert e.name == "Presence Detection"
 
 
 # ---------------------------------------------------------------------------

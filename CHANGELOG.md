@@ -63,6 +63,28 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
     Python 3.14.2
   - CI now has a `docs-services` job (and `tests/test_docs_readme.py`) that
     fails when a `services.yaml` service is not documented in the README
+### Changed
+
+- Entity naming (WP-5.1, CORE-26 remainder / CORE-33): every Loxone entity
+  now uses `has_entity_name = True`. Primary entities no longer repeat the
+  control's full name as their own name (no more "Living Room Light
+  Switch Living Room Light Switch"); the entity carries no own name and adopts the device
+  name, which keeps the *exact* control name. Sub-entities carry short
+  names without the parent prefix instead ("Override Reason", "Comfort
+  Temperature", "Total", "Presence", …); unique ids, entity ids and device
+  identities are unchanged. The override-reason enum sensor's translation
+  moved from the unreachable `entity.sensor.loxone.override_reason` path to
+  HA core's layout `entity.sensor.override_reason` (CORE-22), and the
+  shipped en/de/cs files now nest under it; the unused legacy
+  `room_controller` preset block dropped from en.json. Reviewed registry
+  snapshot: `tests/snapshots/entity_names.json`
+  (pre-change baseline: `tests/snapshots/entity_names.pre.json`;
+  regenerate with `LOXONE_ENTITY_SNAPSHOT_OUT=… pytest -q
+  tests/test_entity_name_snapshot.py` and diff in the PR). The reviewed
+  diff touches the stored names only — every `entity_id` and
+  `unique_id` is unchanged, so upgrades re-name nothing and lose no
+  entity id.
+
 ### Added
 
 - Repairs (CORE-30, WP-5.2): the `auth_failed` repair issue is shown while

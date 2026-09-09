@@ -58,8 +58,10 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 
         self.type = "LightControllerV2"
+        # WP-5.1: primary entity — the device is named after the control
+        # itself and provides the entity's display name (CORE-26).
         self._attr_device_info = device_info_for(
-            kwargs.get("config_entry"), self.unique_id, self.name, self.type, self.room
+            kwargs.get("config_entry"), self.unique_id, self._lox_name, self.type, self.room
         )
 
     @property
