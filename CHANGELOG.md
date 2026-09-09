@@ -16,6 +16,34 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Fixed
 
+- Sensor/binary/switch/select/number/button/scene platforms: one bad
+  control or a missing detail key no longer aborts the entire platform
+  (per-control `try/except` in every `async_setup_entry`, shared
+  `iter_controls` helper); a `SmokeAlarm` binary sensor is read from its
+  `level` state (on when > 0) instead of `areAlarmSignalsOff` (PS-04);
+  `LoxoneLightPresenceSwitch` guard and constructor both read
+  `states["presence"]` (PS-06); intercom sub-controls without an `active`
+  state are skipped with a log (PS-05); `map_range` no longer divides by
+  zero on a degenerate range and `get_all` tolerates structure files
+  without `controls`/`type` (CORE-32, Uni Ulm fuzzing PR #292); YAML
+  sensors without a `name` get a usable unique id and the broken
+  `value_template` handling is removed (PS-07); a `Meter` without a match
+  register format no longer kills the sensor platform (PS-08); analog
+  `ERROR_VALUE`/`None` publish `unknown` and only numeric formats advertise
+  a state_class (PS-09); `override_reason` sensor values are slugs that
+  translate, with a single `unknown` fallback (CORE-22); Meter registers
+  get explicit per-register device/state classes and resetting kWh values
+  no longer claim `total_increasing` (PS-21); `LoxoneNumber` starts
+  unknown, listens on the `value` state, and takes min/max/step/unit from
+  the control details (PS-15); `LoxoneButton` no longer overrides the
+  `@final` `ButtonEntity.state` — the press echo becomes a `last_pressed`
+  attribute (PS-16); scenes are generated from the structure file as soon
+  as a `moodList` stream is seen, with no 3-second timer, no
+  `hass.data["light"]` scraping and a tracked listener (PS-17); Radios
+  without outputs are skipped with a log and a locked Radio raises
+  `HomeAssistantError` on select (PS-19)
+  (JoDehli/PyLoxone#402 #481 #492)
+
 - `__init__.py` — a 401 during setup (e.g. a Miniserver inside its boot
   window after a firmware update, incident 2026-09-02) no longer ends the
   entry in `setup_error`: `return False` is gone, the branch now raises

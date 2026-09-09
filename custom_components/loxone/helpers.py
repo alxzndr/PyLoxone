@@ -8,6 +8,7 @@ https://home-assistant.io/components/loxone/
 import ast
 import json
 import re
+from typing import Any, Iterator
 
 from .const import DOMAIN, cfmt
 
@@ -41,7 +42,7 @@ def literal_decoder(value):
 
 
 # Initialize a device registry
-device_registry = {}
+device_registry: dict[str, dict[str, Any]] = {}
 
 
 def get_or_create_device(device_uuid, device_name, device_type, device_room):
@@ -57,6 +58,14 @@ def get_or_create_device(device_uuid, device_name, device_type, device_room):
 
 
 def map_range(value, in_min, in_max, out_min, out_max):
+    """Linearly map ``value`` from ``[in_min, in_max]`` onto ``[out_min, out_max]``.
+
+    A degenerate input range (``in_min == in_max``) would divide by zero; it
+    maps to ``out_min`` instead (the Miniserver knows nothing more precise
+    about a zero-width range) (CORE-32, Uni Ulm fuzzing PR #292).
+    """
+    if in_max == in_min:
+        return out_min
     return out_min + (((value - in_min) / (in_max - in_min)) * (out_max - out_min))
 
 
@@ -146,17 +155,48 @@ def get_miniserver_type(t):
     return "Unknown type"
 
 
-def get_all(json_data, name):
-    controls = []
-    if isinstance(name, list):
-        for c in json_data["controls"].keys():
-            if json_data["controls"][c]["type"] in name:
-                controls.append(json_data["controls"][c])
-    else:
-        for c in json_data["controls"].keys():
-            if json_data["controls"][c]["type"] == name:
-                controls.append(json_data["controls"][c])
+def get_all(json_data, name) -> list[dict]:
+    """Return all controls of the given type (or list of types).
+
+    Tolerates a structure file with no ``controls`` key and controls that
+    lack a ``type``: those are skipped instead of raising (CORE-32, Uni Ulm
+    fuzzing PR #292).
+    """
+    controls: list[dict] = []
+    if not isinstance(json_data, dict):
+        return controls
+    all_controls = json_data.get("controls") or {}
+    if not isinstance(all_controls, dict):
+        return controls
+    wanted = set(name) if isinstance(name, (list, tuple, set)) else {name}
+    for control in all_controls.values():
+        if isinstance(control, dict) and control.get("type") in wanted:
+            controls.append(control)
     return controls
+
+
+def iter_controls(hass, config_entry, types) -> Iterator[dict]:
+    """Yield each control of ``types`` with its room/cat names resolved.
+
+    Shared setup boilerplate (PS-24): replaces the repeated
+    ``get_miniserver_from_hass`` -> ``lox_config.json`` -> ``get_all`` ->
+    ``add_room_and_cat_to_value_values`` sequence in every platform's
+    ``async_setup_entry``.
+    Structure files are loaded per Miniserver; importing ``miniserver`` here
+    (not at module top) avoids a circular import: ``miniserver`` already
+    imports from this module.
+    """
+    from .miniserver import get_miniserver_from_hass
+
+    miniserver = get_miniserver_from_hass(hass, config_entry)
+    loxconfig = miniserver.lox_config.json
+    for control in get_all(loxconfig, types):
+        # Yield a shallow copy: some platforms write runtime references
+        # (hass/config_entry/async_add_devices) into their control dict, and
+        # the structure file is shared. A shallow copy keeps those writes
+        # out of the structure file (the nested dicts are still shared, but
+        # only scalar keys are ever written into the top-level dict).
+        yield dict(add_room_and_cat_to_value_values(loxconfig, control))
 
 
 def clean_unit(lox_format):

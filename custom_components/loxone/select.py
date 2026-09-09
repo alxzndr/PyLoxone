@@ -10,13 +10,13 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
 from .const import SENDDOMAIN
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
-from .miniserver import get_miniserver_from_hass
+from .helpers import get_or_create_device, iter_controls
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,14 +97,24 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up entry."""
-    miniserver = get_miniserver_from_hass(hass, config_entry)
-    loxconfig = miniserver.lox_config.json
     entities = []
 
-    for select_entity in get_all(loxconfig, ["Radio"]):
-        select_entity = add_room_and_cat_to_value_values(loxconfig, select_entity)
-        new_select = LoxoneSelect(**select_entity)
-        entities.append(new_select)
+    for select_entity in iter_controls(hass, config_entry, "Radio"):
+        try:
+            # PS-19: a Radio without any outputs yields options == [],
+            # which Home Assistant rejects -- skip it with a log instead of
+            # failing the whole platform.
+            options, _, _, _ = build_option_maps(select_entity.get("details") or {})
+            if not options:
+                _LOGGER.warning(
+                    "Skipping Radio control %s: it has no outputs, a select needs at least one option",
+                    select_entity.get("name", select_entity.get("uuidAction", "?")),
+                )
+                continue
+            new_select = LoxoneSelect(**select_entity)
+            entities.append(new_select)
+        except Exception:
+            _LOGGER.exception("Skipping Radio control %s", select_entity.get("name", "?"))
 
     async_add_entities(entities)
 
@@ -118,7 +128,9 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         self._icon = None
         self._locked = None
 
-        (self._options, self._num_to_option, self._option_to_num, self._all_off_num) = build_option_maps(self.details)
+        (self._attr_options, self._num_to_option, self._option_to_num, self._all_off_num) = build_option_maps(
+            self.details
+        )
         self._attr_current_option = None
 
         self.type = "Radio"
@@ -129,32 +141,38 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         """Return the icon to use for device if any."""
         return self._icon
 
-    @property
-    def options(self) -> list[str]:
-        """Return the list of available options."""
-        return self._options
-
-    @property
-    def current_option(self) -> str | None:
-        """Return the currently selected option."""
-        return self._attr_current_option
-
     async def event_handler(self, e):
-        if self.states["activeOutput"] in e.data:
-            value = e.data[self.states["activeOutput"]]
+        data = e.data
+        request_update = False
+
+        state_uuid = self.states.get("activeOutput")
+        if state_uuid and state_uuid in data:
+            value = data[state_uuid]
             try:
                 number = int(float(value))
             except TypeError, ValueError:
                 number = None
             self._attr_current_option = self._num_to_option.get(number)
-            self.async_schedule_update_ha_state()
+            request_update = True
 
-        if "jLocked" in self.states and self.states["jLocked"] in e.data:
-            self._locked = bool(e.data[self.states["jLocked"]])
+        # PS-19: the lock arrives as a separate stream; fold both updates
+        # into a single state write instead of two per event.
+        lock_uuid = self.states.get("jLocked")
+        if lock_uuid and lock_uuid in data:
+            self._locked = bool(data[lock_uuid])
+            request_update = True
+
+        if request_update:
             self.async_schedule_update_ha_state()
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
+        # PS-19: enforce the Loxone lock; HA renders the raised error to the
+        # caller of the select service.
+        if self._locked:
+            raise HomeAssistantError(
+                f"Loxone Radio block {self.name or self.uuidAction} is locked and ignores selections"
+            )
         number = self._option_to_num.get(option)
         if number is None:
             _LOGGER.warning("Unknown option '%s' for Loxone select %s", option, self.name)
@@ -170,7 +188,7 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         """Return device specific state attributes."""
         return {
             **self._attr_extra_state_attributes,
-            "state_uuid": self.states["activeOutput"],
+            "state_uuid": self.states.get("activeOutput"),
             "device_type": self.type,
             "platform": "loxone",
             "locked": self._locked,
