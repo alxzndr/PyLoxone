@@ -50,8 +50,33 @@ ATTR_CODE = "code"
 ATTR_COMMAND = "command"
 ATTR_DEVICE = "device"
 ATTR_AREA_CREATE = "create_areas"
+ATTR_ENTRY_ID = "entry_id"
 DOMAIN_DEVICES = "devices"
-CLIMATE_EVENT = "loxone_climate"
+
+
+def loxone_uuid_signal(config_entry_id: str, uuid: str) -> str:
+    """CORE-27: the per-(entry, uuid) dispatcher signal for state fan-out.
+
+    Namespaced by config entry id so state updates of one Miniserver can
+    never reach entries of a *second* Miniserver on the same HA instance
+    (the pre-fix single global ``loxone_event`` bus event did exactly
+    that, and every listener of it -- one per entity, per entry).
+    """
+    return f"loxone_{config_entry_id}_{uuid}"
+
+
+def loxone_climate_demand_signal(config_entry_id: str, room_uuid: str) -> str:
+    """PS-18: entry-scoped control-list fan-out replacing the global
+    ``CLIMATE_EVENT`` bus event.
+
+    A ``LoxoneClimateController`` parses the room states and sends each
+    room's ``demand`` (1 = heating, -1 = cooling, 0 = idle) to this signal
+    addressed at the room controller's own uuid, instead of firing one
+    bus event per linked room that every room-controller entity of every
+    entry would receive.
+    """
+    return f"{loxone_uuid_signal(config_entry_id, room_uuid)}_demand"
+
 
 # Climate preset names (translatable)
 PRESET_SCHEDULE = "schedule"

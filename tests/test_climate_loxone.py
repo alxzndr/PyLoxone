@@ -15,7 +15,6 @@ climate.py`` built a ``states`` dict and subscripted it with a bare
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 from homeassistant.const import UnitOfTemperature
 
@@ -102,9 +101,10 @@ async def test_v2_unknown_operating_mode_logs_not_crash(hass, caplog) -> None:
     e = _controller_v2({"operatingMode": "st_operatingMode", "activeMode": "st_activeMode"})
     e.hass = hass  # present so the guard runs; we don't exercise the state write
     e.schedule_update_ha_state = lambda *a, **k: None  # no entity_id → skip the write
+    e.async_write_ha_state = lambda *a, **k: None  # no entity_id → skip the write
 
     with caplog.at_level(logging.WARNING):
         # 999 is not a valid OperatingMode id → ValueError path → warn, no crash (CORE-43).
-        await e.event_handler(SimpleNamespace(data={"st_operatingMode": 999, "st_activeMode": 0}))
+        e.event_handler({"st_operatingMode": 999, "st_activeMode": 0})
 
     assert any("unknown" in r.message.lower() for r in caplog.records), [r.message for r in caplog.records]

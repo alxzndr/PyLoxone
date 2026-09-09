@@ -14,7 +14,7 @@ from functools import cached_property, partial
 
 import homeassistant.components.group as group
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -26,7 +26,7 @@ from homeassistant.core import (
     HomeAssistant,
     callback,
 )
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
@@ -40,6 +40,7 @@ from .const import (
     ATTR_AREA_CREATE,
     ATTR_CODE,
     ATTR_DEVICE,
+    ATTR_ENTRY_ID,
     ATTR_UUID,
     ATTR_VALUE,
     CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
@@ -56,6 +57,7 @@ from .const import (
     SECUREDSENDDOMAIN,
     SENDDOMAIN,
     cfmt,
+    loxone_uuid_signal,
 )
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
 from .miniserver import get_miniserver_from_hass
@@ -86,23 +88,45 @@ CONFIG_SCHEMA = vol.Schema(
 
 _UNDEF: dict = {}
 
-# Optional key of the ``loxone.reload`` service selecting one Miniserver
-# instance by config-entry id (CORE-05: a service call must not have to
-# fan out over *every* entry; an options change reloads only the owning
-# entry via its update listener, not via this service).
-ATTR_ENTRY_ID = "entry_id"
-
-# Services registered in ``async_setup_entry`` and removed again in
-# ``async_unload_entry`` (the last three are legacy names that are no
-# longer registered as domain services but removed defensively).
-_ENTRY_SERVICES = (
+# The four true *domain* services.  CORE-04: they are registered exactly
+# once in ``async_setup`` (guarded by ``has_service``) and removed only
+# when the last locked entry unloads.  The three cover *entity* services
+# (``quick_shade``, ``enable_sun_automation``, ``disable_sun_automation``)
+# registered by the cover platform are shared per ``has_service`` guard and
+# belong to the platform — never remove them from ``async_unload_entry``;
+# doing so killed them for every other still-running entry and logged
+# "Unable to remove unknown service" on the second unload.
+_DOMAIN_SERVICES = (
     "event_websocket_command",
     "event_secured_websocket_command",
     "sync_areas",
     "reload",
-    "quick_shade",
-    "enable_sun_automation",
-    "disable_sun_automation",
+)
+
+# CORE-11: exactly one of ``uuid`` / ``device`` per command service
+# (``vol.Exclusive`` caps the group at one; "at least one" is checked by
+# the handler and must not make the schema validation silently pass when
+# both are missing, or the previous code would resolve "" as the uuid).
+_TARGET_EXCLUSIVE = vol.Exclusive
+EVENT_COMMAND_SCHEMA = vol.Schema(
+    {
+        _TARGET_EXCLUSIVE(ATTR_UUID, "target"): cv.string,
+        _TARGET_EXCLUSIVE(ATTR_DEVICE, "target"): cv.entity_id,
+        vol.Optional(ATTR_VALUE, default=DEFAULT): cv.string,
+    }
+)
+SECURED_EVENT_COMMAND_SCHEMA = vol.Schema(
+    {
+        _TARGET_EXCLUSIVE(ATTR_UUID, "target"): cv.string,
+        _TARGET_EXCLUSIVE(ATTR_DEVICE, "target"): cv.entity_id,
+        vol.Optional(ATTR_VALUE, default=DEFAULT): cv.string,
+        vol.Optional(ATTR_CODE, default=DEFAULT): cv.string,
+    }
+)
+RELOAD_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_ENTRY_ID): cv.string,
+    }
 )
 
 # A Miniserver that is still booting (firmware update / reboot) answers 401 to
@@ -164,11 +188,154 @@ async def async_unload_entry(hass, config_entry):
     # reload; drop it too (CORE-09).
     _clear_auth_failure(hass, config_entry)
 
-    # Services deregistrieren beim Entladen
-    for service in _ENTRY_SERVICES:
-        hass.services.async_remove(DOMAIN, service)
+    # CORE-04: the domain services are integration-wide, not per entry —
+    # remove them only when no other loxone entry is loaded anymore.
+    # (This entry's own state is still LOADED during this callback, hence
+    # the explicit exclusion.)  The cover entity services are untouchable
+    # here: they are shared per platform and owned by the cover platform.
+    if not any(
+        other.state is ConfigEntryState.LOADED and other.entry_id != config_entry.entry_id
+        for other in hass.config_entries.async_entries(DOMAIN)
+    ):
+        for service in _DOMAIN_SERVICES:
+            hass.services.async_remove(DOMAIN, service)
 
     return unload_ok
+
+
+def _loxone_coordinator_by_uuid(hass: HomeAssistant, uuid: str) -> LoxoneCoordinator | None:
+    """The already-loaded loxone coordinator whose structure file contains ``uuid``."""
+    for coordinator in hass.data.get(DOMAIN, {}).values():
+        if isinstance(coordinator, LoxoneCoordinator) and uuid in coordinator.known_uuids:
+            return coordinator
+    return None
+
+
+def _resolve_outbound_target(hass: HomeAssistant, data: dict) -> tuple[LoxoneCoordinator, str]:
+    """Resolve ``call.data`` to ``(owning entry coordinator, control uuid)``. (CORE-11/CORE-04)
+
+    Exactly one of ``uuid`` / ``device`` may be given (the schema enforces
+    at most one; this enforces at least one). ``device`` must be an entity
+    of *this* integration, and its entry must be loaded. ``uuid`` must
+    belong to a *loaded* miniserver (its structure file contains it). All
+    other cases raise ``ServiceValidationError`` — before the fix,
+    a ``None`` registry entry was dereferenced and missing targets
+    silently sent ``""`` as the UUID.
+    """
+    uuid = data.get(ATTR_UUID)
+    device_id = data.get(ATTR_DEVICE)
+    if uuid is None and device_id is None:
+        raise ServiceValidationError("Exactly one of 'uuid' or 'device' is required")
+    if uuid is not None and device_id is not None:
+        # The schema's ``vol.Exclusive`` already rejects both.
+        raise ServiceValidationError("Provide either 'uuid' or 'device', not both")
+
+    if uuid is not None:
+        coordinator = _loxone_coordinator_by_uuid(hass, uuid)
+        if coordinator is None:
+            raise ServiceValidationError(f"UUID {uuid} does not belong to any loaded Loxone Miniserver")
+        return coordinator, uuid
+
+    registry_entry = er.async_get(hass).async_get(device_id)
+    if registry_entry is None:
+        raise ServiceValidationError(f"Unknown entity: {device_id}")
+    if registry_entry.platform != DOMAIN:
+        raise ServiceValidationError(f"Entity {device_id} does not belong to the loxone integration")
+    coordinator = hass.data.get(DOMAIN, {}).get(registry_entry.config_entry_id)
+    if not isinstance(coordinator, LoxoneCoordinator):
+        raise ServiceValidationError(f"Entity {device_id} belongs to a loxone entry that is not loaded")
+    # Command-address semantics are unchanged from the pre-fix handler:
+    # the LoXone entity's registry unique_id is the control uuidAction
+    # (two legacy entities decorate it — same address as before,
+    # now instead of being silently sent to *every* entry's API).
+    target_uuid = registry_entry.unique_id
+    if not isinstance(target_uuid, str) or not target_uuid:
+        raise ServiceValidationError(f"Entity {device_id} has no resolvable Loxone UUID")
+    return coordinator, target_uuid
+
+
+def _async_register_domain_services(hass: HomeAssistant) -> None:
+    """Register the Loxone domain services *once* for the whole integrations. (CORE-04)
+
+    Previously `async_setup_entry` (re-)registered all four service names
+    per config entry, overwriting each other, left the last entry's
+    handler bound to its coordinator alone, and `async_unload_entry`
+    removed them *unconditionally* — so the first unload killed the
+    services for every other still-loaded entry, and the second unload
+    logged "Unable to remove unknown service".
+    """
+    if hass.services.has_service(DOMAIN, "event_websocket_command"):
+        return
+
+    async def handle_event_websocket_command(call) -> None:
+        coordinator, uuid = _resolve_outbound_target(hass, call.data)
+        if coordinator.api is None:
+            raise ServiceValidationError("The entry's Loxone connection is not ready")
+        value = call.data.get(ATTR_VALUE, DEFAULT)
+        await coordinator.api.send_websocket_command(uuid, value)
+
+    async def handle_secured_event_websocket_command(call) -> None:
+        coordinator, uuid = _resolve_outbound_target(hass, call.data)
+        if coordinator.api is None:
+            raise ServiceValidationError("The entry's Loxone connection is not ready")
+        value = call.data.get(ATTR_VALUE, DEFAULT)
+        code = call.data.get(ATTR_CODE, DEFAULT)
+        await coordinator.api.send_secured_websocket_command(uuid, value, code)
+
+    async def handle_sync_areas_with_loxone(call) -> None:
+        await sync_areas_with_loxone(hass, call.data if isinstance(call.data, dict) else {})
+
+    async def handle_reload(call) -> None:
+        """Handle a service call to reload the integration.
+
+        One ``async_schedule_reload`` per entry — HA owns the safe
+        unload-then-load ordering — replaces the old full unload-then-
+        full reload path that unloaded every entry twice and also churned
+        unrelated miniserver instances (CORE-05).  The optional
+        ``entry_id`` restricts the reload to a single miniserver that the
+        user named; default: all entries.
+        """
+        entries = hass.config_entries.async_entries(DOMAIN)
+        requested = call.data.get(ATTR_ENTRY_ID)
+        if requested is not None:
+            entries = [e for e in entries if e.entry_id == requested]
+        _LOGGER.info("Reloading %i Loxone config entry(ies) via service call", len(entries))
+        for entry in entries:
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+
+    hass.services.async_register(
+        DOMAIN, "event_websocket_command", handle_event_websocket_command, schema=EVENT_COMMAND_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "event_secured_websocket_command",
+        handle_secured_event_websocket_command,
+        schema=SECURED_EVENT_COMMAND_SCHEMA,
+    )
+    hass.services.async_register(DOMAIN, "sync_areas", handle_sync_areas_with_loxone)
+    hass.services.async_register(DOMAIN, "reload", handle_reload, schema=RELOAD_SCHEMA)
+
+
+async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
+    """Sync HA areas from Loxone room attributes (``sync_areas`` service)."""
+    data = data or {}
+    create_areas = data.get(ATTR_AREA_CREATE, DEFAULT)
+    if create_areas not in [True, False]:
+        create_areas = False
+    lox_items = []
+    er_registry = er.async_get(hass)
+    ar_registry = ar.async_get(hass)
+    for _id, entry in er_registry.entities.items():
+        if entry.platform == DOMAIN:
+            state = hass.states.get(entry.entity_id)
+            if hasattr(state, "attributes") and "room" in state.attributes:
+                area = ar_registry.async_get_area_by_name(state.attributes["room"])
+                if area is None and create_areas:
+                    area = ar_registry.async_get_or_create(state.attributes["room"])
+                if area and entry.area_id is None:
+                    lox_items.append((entry.entity_id, area.id))
+    for _ in lox_items:
+        er_registry.async_update_entity(_[0], area_id=_[1])
 
 
 async def async_setup(hass, config):
@@ -177,6 +344,7 @@ async def async_setup(hass, config):
         hass.async_create_task(
             hass.config_entries.flow.async_init(DOMAIN, context={"source": "import"}, data=config[DOMAIN])
         )
+    _async_register_domain_services(hass)
     return True
 
 
@@ -442,13 +610,14 @@ async def async_setup_entry(hass, config_entry):
     # its DomainPlatform was never unloaded (CORE-14).
     await hass.config_entries.async_forward_entry_setups(config_entry, LOXONE_PLATFORMS)
 
-    async def message_callback(message):
-        """Fire message on HomeAssistant Bus."""
-        _LOGGER.debug(f"{message}")
-        hass.bus.async_fire(EVENT, message)
-
     async def run_loxone_session() -> None:
         """API-09: run the in-place reconnect supervisor for this entry.
+
+        Wire messages are funneled through the coordinator's single
+        :meth:`handle_message` (CORE-27): it fires the public
+        ``loxone_event`` bus event (payload + ``entry_id``) for user
+        automations and dispatches an entry-scoped per-uuid signal that
+        only this entry's entities subscribed to.
 
         Transient failures never reach here -- ``LoxoneConnection.run``
         retries inside the API layer and the entities merely flip their
@@ -458,7 +627,7 @@ async def async_setup_entry(hass, config_entry):
         entry on connection errors is eliminated entirely (CORE-05).
         """
         try:
-            await coordinator.api.run(coordinator.set_connected_state, callback=message_callback)
+            await coordinator.api.run(coordinator.set_connected_state, callback=coordinator.handle_message)
         except LoxoneUnauthorisedError as e:
             coordinator.set_connected_state(False)
             _LOGGER.error(
@@ -469,73 +638,6 @@ async def async_setup_entry(hass, config_entry):
             )
         except asyncio.CancelledError:
             raise
-
-    async def handle_websocket_command(call):
-        """Handle websocket command services."""
-        value = call.data.get(ATTR_VALUE, DEFAULT)
-        if call.data.get(ATTR_DEVICE) is None:
-            entity_uuid = call.data.get(ATTR_UUID, DEFAULT)
-        else:
-            entity_registry = er.async_get(hass)
-            entity_id = call.data.get(ATTR_DEVICE)
-            entity = entity_registry.async_get(entity_id)
-            entity_uuid = entity.unique_id
-        await coordinator.api.send_websocket_command(entity_uuid, value)
-
-    async def handle_secured_websocket_command(call):
-        """Handle websocket command services."""
-        value = call.data.get(ATTR_VALUE, DEFAULT)
-        code = call.data.get(ATTR_CODE, DEFAULT)
-        if call.data.get(ATTR_DEVICE) is None:
-            entity_uuid = call.data.get(ATTR_UUID, DEFAULT)
-        else:
-            entity_registry = er.async_get(hass)
-            entity_id = call.data.get(ATTR_DEVICE)
-            entity = entity_registry.async_get(entity_id)
-            entity_uuid = entity.unique_id
-        await coordinator.api.send_secured__websocket_command(entity_uuid, value, code)
-
-    async def sync_areas_with_loxone(data=None):
-        data = data or {}
-        create_areas = data.get(ATTR_AREA_CREATE, DEFAULT)
-        if create_areas not in [True, False]:
-            create_areas = False
-        lox_items = []
-        er_registry = er.async_get(hass)
-        ar_registry = ar.async_get(hass)
-        for _id, entry in er_registry.entities.items():
-            if entry.platform == DOMAIN:
-                state = hass.states.get(entry.entity_id)
-                if hasattr(state, "attributes") and "room" in state.attributes:
-                    area = ar_registry.async_get_area_by_name(state.attributes["room"])
-                    if area is None and create_areas:
-                        area = ar_registry.async_get_or_create(state.attributes["room"])
-                    if area and entry.area_id is None:
-                        lox_items.append((entry.entity_id, area.id))
-
-        for _ in lox_items:
-            er_registry.async_update_entity(_[0], area_id=_[1])
-
-    async def handle_sync_areas_with_loxone(call):
-        await sync_areas_with_loxone(call.data)
-
-    async def handle_reload(call):
-        """Handle the service call to reload the integration.
-
-        One ``async_schedule_reload`` per entry — HA owns the safe
-        unload-then-load ordering — replacing the old full-unload-then-
-        full-reload pass that unloaded every entry twice and also churned
-        unrelated Miniserver instances (CORE-05).  An optional
-        ``entry_id`` restricts the reload to the one Miniserver that the
-        user named.
-        """
-        entries = hass.config_entries.async_entries(DOMAIN)
-        requested = call.data.get(ATTR_ENTRY_ID)
-        if requested is not None:
-            entries = [e for e in entries if e.entry_id == requested]
-        _LOGGER.info("Reloading %i Loxone config entry(ies) via service call", len(entries))
-        for entry in entries:
-            hass.config_entries.async_schedule_reload(entry.entry_id)
 
     async def create_groups(_hass: HomeAssistant) -> None:
         """Create the auto-groups, once per Miniserver lifetime.
@@ -671,49 +773,54 @@ async def async_setup_entry(hass, config_entry):
             )
 
     async def loxone_send(event):
-        """Listen for change events from Loxone components."""
+        """Outbound commands fired on the bus by external users.
+
+        ``SENDDOMAIN`` / ``SECUREDSENDDOMAIN`` are documented for user
+        automations and stay — but each entry now forwards only uuids
+        its own Miniserver actually knows (CORE-27: before the fix
+        *every* entry executed *every* command, so one fired event
+        reached both Miniservers).  Verified against the structure file
+        once per entry setup (``coordinator.known_uuids``).
+        """
         try:
-            if event.event_type == SENDDOMAIN and isinstance(event.data, dict):
-                value = event.data.get(ATTR_VALUE, DEFAULT)
-                device_uuid = event.data.get(ATTR_UUID, DEFAULT)
-                if value is None:
-                    value = DEFAULT
-                if device_uuid is None:
-                    device_uuid = DEFAULT
-
-                # Tracked on the entry (CORE-03/RUF006): HA awaits it on
-                # unload; the old bare ``asyncio.create_task`` discarded
-                # the reference the task could be garbage-collected.
-                config_entry.async_create_background_task(
-                    hass,
-                    coordinator.api.send_websocket_command(device_uuid, value),
-                    name="loxone-send-command",
+            if not isinstance(event.data, dict):
+                return
+            secured = event.event_type == SECUREDSENDDOMAIN
+            value = event.data.get(ATTR_VALUE, DEFAULT)
+            device_uuid = event.data.get(ATTR_UUID, DEFAULT)
+            if value is None:
+                value = DEFAULT
+            if device_uuid is None:
+                device_uuid = DEFAULT
+            if not isinstance(device_uuid, str) or device_uuid not in coordinator.known_uuids:
+                _LOGGER.debug(
+                    "Skipping %s: uuid %r does not belong to this Miniserver",
+                    event.event_type,
+                    device_uuid,
                 )
-
-            elif event.event_type == SECUREDSENDDOMAIN and isinstance(event.data, dict):
-                value = event.data.get(ATTR_VALUE, DEFAULT)
-                device_uuid = event.data.get(ATTR_UUID, DEFAULT)
+                return
+            if coordinator.api is None:
+                _LOGGER.warning("Skipping %s: connection not ready", event.event_type)
+                return
+            if secured:
                 code = event.data.get(ATTR_CODE, DEFAULT)
                 if code is None:
                     code = DEFAULT
-                if value is None:
-                    value = DEFAULT
-                if device_uuid is None:
-                    device_uuid = DEFAULT
-                config_entry.async_create_background_task(
-                    hass,
-                    coordinator.api.send_secured__websocket_command(device_uuid, value, code),
-                    name="loxone-send-secured-command",
-                )
+                coro = coordinator.api.send_secured_websocket_command(device_uuid, value, code)
+            else:
+                coro = coordinator.api.send_websocket_command(device_uuid, value)
 
+            # Tracked on the entry (CORE-03/RUF006): HA awaits it on
+            # unload; the old bare ``asyncio.create_task`` discarded
+            # the reference the task could be garbage-collected.
+            config_entry.async_create_background_task(hass, coro, name="loxone-send-command")
         except Exception as e:
             _LOGGER.error(e)
 
-    hass.services.async_register(DOMAIN, "event_websocket_command", handle_websocket_command)
-
-    hass.services.async_register(DOMAIN, "event_secured_websocket_command", handle_secured_websocket_command)
-    hass.services.async_register(DOMAIN, "sync_areas", handle_sync_areas_with_loxone)
-    hass.services.async_register(DOMAIN, "reload", handle_reload)
+    # CORE-04: the four loxone domain services are registered once for
+    # the whole integration in ``async_setup`` — re-registering them
+    # per entry only rebound the handler to the newest coordinator —
+    # and are removed when the last entry unloads.
 
     # Every listener is registered-for-life with the config entry
     # (CORE-06): previously the two ``listen_once`` subscriptions for
@@ -790,38 +897,112 @@ class LoxoneEntity(Entity):
             self._attr_extra_state_attributes["category"] = kwargs["cat"]
 
     async def async_added_to_hass(self):
-        """Subscribe to the bus; HA cancels this on entity removal, so an
-        in-place reload no longer leaks ``loxone_event`` listeners (CORE-01).
+        """Subscribe to this entry's state signals (CORE-27) and its
+        connection-liveness signal (API-09/CORE-28).  HA fires the
+        ``async_on_remove`` hooks on entity removal, so an in-place
+        reload leaks nothing.
 
-        Also subscribe to the per-entry connection-liveness signal
-        (API-09/CORE-28) so the state re-publishes whenever the
-        Miniserver session goes live or down.
+        Entry entities receive one callback per *subscribed* uuid — the
+        coordinator's per-(entry-id, uuid) dispatcher signals — instead
+        of one bus task per entity per message.
         """
-        self.async_on_remove(self.hass.bus.async_listen(EVENT, self.event_handler))
         coordinator = self._connection_coordinator()
-        if coordinator is not None:
+        if coordinator is None:
+            # YAML-defined entities (no config entry to namespace the
+            # signals with) keep the documented-but-legacy behavior:
+            # the global loxone_event bus event.
+            self.async_on_remove(self.hass.bus.async_listen(EVENT, self._on_unscoped_message))
+            return
+        entry_id = coordinator.config_entry.entry_id
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, loxone_connected_signal(entry_id), self._on_connection_state)
+        )
+        for uuid in self._state_uuids():
             self.async_on_remove(
                 async_dispatcher_connect(
                     self.hass,
-                    loxone_connected_signal(coordinator.config_entry.entry_id),
-                    self._on_connection_state,
+                    loxone_uuid_signal(entry_id, uuid),
+                    partial(self._on_scoped_state_value, uuid),
                 )
             )
+
+    def _state_uuids(self) -> frozenset[str]:
+        """CORE-27 (PS-13): the stream uuids this entity reacts to.
+
+        Precomputed ``frozenset`` (no per-event set allocations); classes
+        override it in ``__init__``.  Defaults to the control's
+        ``uuidAction`` — the stream that plain single-state entities
+        update.  The pseudo-key ``keep_alive`` is stream message's
+        special key and can be subscribed exactly like a uuid.
+        """
+        uuid = getattr(self, "uuidAction", None)
+        return frozenset({uuid}) if isinstance(uuid, str) and uuid else frozenset()
+
+    @callback
+    def _on_scoped_state_value(self, uuid: str, value) -> None:
+        """Per-uuid entry signal (the normal path)."""
+        self.event_handler({uuid: value})
+
+    @callback
+    def _on_unscoped_message(self, event) -> None:
+        """Global bus fallback for YAML entities (no entry to scope to)."""
+        self.event_handler(event.data)
 
     @callback
     def _on_connection_state(self, _connected: bool) -> None:
         """Re-publish state (unavailable / concrete) on a connection flip."""
         self.async_write_ha_state()
 
+    def _send(self, value, uuid: str | None = None, secured: bool = False, code: str | None = None) -> None:
+        """CORE-27: route outbound commands through this entity's *own*
+        entry's coordinator.
+
+        ``uuid`` defaults to ``self.uuidAction`` (sub-control commands
+        pass their own).  No coordinator (e.g. a bare entity in unit
+        style tests, or the moment during entry reload) falls back to
+        the outbound bus event, which the owning entry's filtered
+        listener executes.
+        """
+        target = uuid if uuid is not None else self.uuidAction
+        coordinator = self._connection_coordinator()
+        api = getattr(coordinator, "api", None)
+        if coordinator is None or api is None:
+            _LOGGER.debug("No live Loxone coordinator for %s; falling back to the bus", target)
+            if secured:
+                self.hass.bus.async_fire(SECUREDSENDDOMAIN, dict(uuid=target, value=value, code=code))
+            else:
+                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=target, value=value))
+            return
+        if secured:
+            coro = api.send_secured_websocket_command(target, value, code if code is not None else DEFAULT)
+        else:
+            coro = api.send_websocket_command(target, value)
+        # Tracked on the entry (CORE-03/RUF006): unload cancels it.
+        coordinator.config_entry.async_create_background_task(self.hass, coro, name=f"loxone-send-{target}")
+
     def _connection_coordinator(self) -> LoxoneCoordinator | None:
-        """The owning entry's :class:`LoxoneCoordinator`, or None if not resolvable."""
+        """The owning entry's :class:`LoxoneCoordinator`, or None if not resolvable.
+
+        Resolution prefers ``platform.config_entry``: HA reuses entity
+        objects across setup/reload cycles (the entity registry keeps the
+        unique-id → object mapping), so the ``config_entry`` instantiated
+        at construction time can point at a replaced/superseded entry
+        while ``platform.config_entry`` tracks the live platform owner.
+
+        YAML-defined entities and bare unit-test entities resolve to
+        ``None`` and keep the bus fallback.
+        """
         hass_obj = getattr(self, "hass", None)
         if hass_obj is None:
             return None
-        entry = getattr(getattr(self, "platform", None), "config_entry", None)
+        platform = getattr(self, "platform", None)
+        entry = getattr(platform, "config_entry", None)
+        if entry is None:
+            entry = getattr(self, "config_entry", None)
         if entry is None:
             return None
-        return self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        coordinator = getattr(hass_obj, "data", {}).get(DOMAIN, {}).get(entry.entry_id)
+        return coordinator if (coordinator is not None and hasattr(coordinator, "connected")) else None
 
     @property
     def available(self) -> bool:
@@ -835,8 +1016,34 @@ class LoxoneEntity(Entity):
         coordinator = self._connection_coordinator()
         return coordinator is None or coordinator.connected
 
-    async def event_handler(self, e):
-        pass
+    @callback
+    def async_write_ha_state(self) -> None:
+        """Skip the state write while HA has not attached the entity.
+
+        Event-driven writes (and unit-style tests driving
+        :meth:`event_handler` directly on raw instances) can happen before
+        the entity has an ``entity_id``; the stock write raises
+        ``NoEntitySpecifiedError`` in that window, which would abort the
+        whole message callback. Dropping that write mirrors what HA itself
+        rejects, and the next event (or the scheduled write after add)
+        republishes.
+        """
+        if self.entity_id is None:
+            return
+        super().async_write_ha_state()
+
+    @callback
+    def event_handler(self, e) -> None:
+        """CORE-27: one invocation per subscribed uuid.
+
+        ``e`` is a dict mapping the updated uuid(s) to their values —
+        a single-uuid slice on the normal dispatcher path, the entry's
+        full message on the unscoped bus fallback.  Yields a
+        synchronous (``@callback``) handler, not one task per entity
+        per message (PS-13).  Subclasses keep the previous single
+        handler body verbatim and just drop the ``async`` and the
+        ``.data`` attribute access.
+        """
 
     @cached_property
     def name(self):

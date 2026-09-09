@@ -15,11 +15,12 @@ from homeassistant.components.climate import ClimateEntity
 from homeassistant.components.climate.const import ClimateEntityFeature, HVACAction, HVACMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .const import CLIMATE_EVENT, CONF_HVAC_AUTO_MODE, PRESET_PAUSED_WINDOW, PRESET_SCHEDULE, SENDDOMAIN
+from .const import CONF_HVAC_AUTO_MODE, PRESET_PAUSED_WINDOW, PRESET_SCHEDULE, loxone_climate_demand_signal
 
 # Stable preset literals for the FIXED (14) / FIXED_DYNAMIC (112) active
 # modes.  NOTE: not in const.py because that file is owned by other WPs
@@ -311,6 +312,7 @@ async def async_setup_entry(
         climate.update(
             {
                 "hass": hass,
+                "config_entry": config_entry,
                 CONF_HVAC_AUTO_MODE: 0,
             }
         )
@@ -321,6 +323,7 @@ async def async_setup_entry(
         climate.update(
             {
                 "hass": hass,
+                "config_entry": config_entry,
                 CONF_HVAC_AUTO_MODE: 0,
             }
         )
@@ -331,6 +334,7 @@ async def async_setup_entry(
         accontrol.update(
             {
                 "hass": hass,
+                "config_entry": config_entry,
             }
         )
         entities.append(LoxoneAcControl(**accontrol))
@@ -367,11 +371,17 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
 
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: every state stream the handler consumes (values may be
+        # single uuids, or lists for e.g. ``temperatures``).
+        return frozenset(self._all_uuids)
+
+    @callback
+    def event_handler(self, event):
         update = False
 
-        for key in self._all_uuids & event.data.keys():
-            self._stateAttribValues[key] = event.data[key]
+        for key in self._all_uuids & event.keys():
+            self._stateAttribValues[key] = event[key]
             update = True
 
         if update:
@@ -425,14 +435,8 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
 
         if temp_idx is not None:
             # Command format: setTemp/<index>/<value>
-            self.hass.bus.fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value=f"setTemp/{int(temp_idx)}/{temp}",
-                ),
-            )
-            self.schedule_update_ha_state()
+            self._send(f"setTemp/{int(temp_idx)}/{temp}")
+            self.async_write_ha_state()
 
     @property
     def hvac_action(self) -> HVACAction | None:
@@ -493,10 +497,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
             _LOGGER.debug("No legacy IRoomController mode for hvac mode %r", hvac_mode)
             return
 
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(uuid=self.uuidAction, value=f"setMode/{target_mode}"),
-        )
+        self._send(f"setMode/{target_mode}")
 
         self.schedule_update_ha_state()
 
@@ -546,10 +547,31 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
     async def async_added_to_hass(self):
-        """Register event listener once entity is added to HA."""
+        """Register listeners once the entity is added to HA.
+
+        PS-18: the heat/cool demand is scoped to *this* room controller's
+        uuid via the per-uuid dispatcher signal — a ClimateController feeding
+        another entry no longer reaches into this entity.
+        """
         await super().async_added_to_hass()
-        unsub = self.hass.bus.async_listen(CLIMATE_EVENT, self.climate_handler)
+        coordinator = self._connection_coordinator()
+        if coordinator is None:
+            return  # no entry to scope the demand signal with (unit tests)
+        entry_id = coordinator.config_entry.entry_id
+        unsub = async_dispatcher_connect(
+            self.hass, loxone_climate_demand_signal(entry_id, self.uuidAction), self.on_climate_demand
+        )
         self.async_on_remove(unsub)
+
+    @callback
+    def on_climate_demand(self, demand: int) -> None:
+        """PS-18: demand update for *this* room (per-uuid dispatcher signal)."""
+        self._demand = demand
+        self.async_write_ha_state()
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: every state stream the handler consumes.
+        return frozenset(uuid for uuid in self._states.values() if isinstance(uuid, str) and uuid)
 
     @property
     def supported_features(self) -> ClimateEntityFeature:
@@ -576,24 +598,19 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
 
         return features
 
-    def climate_handler(self, event):
-        """Handle climate demand events from ClimateController."""
-        if event.data.get("uuid") == self.uuidAction:
-            self._demand = event.data.get("value", 0)
-            self.schedule_update_ha_state()
-
     def get_mode_from_id(self, mode_id):
         for mode in self._modeList:
             if mode.get("id") == mode_id:
                 return mode.get("name")
 
-    async def event_handler(self, event):
+    @callback
+    def event_handler(self, event):
         update = False
 
-        for key in set(self._states.values()) & event.data.keys():
+        for key in set(self._states.values()) & event.keys():
             if not isinstance(key, str):
                 continue
-            val = event.data[key]
+            val = event[key]
             self._state_attr_values[key] = val
             if self._states_reversed.get(key) == "operatingMode":
                 try:
@@ -618,7 +635,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             update = True
 
         if update:
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
 
     def get_state_value(self, name, default=None):
         uuid = self._states.get(name)
@@ -676,15 +693,9 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             "range_possible": self._range_possible,
         }
         for value in plan_set_temperature(self.operating_mode.value[0], self.active_mode.value, kwargs, state):
-            self.hass.bus.fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value=value,
-                ),
-            )
+            self._send(value)
 
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @property
     def target_temperature(self) -> float | None:
@@ -805,12 +816,9 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             OperatingMode.MANUAL_HEAT_COOL,
         )
         if is_auto and self.is_overridden:
-            self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="stopOverride"))
+            self._send("stopOverride")
 
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(uuid=self.uuidAction, value=f"setOperatingMode/{target_mode}"),
-        )
+        self._send(f"setOperatingMode/{target_mode}")
 
         self.schedule_update_ha_state()
 
@@ -855,9 +863,9 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             return
         if mode_id == "stop":
             # PC-20: the correct command is setOperatingMode/0, not setOperationMode/0
-            self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="setOperatingMode/0"))
+            self._send("setOperatingMode/0")
         else:
-            self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"override/{mode_id}"))
+            self._send(f"override/{mode_id}")
         self.schedule_update_ha_state()
 
 
@@ -881,15 +889,20 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
 
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: every state stream the handler consumes.
+        return frozenset(uuid for uuid in self._stateAttribUuids.values() if isinstance(uuid, str) and uuid)
+
+    @callback
+    def event_handler(self, event):
         update = False
 
-        for key in set(self._stateAttribUuids.values()) & event.data.keys():
-            self._stateAttribValues[key] = event.data[key]
+        for key in set(self._stateAttribUuids.values()) & event.keys():
+            self._stateAttribValues[key] = event[key]
             update = True
 
         if update:
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
 
     def get_state_value(self, name, default=None):
         """Return the latest value for a state key, or ``default``.
@@ -937,13 +950,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         temp = kwargs.get("temperature")
         if temp is None:
             return
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value=f"setTarget/{temp}",
-            ),
-        )
+        self._send(f"setTarget/{temp}")
 
     @property
     def hvac_mode(self) -> HVACMode | None:
@@ -968,13 +975,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
     def set_hvac_mode(self, hvac_mode):
         """Set new target hvac mode (PC-25: OFF sends only ``off``)."""
         if hvac_mode == HVACMode.OFF:
-            self.hass.bus.fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="off",
-                ),
-            )
+            self._send("off")
             return
 
         mode = 1
@@ -988,21 +989,8 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
             case HVACMode.FAN_ONLY:
                 mode = 5
 
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value="on",
-            ),
-        )
-
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value=f"setMode/{mode}",
-            ),
-        )
+        self._send("on")
+        self._send(f"setMode/{mode}")
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -1051,13 +1039,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         if fan_id is None:
             _LOGGER.debug("Unknown fan mode %r for %s (%s)", fan_mode, self.name, self.type)
             return
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value=f"setFan/{fan_id}",
-            ),
-        )
+        self._send(f"setFan/{fan_id}")
 
     @property
     def fan_modes(self) -> list[str]:
@@ -1080,13 +1062,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         if airflow_id is None:
             _LOGGER.debug("Unknown swing mode %r for %s (%s)", swing_mode, self.name, self.type)
             return
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value=f"setAirDir/{airflow_id}",
-            ),
-        )
+        self._send(f"setAirDir/{airflow_id}")
 
     @property
     def swing_modes(self) -> list[str]:

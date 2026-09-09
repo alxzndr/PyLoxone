@@ -8,7 +8,6 @@ arrives, not merely from setup.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 from custom_components.loxone.switch import LoxoneSwitch
 from custom_components.loxone.text import LoxoneText
@@ -54,7 +53,7 @@ async def test_switch_becomes_on_hass_event(hass) -> None:
     assert e._attr_is_on is None
 
     # A real "active" state event makes the switch True and available.
-    await e.event_handler(SimpleNamespace(data={e.states["active"]: True}))
+    e.event_handler({e.states["active"]: True})
     assert e._attr_is_on is True
     assert e._attr_available is True
 
@@ -70,5 +69,5 @@ async def test_text_reports_value_after_event(hass) -> None:
     _stub_ha_write(e)
     assert e.native_value is None
 
-    await e.event_handler(SimpleNamespace(data={e.uuidAction: "hello world"}))
+    e.event_handler({e.uuidAction: "hello world"})
     assert e.native_value == "hello world"

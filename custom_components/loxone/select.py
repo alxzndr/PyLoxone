@@ -9,12 +9,11 @@ import logging
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .const import SENDDOMAIN
 from .helpers import get_or_create_device, iter_controls
 
 _LOGGER = logging.getLogger(__name__)
@@ -130,8 +129,17 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         """Return the icon to use for device if any."""
         return self._icon
 
-    async def event_handler(self, e):
-        data = e.data
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the activeOutput and jLocked streams.
+        return frozenset(
+            uuid
+            for uuid in (self.states.get("activeOutput"), self.states.get("jLocked"))
+            if isinstance(uuid, str) and uuid
+        )
+
+    @callback
+    def event_handler(self, e):
+        data = e
         request_update = False
 
         state_uuid = self.states.get("activeOutput")
@@ -152,7 +160,7 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
             request_update = True
 
         if request_update:
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
@@ -167,9 +175,9 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
             _LOGGER.warning("Unknown option '%s' for Loxone select %s", option, self.name)
             return
         if number == self._all_off_num:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="reset"))
+            self._send("reset")
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=str(number)))
+            self._send(str(number))
         self.async_schedule_update_ha_state()
 
     @property

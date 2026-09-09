@@ -5,11 +5,10 @@ import logging
 from homeassistant.components.alarm_control_panel import AlarmControlPanelEntity, AlarmControlPanelState
 from homeassistant.components.alarm_control_panel.const import AlarmControlPanelEntityFeature, CodeFormat
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .const import SECUREDSENDDOMAIN, SENDDOMAIN
 from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
@@ -80,39 +79,56 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
     def supported_features(self):
         return AlarmControlPanelEntityFeature.ARM_HOME | AlarmControlPanelEntityFeature.ARM_AWAY
 
-    async def event_handler(self, e):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: every state stream the handler mocks.
+        return frozenset(
+            uuid
+            for uuid in (
+                _state_uuid(self.states, "armed"),
+                _state_uuid(self.states, "disabledMove"),
+                _state_uuid(self.states, "armedAt"),
+                _state_uuid(self.states, "nextLevelAt"),
+                _state_uuid(self.states, "armedDelay"),
+                _state_uuid(self.states, "armedDelayTotal"),
+                _state_uuid(self.states, "level"),
+            )
+            if isinstance(uuid, str) and uuid
+        )
+
+    @callback
+    def event_handler(self, e):
         request_update = False
 
-        if (u := _state_uuid(self.states, "armed")) and u in e.data:
-            self._state = e.data[u]
+        if (u := _state_uuid(self.states, "armed")) and u in e:
+            self._state = e[u]
             request_update = True
 
-        if (u := _state_uuid(self.states, "disabledMove")) and u in e.data:
-            self._disabled_move = e.data[u]
+        if (u := _state_uuid(self.states, "disabledMove")) and u in e:
+            self._disabled_move = e[u]
             request_update = True
 
-        if (u := _state_uuid(self.states, "armedAt")) and u in e.data:
-            self._armed_at = e.data[u]
+        if (u := _state_uuid(self.states, "armedAt")) and u in e:
+            self._armed_at = e[u]
             request_update = True
 
-        if (u := _state_uuid(self.states, "nextLevelAt")) and u in e.data:
-            self._next_level_at = e.data[u]
+        if (u := _state_uuid(self.states, "nextLevelAt")) and u in e:
+            self._next_level_at = e[u]
             request_update = True
 
-        if (u := _state_uuid(self.states, "armedDelay")) and u in e.data:
-            self._armed_delay = e.data[u]
+        if (u := _state_uuid(self.states, "armedDelay")) and u in e:
+            self._armed_delay = e[u]
             request_update = True
 
-        if (u := _state_uuid(self.states, "armedDelayTotal")) and u in e.data:
-            self._armed_delay_total_delay = e.data[u]
+        if (u := _state_uuid(self.states, "armedDelayTotal")) and u in e:
+            self._armed_delay_total_delay = e[u]
             request_update = True
 
-        if (u := _state_uuid(self.states, "level")) and u in e.data:
-            self._level = e.data[u]
+        if (u := _state_uuid(self.states, "level")) and u in e:
+            self._level = e[u]
             request_update = True
 
         if request_update:
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def armed_at(self):
@@ -141,33 +157,27 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
     async def async_alarm_disarm(self, code=None):
         """Send disarm command."""
         if self.isSecured:
-            self.hass.bus.async_fire(SECUREDSENDDOMAIN, dict(uuid=self.uuidAction, value="off", code=code))
+            self._send("off", code=code, secured=True)
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="off"))
+            self._send("off")
         self.async_schedule_update_ha_state()
 
     async def async_alarm_arm_home(self, code=None):
         """Send arm home command."""
         value = alarm_arm_value(AlarmControlPanelState.ARMED_HOME)
         if self.isSecured:
-            self.hass.bus.async_fire(
-                SECUREDSENDDOMAIN,
-                dict(uuid=self.uuidAction, value=value, code=code),
-            )
+            self._send(value, code=code, secured=True)
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=value))
+            self._send(value)
         self.async_schedule_update_ha_state()
 
     async def async_alarm_arm_away(self, code=None):
         """Send arm away command."""
         value = alarm_arm_value(AlarmControlPanelState.ARMED_AWAY)
         if self.isSecured:
-            self.hass.bus.async_fire(
-                SECUREDSENDDOMAIN,
-                dict(uuid=self.uuidAction, value=value, code=code),
-            )
+            self._send(value, code=code, secured=True)
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=value))
+            self._send(value)
         self.async_schedule_update_ha_state()
 
     @property

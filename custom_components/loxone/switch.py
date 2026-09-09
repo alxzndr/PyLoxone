@@ -15,11 +15,10 @@ from typing import Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .const import SENDDOMAIN
 from .helpers import add_room_and_cat_to_value_values, get_or_create_device, iter_controls
 from .miniserver import get_miniserver_from_hass
 
@@ -119,41 +118,65 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
 
     def turn_on(self, **kwargs):
         """Turn the switch on."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="pulse"))
-        self._attr_is_on = True
-        self.schedule_update_ha_state()
+        self._do_turn_on()
+
+    async def async_turn_on(self, **kwargs):
+        """HA's switch domain dispatches the service to ``async_turn_on``
+        only; running in the event loop keeps the outbound send's
+        background task valid."""
+        self._do_turn_on()
+
+    def _do_turn_on(self):
+        if not self._attr_is_on:
+            self._send("pulse")
+            self._attr_is_on = True
+            self.schedule_update_ha_state()
 
     def turn_off(self, **kwargs):
         """Turn the device off."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="off"))
+        self._do_turn_off()
+
+    async def async_turn_off(self, **kwargs):
+        self._do_turn_off()
+
+    def _do_turn_off(self):
+        self._send("off")
         self._attr_is_on = False
         self.schedule_update_ha_state()
 
-    async def event_handler(self, e):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the two delay streams the handler reacts to.
+        return frozenset(
+            uuid
+            for uuid in (self._deactivation_delay, self._deactivation_delay_total)
+            if isinstance(uuid, str) and uuid
+        )
+
+    @callback
+    def event_handler(self, e):
         """Handle timed-switch events and update state attributes."""
-        data = e.data
         should_update = False
 
         # If we're currently unavailable but incoming data contains relevant keys,
         # schedule an async update immediately (preserves original behavior).
-        if not self._attr_available and (self._deactivation_delay in data or self._deactivation_delay_total in data):
-            self.async_schedule_update_ha_state()
+        if not self._attr_available and (self._deactivation_delay in e or self._deactivation_delay_total in e):
+            self.async_write_ha_state()
 
-        if self._deactivation_delay in data:
+        if self._deactivation_delay in e:
             # Preserve original comparison to 0.0
-            self._attr_is_on = False if data[self._deactivation_delay] == 0.0 else True
-            self._delay_remain = int(data[self._deactivation_delay])
+            self._attr_is_on = False if e[self._deactivation_delay] == 0.0 else True
+            self._delay_remain = int(e[self._deactivation_delay])
             should_update = True
 
-        if self._deactivation_delay_total in data:
-            self._delay_time_total = int(data[self._deactivation_delay_total])
+        if self._deactivation_delay_total in e:
+            self._delay_time_total = int(e[self._deactivation_delay_total])
             should_update = True
 
         if should_update:
             # Make entity available if it wasn't and schedule a final update
             if not self._attr_available:
                 self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -205,31 +228,53 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
 
     def turn_on(self, **kwargs):
         """Turn the switch on."""
+        self._do_turn_on()
+
+    async def async_turn_on(self, **kwargs):
+        """HA's switch domain dispatches the service to ``async_turn_on``
+        only; running in the event loop keeps the outbound send's
+        background task valid."""
+        self._do_turn_on()
+
+    def _do_turn_on(self):
         if not self._attr_is_on:
-            self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="On"))
+            self._send("On")
             self._attr_is_on = True
             self.schedule_update_ha_state()
 
     def turn_off(self, **kwargs):
         """Turn the device off."""
+        self._do_turn_off()
+
+    async def async_turn_off(self, **kwargs):
+        self._do_turn_off()
+
+    def _do_turn_off(self):
         if self._attr_is_on:
-            self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="Off"))
+            self._send("Off")
             self._attr_is_on = False
             self.schedule_update_ha_state()
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the action stream plus the optional `active` state
+        # stream the handler's availability flip reacts to.
+        state_uuid = self.states.get("active")
+        return frozenset(uuid for uuid in (self.uuidAction, state_uuid) if isinstance(uuid, str) and uuid)
+
+    @callback
+    def event_handler(self, event):
         # PS-05: resolve the state uuid once via .get(); a control that
         # happens to lack `active` must not raise on every event.
         state_uuid = self.states.get("active")
-        if self.uuidAction in event.data or (state_uuid and state_uuid in event.data):
+        if self.uuidAction in event or (state_uuid and state_uuid in event):
             if not self._attr_available:
-                self.async_schedule_update_ha_state()
-            if state_uuid and state_uuid in event.data:
-                self._attr_is_on = event.data[state_uuid]
+                self.async_write_ha_state()
+            if state_uuid and state_uuid in event:
+                self._attr_is_on = event[state_uuid]
 
             if not self._attr_available:
                 self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -257,8 +302,15 @@ class LoxoneIntercomSubControl(LoxoneSwitch):
 
     def turn_on(self, **kwargs):
         """Turn the switch on."""
+        self._do_turn_on()
+
+    async def async_turn_on(self, **kwargs):
+        """Switch-domain service dispatch (event loop)."""
+        self._do_turn_on()
+
+    def _do_turn_on(self):
         if not self._attr_is_on:
-            self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="on"))
+            self._send("on")
             self._attr_is_on = True
             self.schedule_update_ha_state()
 
@@ -302,25 +354,48 @@ class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
 
     def turn_on(self, **kwargs):
         """Trigger comfort override (mode 1)."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="override/1"))
+        self._do_turn_on()
+
+    async def async_turn_on(self, **kwargs):
+        """Switch-domain service dispatch (event loop)."""
+        self._do_turn_on()
+
+    def _do_turn_on(self):
+        self._send("override/1")
         self._attr_is_on = True
         self.schedule_update_ha_state()
 
     def turn_off(self, **kwargs):
         """Stop the active override."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="stopOverride"))
+        self._do_turn_off()
+
+    async def async_turn_off(self, **kwargs):
+        """Switch-domain service dispatch (event loop)."""
+        self._do_turn_off()
+
+    def _do_turn_off(self):
+        self._send("stopOverride")
         self._attr_is_on = False
         self.schedule_update_ha_state()
 
-    async def event_handler(self, e):
-        if self._override_uuid and self._override_uuid in e.data:
-            raw = e.data[self._override_uuid]
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the overrideEntries stream the handler reacts to.
+        return (
+            frozenset({self._override_uuid})
+            if isinstance(self._override_uuid, str) and self._override_uuid
+            else frozenset()
+        )
+
+    @callback
+    def event_handler(self, e):
+        if self._override_uuid and self._override_uuid in e:
+            raw = e[self._override_uuid]
             try:
                 entries = json.loads(raw) if isinstance(raw, str) else raw
                 self._attr_is_on = isinstance(entries, list) and len(entries) > 0
             except json.JSONDecodeError, TypeError:
                 self._attr_is_on = False
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -353,18 +428,25 @@ class LoxoneLightPresenceSwitch(LoxoneSwitch):
         """Return a unique ID."""
         return self._presence_id
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction + "/presence", value="on"))
+    def async_turn_on(self, **kwargs: Any) -> None:
+        self._send("on", uuid=self.uuidAction + "/presence")
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction + "/presence", value="off"))
+        self._send("off", uuid=self.uuidAction + "/presence")
         self.async_schedule_update_ha_state()
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the presence stream the (inherited) handler reacts to.
+        return (
+            frozenset({self._presence_id}) if isinstance(self._presence_id, str) and self._presence_id else frozenset()
+        )
+
+    @callback
+    def event_handler(self, event):
         request_update = False
-        if self._presence_id in event.data:
-            active = event.data[self._presence_id]
+        if self._presence_id in event:
+            active = event[self._presence_id]
             new_state = True if int(active) & 2 else False
             if new_state != self._attr_is_on:
                 self._attr_is_on = new_state
@@ -373,4 +455,4 @@ class LoxoneLightPresenceSwitch(LoxoneSwitch):
                 self._attr_available = True
 
         if request_update:
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()

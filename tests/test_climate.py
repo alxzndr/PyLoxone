@@ -11,7 +11,6 @@ produced by the code under test.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import pathlib
@@ -72,12 +71,14 @@ def _fake_open_with(config):
 
 
 def _event(data: dict):
-    return SimpleNamespace(data=data)
+    """PS-13/CORE-27: handlers are now sync `@callback`s taking the plain
+    ``{uuid: value}`` slice the dispatcher delivers — this is identity."""
+    return dict(data)
 
 
 def feed(entity, data: dict):
-    """Run an entity's async event_handler to completion from a sync test."""
-    asyncio.run(entity.event_handler(_event(data)))
+    """Run an entity's (now synchronous) event_handler from a sync test."""
+    entity.event_handler(_event(data))
 
 
 def _v2_make(states: dict, details: dict | None = None):
@@ -91,7 +92,7 @@ def _v2_make(states: dict, details: dict | None = None):
         if domain == SENDDOMAIN:
             out.append(data.get("value"))
 
-    bus = SimpleNamespace(fire=_fire, async_listen=lambda *a, **k: lambda f: None)
+    bus = SimpleNamespace(fire=_fire, async_fire=_fire, async_listen=lambda *a, **k: lambda f: None)
     hass = SimpleNamespace(bus=bus)
 
     e = LoxoneRoomControllerV2(
@@ -109,6 +110,7 @@ def _v2_make(states: dict, details: dict | None = None):
     )
     e.async_schedule_update_ha_state = lambda *a, **k: None
     e.schedule_update_ha_state = lambda *a, **k: None
+    e.async_write_ha_state = lambda *a, **k: None
     return e, out
 
 
@@ -123,7 +125,7 @@ def _ac_make(states: dict, details: dict | None = None):
         if domain == SENDDOMAIN:
             out.append(data.get("value"))
 
-    bus = SimpleNamespace(fire=_fire, async_listen=lambda *a, **k: lambda f: None)
+    bus = SimpleNamespace(fire=_fire, async_fire=_fire, async_listen=lambda *a, **k: lambda f: None)
     hass = SimpleNamespace(bus=bus)
 
     e = LoxoneAcControl(
@@ -138,6 +140,7 @@ def _ac_make(states: dict, details: dict | None = None):
     )
     e.async_schedule_update_ha_state = lambda *a, **k: None
     e.schedule_update_ha_state = lambda *a, **k: None
+    e.async_write_ha_state = lambda *a, **k: None
     return e, out
 
 
@@ -237,7 +240,12 @@ def test_legacy_set_hvac_mode_read_write_agreement():
         cat="heating",
     )
     out = []
-    e.hass.bus.fire = lambda domain, data=None: out.append(data.get("value"))
+
+    def _rec(domain, data=None):
+        out.append(data.get("value"))
+
+    e.hass.bus.fire = _rec
+    e.hass.bus.async_fire = _rec
     e.schedule_update_ha_state = lambda *a, **k: None
 
     for hvac in e.hvac_modes:
@@ -489,11 +497,11 @@ async def test_v2_unknown_mode_keeps_state_warns_only(caplog):
     """PC-13: unknown operatingMode/activeMode values must not raise and must
     keep the previous mode (old: ValueError interrupted the state event loop)."""
     e, out = _v2_make({"operatingMode": "st_op", "activeMode": "st_active"})
-    await e.event_handler(_event({"st_op": 0, "st_active": 0}))
+    e.event_handler(_event({"st_op": 0, "st_active": 0}))
     assert e.operating_mode.value[0] == 0
     with caplog.at_level(logging.WARNING):
-        await e.event_handler(_event({"st_op": 99, "st_active": 55}))
-        await e.event_handler(_event({"st_op": 64, "st_active": -3}))
+        e.event_handler(_event({"st_op": 99, "st_active": 55}))
+        e.event_handler(_event({"st_op": 64, "st_active": -3}))
     assert e.operating_mode.value[0] == 0  # previous state kept
     assert e.active_state.mode.value == 0  # ... and active mode too
     assert out == []
@@ -531,9 +539,11 @@ def test_v2_demand_event_still_wins_when_it_arrives():
     states["valveHeat"] = "st_vh"
     e, _ = _v2_make(states)
     feed(e, {"st_vh": 0.0})
-    e.climate_handler(SimpleNamespace(data={"uuid": e.uuidAction, "value": -1}))
+    # PS-18: the demand arrives via the per-(entry, room) dispatcher signal;
+    # the entity-side hook is the bound method the signal subscribes to.
+    e.on_climate_demand(-1)
     assert e.hvac_action == HVACAction.COOLING
-    e.climate_handler(SimpleNamespace(data={"uuid": e.uuidAction, "value": 0}))
+    e.on_climate_demand(0)
     assert e.hvac_action == HVACAction.IDLE
 
 

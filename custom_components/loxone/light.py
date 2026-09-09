@@ -96,6 +96,7 @@ async def async_setup_entry(
         light_controller = add_room_and_cat_to_value_values(loxconfig, light_controller)
         light_controller.update(
             {
+                "config_entry": config_entry,
                 "async_add_devices": async_add_entities,
             }
         )
@@ -113,6 +114,7 @@ async def async_setup_entry(
                     {
                         "lightcontroller_id": light_controller.get("uuidAction", None),
                         "lightcontroller_name": light_controller.get("name", None),
+                        "config_entry": config_entry,
                         "async_add_devices": async_add_entities,
                         "enabled_default": generate_subcontrols,
                     }
@@ -139,6 +141,7 @@ async def async_setup_entry(
             dimmer = add_room_and_cat_to_value_values(loxconfig, dimmer)
             dimmer.update(
                 {
+                    "config_entry": config_entry,
                     "async_add_devices": async_add_entities,
                 }
             )
@@ -157,6 +160,7 @@ async def async_setup_entry(
             color_picker = add_room_and_cat_to_value_values(loxconfig, color_picker)
             color_picker.update(
                 {
+                    "config_entry": config_entry,
                     "async_add_devices": async_add_entities,
                 }
             )

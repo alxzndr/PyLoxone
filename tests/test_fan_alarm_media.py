@@ -11,7 +11,6 @@ relying on them (see the PR body).
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 from homeassistant.helpers import entity_registry as er
 
@@ -137,10 +136,10 @@ async def test_fan_percentage_is_clamped_int_after_event(hass) -> None:
     _hass_write_stub(e)
     assert e.percentage is None
 
-    await e.event_handler(SimpleNamespace(data={e.states["speed"]: 153.0}))
+    e.event_handler({e.states["speed"]: 153.0})
     assert e.percentage == 100
 
-    await e.event_handler(SimpleNamespace(data={e.states["speed"]: 3.0}))
+    e.event_handler({e.states["speed"]: 3.0})
     assert e.percentage == 3
     assert isinstance(e.percentage, int)
 
@@ -219,7 +218,7 @@ async def test_fan_set_percentage_with_known_mode(hass) -> None:
     fired = []
     hass.bus.async_listen(SENDDOMAIN, lambda ev: fired.append(ev.data))
 
-    await e.event_handler(SimpleNamespace(data={e.states["mode"]: 2}))
+    e.event_handler({e.states["mode"]: 2})
     e.set_percentage(50)
     await hass.async_block_till_done()
 
@@ -346,11 +345,11 @@ async def test_alarm_event_handler_survives_missing_state_uuids(hass) -> None:
     _hass_write_stub(e)
 
     # No armed/disabledMove/armedAt/... keys in states: must not raise.
-    await e.event_handler(SimpleNamespace(data={"armed-uuid": 1}))
+    e.event_handler({"armed-uuid": 1})
     assert e._state == 1
     assert e._disabled_move == 0
 
-    await e.event_handler(SimpleNamespace(data={"level-uuid": 2}))
+    e.event_handler({"level-uuid": 2})
     assert e.level == 2
     assert e.alarm_state == "triggered"
 
@@ -417,7 +416,7 @@ async def test_media_player_event_without_playstate_does_not_crash(hass) -> None
     _hass_write_stub(e)
 
     # Pre-fix this raised KeyError("playState") on every bus event.
-    await e.event_handler(SimpleNamespace(data={"36333734-01ba-9336-ffff-d303162362d3000186": 50}))
+    e.event_handler({"36333734-01ba-9336-ffff-d303162362d3000186": 50})
     assert e.volume_level == 0.5
     assert e.state == MediaPlayerState.OFF  # untouched, not None
 
@@ -427,10 +426,10 @@ async def test_media_player_playstate_event_updates_state(hass) -> None:
     _hass_write_stub(e)
     play_state_uuid = "36333734-01b8-9336-ffff-d303162362d3000184"
 
-    await e.event_handler(SimpleNamespace(data={play_state_uuid: 2}))
+    e.event_handler({play_state_uuid: 2})
     assert e.state == MediaPlayerState.PLAYING
 
-    await e.event_handler(SimpleNamespace(data={play_state_uuid: 7}))  # unknown
+    e.event_handler({play_state_uuid: 7})  # unknown
     assert e.state == MediaPlayerState.IDLE
 
 

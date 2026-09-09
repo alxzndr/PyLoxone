@@ -2,9 +2,9 @@ from functools import cached_property
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode, LightEntity
 from homeassistant.const import STATE_UNKNOWN
+from homeassistant.core import callback
 
 from .. import LoxoneEntity
-from ..const import SENDDOMAIN
 from ..helpers import (
     get_or_create_device,
     hass_to_lox,
@@ -78,43 +78,46 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         if ATTR_BRIGHTNESS in kwargs:
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value=self._hass_to_master(kwargs[ATTR_BRIGHTNESS]),
-                ),
-            )
+            self._send(self._hass_to_master(kwargs[ATTR_BRIGHTNESS]))
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="On"))
+            self._send("On")
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="Off"))
+        self._send("Off")
         self.async_schedule_update_ha_state()
 
-    async def event_handler(self, e):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the min / max / step / position streams the handler reads.
+        return frozenset(
+            uuid
+            for uuid in (self._min_uuid, self._max_uuid, self._step_uuid, self._position_uuid)
+            if isinstance(uuid, str) and uuid
+        )
+
+    @callback
+    def event_handler(self, e):
         request_update = False
-        if self._min_uuid in e.data:
+        if self._min_uuid in e:
             try:
-                self._min = float(e.data[self._min_uuid])
+                self._min = float(e[self._min_uuid])
             except TypeError, ValueError:
                 pass
             request_update = True
 
-        if self._max_uuid in e.data:
+        if self._max_uuid in e:
             try:
-                self._max = float(e.data[self._max_uuid])
+                self._max = float(e[self._max_uuid])
             except TypeError, ValueError:
                 pass
             request_update = True
 
-        if self._step_uuid in e.data:
-            self._step = e.data[self._step_uuid]
+        if self._step_uuid in e:
+            self._step = e[self._step_uuid]
             request_update = True
 
-        if self._position_uuid in e.data:
-            position = e.data[self._position_uuid]
+        if self._position_uuid in e:
+            position = e[self._position_uuid]
             try:
                 position = float(position)
             except TypeError, ValueError:
@@ -132,7 +135,7 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
             if not self._attr_available:
                 if self._master_min_max_known or self._attr_is_on is not None:
                     self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @cached_property
     def icon(self):

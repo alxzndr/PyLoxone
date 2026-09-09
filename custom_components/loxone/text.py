@@ -10,11 +10,10 @@ import logging
 from homeassistant.components.text import TextEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .const import SENDDOMAIN
 from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
@@ -73,9 +72,15 @@ class LoxoneText(LoxoneEntity, TextEntity):
         """Return if the state is based on assumptions."""
         return self._assumed
 
-    async def event_handler(self, e):
-        if self.uuidAction in e.data:
-            data = e.data[self.uuidAction]
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the action stream the handler reads (TextInput controls
+        # publish their value on ``uuidAction``).
+        return frozenset({self.uuidAction}) if isinstance(self.uuidAction, str) and self.uuidAction else frozenset()
+
+    @callback
+    def event_handler(self, e):
+        if self.uuidAction in e:
+            data = e[self.uuidAction]
             if isinstance(data, (list, dict)):
                 data = str(data)
             if isinstance(data, str):
@@ -84,7 +89,7 @@ class LoxoneText(LoxoneEntity, TextEntity):
                 self._native_value = data
             self._state = data
 
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -100,5 +105,5 @@ class LoxoneText(LoxoneEntity, TextEntity):
 
     async def async_set_value(self, value: str):
         """Set new value."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="{}".format(value)))
+        self._send(f"{value}")
         self.async_schedule_update_ha_state()

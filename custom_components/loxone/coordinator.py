@@ -8,7 +8,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .const import CONF_VERIFY_SSL, DEFAULT_PORT, DEFAULT_VERIFY_SSL
+from .const import (
+    ATTR_ENTRY_ID,
+    CONF_VERIFY_SSL,
+    DEFAULT_PORT,
+    DEFAULT_VERIFY_SSL,
+    EVENT,
+    loxone_uuid_signal,
+)
 from .miniserver import MiniServer
 from .pyloxone_api.connection import LoxoneConnection
 
@@ -22,6 +29,42 @@ def loxone_connected_signal(config_entry_id: str) -> str:
     cross-flip each other's entities when one of them reconnects.
     """
     return f"loxone_connected_{config_entry_id}"
+
+
+def _collect_structure_uuids(lox_config: dict | None) -> frozenset[str]:
+    """CORE-27: every command-addressable uuid of a structure file.
+
+    ``uuidAction`` of every control (recursively, incl. sub-controls) plus
+    every ``states`` value the Miniserver can stream.  The set is the
+    coordinator's authority for "does this uuid belong to my Miniserver" —
+    the outbound bus-command listeners and the raw-``uuid`` service calls
+    use it to route to exactly one entry.
+    """
+    uuids: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            action = node.get("uuidAction")
+            if isinstance(action, str) and action:
+                uuids.add(action)
+            states = node.get("states")
+            if isinstance(states, dict):
+                for value in states.values():
+                    if isinstance(value, str) and value:
+                        uuids.add(value)
+                    elif isinstance(value, list):
+                        for item in value:
+                            if isinstance(item, str) and item:
+                                uuids.add(item)
+            for child in node.values():
+                walk(child)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    if isinstance(lox_config, dict):
+        walk(lox_config)
+    return frozenset(uuids)
 
 
 class LoxoneCoordinator(DataUpdateCoordinator):
@@ -52,6 +95,11 @@ class LoxoneCoordinator(DataUpdateCoordinator):
 
         self.api: LoxoneConnection | None = None
         self.miniserver: MiniServer | None = None
+        # CORE-27: every uuid this Miniserver can receive commands for
+        # (collected from the structure file after the connection opens).
+        # Outbound bus events / raw-uuid service calls route an address to
+        # *this* entry only when it is in the set.
+        self.known_uuids: frozenset[str] = frozenset()
         # CORE-28: live-ness of the websocket session, flipped by the
         # ``LoxoneConnection.run`` supervisor (API-09) via
         # :meth:`set_connected_state`. Entities combine this with their own
@@ -128,6 +176,7 @@ class LoxoneCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Could not connect to Loxone Miniserver at %s:%s", self._host, self._port)
             raise
         self.miniserver = MiniServer(self.hass, self.api.structure_file, self.config_entry)
+        self.known_uuids = _collect_structure_uuids(self.api.structure_file)
         return None
 
     def _references_token(self) -> str | None:
@@ -154,6 +203,38 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         else:
             _LOGGER.warning("Loxone connection to %s lost; reconnecting in place", self._host)
         async_dispatcher_send(self.hass, loxone_connected_signal(self.config_entry.entry_id), connected)
+
+    def handle_message(self, message) -> None:
+        """CORE-27: the entry's single message entry point from the wire.
+
+        Invoked by the connection session (the ``callback`` of
+        ``LoxoneConnection.run``) with one state message — a dict of
+        ``{uuid: value}`` (plus special keys such as ``keep_alive``).
+
+        Fan-out, both namespaced by this entry:
+
+        * the public ``loxone_event`` bus event keeps firing for user
+          automations (its documented payload, plus the owning
+          ``entry_id``) — the README's recorder advice stays valid;
+        * one dispatcher signal per changed uuid
+          (``loxone_{entry_id}_{uuid}``) that only entities
+          subscribed to that uuid (always the owning entry's own)
+          receive — replacing the pre-fix architecture in which one
+          global bus event reached one per-entry, per-entity
+          ``async def`` listener (PS-13).
+        """
+        if not isinstance(message, dict):
+            _LOGGER.debug("Ignoring non-dict state message: %r", message)
+            return
+        entry_id = self.config_entry.entry_id
+        _LOGGER.debug("State message for entry %s: %s", entry_id, message)
+        # The public bus event first (automations), with the owning entry
+        # id so user automations can discriminate instances.
+        self.hass.bus.async_fire(EVENT, {**message, ATTR_ENTRY_ID: entry_id})
+        for uuid, value in message.items():
+            if not isinstance(uuid, str):
+                continue
+            async_dispatcher_send(self.hass, loxone_uuid_signal(entry_id, uuid), value)
 
     async def _async_update_data(self) -> None:
         """No polling: state changes flow over the websocket session.

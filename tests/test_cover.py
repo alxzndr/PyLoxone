@@ -15,7 +15,6 @@ relying on them (see the PR body).
 from __future__ import annotations
 
 import copy
-from types import SimpleNamespace
 
 import pytest
 from homeassistant.helpers import entity_registry as er
@@ -131,9 +130,9 @@ async def test_window_stop_sends_stop_regardless_of_direction(hass) -> None:
     _hass_write_stub(e)
     fired = await _fan_bus(hass)
 
-    await e.event_handler(SimpleNamespace(data={DIR_UUID: -1}))  # closing
+    e.event_handler({DIR_UUID: -1})  # closing
     e.stop_cover()
-    await e.event_handler(SimpleNamespace(data={DIR_UUID: 1}))  # opening
+    e.event_handler({DIR_UUID: 1})  # opening
     e.stop_cover()
     await hass.async_block_till_done()
 
@@ -150,9 +149,9 @@ async def test_gate_stop_sends_stop_regardless_of_direction(hass) -> None:
     _hass_write_stub(e)
     fired = await _fan_bus(hass)
 
-    await e.event_handler(SimpleNamespace(data={ACTIVE_UUID: -1}))  # closing
+    e.event_handler({ACTIVE_UUID: -1})  # closing
     e.stop_cover()
-    await e.event_handler(SimpleNamespace(data={ACTIVE_UUID: 1}))  # opening
+    e.event_handler({ACTIVE_UUID: 1})  # opening
     e.stop_cover()
     await hass.async_block_till_done()
 
@@ -203,7 +202,7 @@ async def test_jalousie_quick_shade_bit_appears_for_blind_with_tilt(hass) -> Non
     fired = await _fan_bus(hass)
 
     assert (e.supported_features & SUPPORT_QUICK_SHADE) == 0  # tilt unknown yet
-    await e.event_handler(SimpleNamespace(data={SHADE_UUID: 0.5}))  # → tilt 50.0
+    e.event_handler({SHADE_UUID: 0.5})  # → tilt 50.0
     assert (e.supported_features & SUPPORT_QUICK_SHADE) != 0
 
     await e.quick_shade()
@@ -309,14 +308,14 @@ async def test_jalousie_event_handler_survives_missing_state_uuids(hass) -> None
     e.hass = hass
     _hass_write_stub(e)
 
-    await e.event_handler(SimpleNamespace(data={POS_UUID: 0.25}))
+    e.event_handler({POS_UUID: 0.25})
     assert e.current_cover_position == 75.0  # 0.25 → loxone 25.0 → hass 100-25.0
     assert e.current_cover_tilt_position is None
     assert e.target_position is None
     assert not e.is_opening and not e.is_closing
 
     # A brand-new structure event on an unknown uuid: nothing happens.
-    await e.event_handler(SimpleNamespace(data={"nonexistent-uuid": 1}))
+    e.event_handler({"nonexistent-uuid": 1})
     assert e.current_cover_position == 75.0
 
 
@@ -358,7 +357,7 @@ async def test_jalousie_set_cover_position_sends_inverted_loxone_value(hass) -> 
     _hass_write_stub(e)
     fired = await _fan_bus(hass)
 
-    await e.event_handler(SimpleNamespace(data={POS_UUID: 0.4}))
+    e.event_handler({POS_UUID: 0.4})
     assert e.current_cover_position == 60.0  # 0.4 → 40.0 → hass 100-40.0
 
     e.set_cover_position(**{"position": 60.0})
@@ -521,9 +520,8 @@ async def test_sun_automation_service_fires_auto_on_automatic_jalousie(
     await hass.config_entries.async_setup(mock_entry.entry_id)
     assert hass.config_entries.async_get_entry(mock_entry.entry_id).state is ConfigEntryState.LOADED
 
-    listener = []
-    hass.bus.async_listen(SENDDOMAIN, lambda ev: listener.append(ev.data))
-
+    # WP-3.2: commands travel via the entry's own Miniserver API, not the
+    # outbound bus — assert on the recorded websocket send.
     await hass.services.async_call(
         "loxone",
         "enable_sun_automation",
@@ -532,8 +530,8 @@ async def test_sun_automation_service_fires_auto_on_automatic_jalousie(
     )
     await hass.async_block_till_done()
 
-    assert listener == [
-        {"uuid": jalousie["uuidAction"], "value": "auto"},
+    assert mock_connection.sent == [
+        {"uuid": jalousie["uuidAction"], "value": "auto", "code": None},
     ]
 
 

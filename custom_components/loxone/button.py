@@ -9,12 +9,11 @@ import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
 from . import LoxoneEntity
-from .const import SENDDOMAIN
 from .helpers import get_or_create_device, iter_controls
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,23 +70,28 @@ class LoxoneButton(LoxoneEntity, ButtonEntity):
         """Return the icon to use for device if any."""
         return self._attr_icon
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the press echo (``active``) stream.
+        return frozenset({self._press_uuid}) if isinstance(self._press_uuid, str) and self._press_uuid else frozenset()
+
+    @callback
+    def event_handler(self, event):
         """Record the Miniserver's press echo (``active`` stream)."""
-        if not self._press_uuid or self._press_uuid not in event.data:
+        if not self._press_uuid or self._press_uuid not in event:
             return
-        active = event.data[self._press_uuid]
+        active = event[self._press_uuid]
         new_state = True if active == 1.0 else False
         if new_state != self._attr_state:
             self._attr_state = new_state
             self._state_value = active
             if new_state:
                 self._last_pressed = dt_util.utcnow().isoformat()
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     def press(self, **kwargs):
         """Press the button."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="pulse"))
-        self.async_schedule_update_ha_state()
+        self._send("pulse")
+        self.schedule_update_ha_state()
 
     @property
     def extra_state_attributes(self):

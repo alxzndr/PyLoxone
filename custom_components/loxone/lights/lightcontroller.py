@@ -2,9 +2,9 @@ from collections import OrderedDict
 from functools import cached_property
 
 from homeassistant.components.light import ATTR_BRIGHTNESS, ATTR_EFFECT, ColorMode, LightEntity, LightEntityFeature
+from homeassistant.core import callback
 
 from .. import LoxoneEntity
-from ..const import SENDDOMAIN
 from ..helpers import get_or_create_device, hass_to_lox, hass_to_lox_range, json_decoder, lox_to_hass, lox_to_hass_range
 
 # LCV2 mood ids: `changeTo/0` is the all-off mood, `changeTo/99` the
@@ -99,12 +99,9 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         if len(effects) == 1:
             mood_id = self.get_id_by_moodname(kwargs["effect"])
             if mood_id != kwargs["effect"]:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN,
-                    dict(uuid=self.uuidAction, value="changeTo/{}".format(mood_id)),
-                )
+                self._send(f"changeTo/{mood_id}")
             else:
-                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="plus"))
+                self._send("plus")
         else:
             effect_ids = []
             for _ in effects:
@@ -112,16 +109,10 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                 if mood_id != _:
                     effect_ids.append(mood_id)
 
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(uuid=self.uuidAction, value="changeTo/{}".format(effect_ids[0])),
-            )
+            self._send(f"changeTo/{effect_ids[0]}")
 
             for _ in effect_ids[1:]:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN,
-                    dict(uuid=self.uuidAction, value="addMood/{}".format(_)),
-                )
+                self._send(f"addMood/{_}")
 
     @property
     def _master_min_max_known(self) -> bool:
@@ -143,13 +134,7 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
             await self.got_effect(**kwargs)
             sent_something = True
         if ATTR_BRIGHTNESS in kwargs and self._master_value_uuid:
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self._master_value_uuid,
-                    value=self._hass_to_master(kwargs[ATTR_BRIGHTNESS]),
-                ),
-            )
+            self._send(self._hass_to_master(kwargs[ATTR_BRIGHTNESS]), uuid=self._master_value_uuid)
             sent_something = True
         # PC-33: a bare `turn_on` while off turns on, and a non-empty
         # `turn_on` that touched no sub-control (e.g. brightness without a
@@ -157,39 +142,55 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         # silently does nothing.
         if not sent_something:
             if not kwargs and not self._attr_is_on:
-                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"changeTo/{ON_MOOD_ID}"))
+                self._send(f"changeTo/{ON_MOOD_ID}")
             elif kwargs:
-                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="on"))
+                self._send("on")
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"changeTo/{OFF_MOOD_ID}"))
+        self._send(f"changeTo/{OFF_MOOD_ID}")
         self.async_schedule_update_ha_state()
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the state/activeMoods/moodList/additionalMoods streams the
+        # handler reads, plus the optional master dimmer streams.
+        uuids = [
+            self.uuidAction,
+            self.states["activeMoods"],
+            self.states["moodList"],
+            self.states["additionalMoods"],
+        ] + [
+            self._master_min_uuid,
+            self._master_max_uuid,
+            self._master_position_uuid,
+        ]
+        return frozenset(uuid for uuid in uuids if isinstance(uuid, str) and uuid)
+
+    @callback
+    def event_handler(self, event):
         request_update = False
 
-        if self.uuidAction in event.data:
-            self._attr_state = event.data[self.uuidAction]
+        if self.uuidAction in event:
+            self._attr_state = event[self.uuidAction]
             request_update = True
 
-        if self._master_min_uuid and self._master_min_uuid in event.data:
+        if self._master_min_uuid and self._master_min_uuid in event:
             try:
-                self._master_min = float(event.data[self._master_min_uuid])
+                self._master_min = float(event[self._master_min_uuid])
             except TypeError, ValueError:
                 pass
             request_update = True
 
-        if self._master_max_uuid and self._master_max_uuid in event.data:
+        if self._master_max_uuid and self._master_max_uuid in event:
             try:
-                self._master_max = float(event.data[self._master_max_uuid])
+                self._master_max = float(event[self._master_max_uuid])
             except TypeError, ValueError:
                 pass
             request_update = True
 
-        if self._master_position_uuid and self._master_position_uuid in event.data:
+        if self._master_position_uuid and self._master_position_uuid in event:
             try:
-                position = float(event.data[self._master_position_uuid])
+                position = float(event[self._master_position_uuid])
             except TypeError, ValueError:
                 position = None
             if position is not None:
@@ -199,8 +200,8 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                     self._attr_brightness = round(lox_to_hass(position))
                 request_update = True
 
-        if self.states["activeMoods"] in event.data:
-            self._active_moods = json_decoder(event.data[self.states["activeMoods"]])
+        if self.states["activeMoods"] in event:
+            self._active_moods = json_decoder(event[self.states["activeMoods"]])
             if self._active_moods is not None:
                 if self._active_moods != ALL_OFF_ACTIVE_MOODS:
                     self._attr_is_on = True
@@ -208,13 +209,13 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                     self._attr_is_on = False
                 request_update = True
 
-        if self.states["moodList"] in event.data:
-            self._moodlist = json_decoder(event.data[self.states["moodList"]])
+        if self.states["moodList"] in event:
+            self._moodlist = json_decoder(event[self.states["moodList"]])
             if self._moodlist is not None:
                 request_update = True
 
-        if self.states["additionalMoods"] in event.data:
-            self._additional_moodlist = json_decoder(event.data[self.states["additionalMoods"]])
+        if self.states["additionalMoods"] in event:
+            self._additional_moodlist = json_decoder(event[self.states["additionalMoods"]])
             request_update = True
 
         if request_update:
@@ -223,7 +224,7 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                 both_master_values_are_not_unknown = self._master_min_max_known
                 if attr_is_on_is_not_unknown or both_master_values_are_not_unknown:
                     self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):

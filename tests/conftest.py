@@ -54,12 +54,14 @@ def enable_custom_integrations(hass):
 def mock_connection(hass, loxapp3, enable_custom_integrations):
     """Patch `LoxoneConnection.open` to skip auth and seed `structure_file`.
 
-    Yields an object whose only public method is `feed(uuid, value)`, which
-    fires the `loxone_event` bus event that entities currently subscribe to
-    (after WP-3.2 this becomes the per-uuid dispatcher; `feed` returns the
-    coordinator/loxx event the integration publishes).
+    Yields an object whose only public method is `feed(uuid, value)`; it
+    routes a single state message through the loaded entry's coordinator
+    :meth:`LoxoneCoordinator.handle_message` — the one place where the
+    public ``loxone_event`` bus event (for user automations, CORE-27) and
+    the entry-scoped per-uuid dispatcher signal (entities, PS-13) are
+    both emitted.  ``namespace.sent`` / ``namespace.feed_calls`` record
+    outbound sends and fed messages for assertion.
     """
-    from custom_components.loxone.const import EVENT
     from custom_components.loxone.pyloxone_api.connection import LoxoneConnection
 
     async def _fake_open(self, session=None):
@@ -77,7 +79,7 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
         self.event_bus = namespace
         return self
 
-    namespace = SimpleNamespace(hass=hass, drops=0, current_session=None)
+    namespace = SimpleNamespace(hass=hass, drops=0, current_session=None, sent=[], feed_calls=[])
 
     def drop() -> None:
         """Drop the current stub socket mid-session, like a Miniserver
@@ -93,10 +95,20 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
     namespace.drop = drop
 
     def feed(uuid: str, value) -> None:
-        # Current state entry point (post-WP-3.2): a single bus event whose
-        # `data` maps uuid -> value. After WP-3.2 this routes through
-        # async_dispatcher_send(hass, f"loxone_{entry_id}_{uuid}", value).
-        namespace.hass.bus.async_fire(EVENT, {uuid: value})
+        """Feed one state message into the loaded loxone entry.
+
+        Goes through ``coordinator.handle_message`` (the production message
+        path): this fires the public ``loxone_event`` bus event *and*
+        dispatches ``loxone_{entry_id}_{uuid}`` with ``value`` — so an
+        entry's entities only ever see their own state (CORE-27).
+        """
+        for entry_data in hass.data.get("loxone", {}).values():
+            coordinator = getattr(entry_data, "coordinator", entry_data)
+            if hasattr(coordinator, "handle_message"):
+                coordinator.handle_message({uuid: value})
+                namespace.feed_calls.append((uuid, value))
+                return
+        raise AssertionError("no loaded loxone entry available for feed()")
 
     namespace.feed = feed
 
@@ -145,6 +157,11 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
         return None
 
     async def _fake_send(self, entity_uuid, value, *args, **kwargs):
+        namespace.sent.append({"uuid": entity_uuid, "value": value, "code": kwargs.get("code")})
+        return None
+
+    async def _fake_send_secured(self, entity_uuid, value, code, *args, **kwargs):
+        namespace.sent.append({"uuid": entity_uuid, "value": value, "code": code, "secured": True})
         return None
 
     with (
@@ -153,6 +170,8 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
         patch.object(LoxoneConnection, "run", new=_fake_run),
         patch.object(LoxoneConnection, "close", new=_fake_close),
         patch.object(LoxoneConnection, "send_websocket_command", new=_fake_send),
+        patch.object(LoxoneConnection, "send_secured_websocket_command", new=_fake_send_secured),
+        patch.object(LoxoneConnection, "send_secured__websocket_command", new=_fake_send_secured),
     ):
         yield namespace
 

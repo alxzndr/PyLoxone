@@ -3,9 +3,9 @@ from typing import Any
 
 from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.const import STATE_UNKNOWN
+from homeassistant.core import callback
 
 from .. import LoxoneEntity
-from ..const import SENDDOMAIN
 from ..helpers import get_or_create_device
 
 
@@ -53,18 +53,24 @@ class LoxoneLightSwitch(LoxoneEntity, LightEntity):
         return self._attr_unique_id
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="on"))
+        self._send("on")
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="off"))
+        self._send("off")
         self.async_schedule_update_ha_state()
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the ``active`` stream the handler watches (if present).
+        uuid = self.states.get("active")
+        return frozenset({uuid}) if isinstance(uuid, str) and uuid else frozenset()
+
+    @callback
+    def event_handler(self, event):
         request_update = False
         if "active" in self.states:
-            if self.states["active"] in event.data:
-                active = event.data[self.states["active"]]
+            if self.states["active"] in event:
+                active = event[self.states["active"]]
                 new_state = True if active == 1.0 else False
                 if new_state != self._attr_is_on:
                     self._attr_is_on = new_state
@@ -73,4 +79,4 @@ class LoxoneLightSwitch(LoxoneEntity, LightEntity):
         if request_update:
             if not self._attr_available:
                 self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()

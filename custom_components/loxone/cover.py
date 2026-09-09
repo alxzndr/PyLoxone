@@ -18,7 +18,7 @@ from homeassistant.components.cover import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_platform
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -26,7 +26,6 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
 from .const import (
-    SENDDOMAIN,
     SERVICE_DISABLE_SUN_AUTOMATION,
     SERVICE_ENABLE_SUN_AUTOMATION,
     SERVICE_QUICK_SHADE,
@@ -132,6 +131,7 @@ async def async_setup_entry(
         cover.update(
             {
                 "hass": hass,
+                "config_entry": config_entry,
             }
         )
         if cover["type"] == "Gate":
@@ -227,41 +227,46 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         """Open the cover."""
         if self._position == 100.0:
             return
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="open"))
+        self._send("open")
         self.schedule_update_ha_state()
 
     def close_cover(self, **kwargs):
         """Close the cover."""
         if self._position == 0:
             return
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="close"))
+        self._send("close")
         self.schedule_update_ha_state()
 
     def stop_cover(self, **kwargs):
         """Stop the cover (PC-07)."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=gate_stop_command()))
+        self._send(gate_stop_command())
         self.schedule_update_ha_state()
 
-    async def event_handler(self, e):
-        data = e.data
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the optional position / active streams the handler reads.
+        return frozenset(uuid for uuid in (self._position_uuid, self._state_uuid) if isinstance(uuid, str) and uuid)
+
+    @callback
+    def event_handler(self, e):
+        data = e
         position_seen = self._position_uuid is not None and self._position_uuid in data
         state_seen = self._state_uuid is not None and self._state_uuid in data
         if not (position_seen or state_seen):
             return
 
         if position_seen:
-            self._position = float(e.data[self._position_uuid]) * 100.0
+            self._position = float(data[self._position_uuid]) * 100.0
             self._closed = self._position == 0
 
         if state_seen:
             self._is_closing = False
             self._is_opening = False
 
-            if e.data[self._state_uuid] == -1:
+            if data[self._state_uuid] == -1:
                 self._is_closing = True
-            elif e.data[self._state_uuid] == 1:
+            elif data[self._state_uuid] == 1:
                 self._is_opening = True
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -291,8 +296,17 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
         self.type = "Window"
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
-    async def event_handler(self, e):
-        data = e.data
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the optional position / direction / targetPosition streams.
+        return frozenset(
+            uuid
+            for uuid in (self._position_uuid, self._direction_uuid, self._target_position_uuid)
+            if isinstance(uuid, str) and uuid
+        )
+
+    @callback
+    def event_handler(self, e):
+        data = e
         position_seen = self._position_uuid is not None and self._position_uuid in data
         direction_seen = self._direction_uuid is not None and self._direction_uuid in data
         target_seen = self._target_position_uuid is not None and self._target_position_uuid in data
@@ -300,16 +314,16 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
             return
 
         if position_seen:
-            self._position = float(e.data[self._position_uuid]) * 100.0
+            self._position = float(data[self._position_uuid]) * 100.0
             self._closed = self._position == 0
 
         if direction_seen:
-            self._direction = e.data[self._direction_uuid]
+            self._direction = data[self._direction_uuid]
 
         if target_seen:
-            self._target_position = float(e.data[self._target_position_uuid]) * 100.0
+            self._target_position = float(data[self._target_position_uuid]) * 100.0
 
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @property
     def current_cover_position(self):
@@ -360,10 +374,10 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
         return self._closed
 
     def open_cover(self, **kwargs: Any) -> None:
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="fullopen"))
+        self._send("fullopen")
 
     def close_cover(self, **kwargs: Any) -> None:
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="fullclose"))
+        self._send("fullclose")
 
     def stop_cover(self, **kwargs):
         """Stop the cover (PC-07): a real stop, regardless of direction.
@@ -372,15 +386,12 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
         `fullclose` — running the window to the opposite end instead of
         stopping it (JoDehli/PyLoxone#501).
         """
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="stop"))
+        self._send("stop")
 
     def set_cover_position(self, **kwargs):
         """Return the current tilt position of the cover."""
         position = kwargs.get(ATTR_POSITION)
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(uuid=self.uuidAction, value="moveToPosition/{}".format(position)),
-        )
+        self._send(f"moveToPosition/{position}")
 
 
 class LoxoneJalousie(LoxoneEntity, CoverEntity):
@@ -448,8 +459,24 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
 
         return supported_features
 
-    async def event_handler(self, e):
-        data = e.data
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: position, shade position, up, down, auto-info, auto-state
+        # plus the sun-automation target when present.
+        uuids = (
+            self._position_uuid,
+            self._shade_position_uuid,
+            self._up_uuid,
+            self._down_uuid,
+            self._auto_info_text_uuid,
+            self._auto_state_uuid,
+        )
+        if self._is_automatic:
+            uuids = (*uuids, self._target_position_uuid)
+        return frozenset(uuid for uuid in uuids if isinstance(uuid, str) and uuid)
+
+    @callback
+    def event_handler(self, e):
+        data = e
         any_relevant = any(
             uuid is not None and uuid in data
             for uuid in (
@@ -468,7 +495,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
             return
 
         if self._position_uuid is not None and self._position_uuid in data:
-            self._position_loxone = float(e.data[self._position_uuid]) * 100.0
+            self._position_loxone = float(data[self._position_uuid]) * 100.0
             self._position = map_range(self._position_loxone, 0, 100, 100, 0)
 
             if self._position == 0:
@@ -477,25 +504,25 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
                 self._closed = False
 
         if self._shade_position_uuid is not None and self._shade_position_uuid in data:
-            self._tilt_position_loxone = float(e.data[self._shade_position_uuid]) * 100.0
+            self._tilt_position_loxone = float(data[self._shade_position_uuid]) * 100.0
             self._tilt_position = map_range(self._tilt_position_loxone, 0, 100, 100, 0)
         if target_seen:
-            target_position_loxone = float(e.data[self._target_position_uuid]) * 100.0
+            target_position_loxone = float(data[self._target_position_uuid]) * 100.0
             self._target_position = map_range(target_position_loxone, 0, 100, 100, 0)
 
         if self._up_uuid is not None and self._up_uuid in data:
-            self._is_opening = e.data[self._up_uuid]
+            self._is_opening = data[self._up_uuid]
 
         if self._down_uuid is not None and self._down_uuid in data:
-            self._is_closing = e.data[self._down_uuid]
+            self._is_closing = data[self._down_uuid]
 
         if self._auto_info_text_uuid is not None and self._auto_info_text_uuid in data:
-            self._auto_text = e.data[self._auto_info_text_uuid]
+            self._auto_text = data[self._auto_info_text_uuid]
 
         if self._auto_state_uuid is not None and self._auto_state_uuid in data:
-            self._auto_state = e.data[self._auto_state_uuid]
+            self._auto_state = data[self._auto_state_uuid]
 
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @property
     def current_cover_position(self):
@@ -598,7 +625,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
             self.schedule_update_ha_state()
             return
 
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="FullDown"))
+        self._send("FullDown")
         self.schedule_update_ha_state()
 
     def open_cover(self, **kwargs):
@@ -609,45 +636,45 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
             self._closed = False
             self.schedule_update_ha_state()
             return
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="FullUp"))
+        self._send("FullUp")
         self.schedule_update_ha_state()
 
     def stop_cover(self, **kwargs):
         """Stop the cover."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="stop"))
+        self._send("stop")
 
     def set_cover_position(self, **kwargs):
         """Return the current tilt position of the cover."""
         position = kwargs.get(ATTR_POSITION)
         mapped_pos = map_range(position, 0, 100, 100, 0)
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"manualPosition/{mapped_pos}"))
+        self._send(f"manualPosition/{mapped_pos}")
 
     def open_cover_tilt(self, **kwargs):
         """Open the cover slats (shade open)."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=_lamelle_command(0.0)))
+        self._send(_lamelle_command(0.0))
 
     def stop_cover_tilt(self, **kwargs):
         """Stop the cover."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="stop"))
+        self._send("stop")
 
     def close_cover_tilt(self, **kwargs):
         """Close the cover slats (shade closed)."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=_lamelle_command(100.0)))
+        self._send(_lamelle_command(100.0))
 
     def set_cover_tilt_position(self, **kwargs):
         """Move the cover tilt to a specific position."""
         tilt_position = kwargs.get(ATTR_TILT_POSITION)
         mapped_pos = map_range(tilt_position, 0, 100, 100, 0)
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=_lamelle_command(mapped_pos)))
+        self._send(_lamelle_command(mapped_pos))
 
     async def enable_sun_automation(self, **kwargs: Any) -> None:
         """Enable the sun automation (PC-14: run on the event loop)."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="auto"))
+        self._send("auto")
 
     async def disable_sun_automation(self, **kwargs: Any) -> None:
         """Disable the sun automation (PC-14: run on the event loop)."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="NoAuto"))
+        self._send("NoAuto")
 
     async def quick_shade(self, **kwargs: Any) -> None:
         """Move the slats to the Loxone-computed shade position."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="shade"))
+        self._send("shade")

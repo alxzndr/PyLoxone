@@ -8,9 +8,9 @@ from homeassistant.components.light import (
     ColorMode,
     LightEntity,
 )
+from homeassistant.core import callback
 
 from .. import LoxoneEntity
-from ..const import SENDDOMAIN
 from ..helpers import get_or_create_device, hass_to_lox, literal_decoder, lox_to_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
     async def async_turn_off(self, **kwargs) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="setBrightness/0"))
+        self._send("setBrightness/0")
         self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -115,23 +115,24 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
             self._attr_color_temp_kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
         if ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
-        self.hass.bus.async_fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value=plan_temp_turn_on(
-                    color_temp_kelvin=self._attr_color_temp_kelvin,
-                    brightness=self._attr_brightness,
-                    kwargs=kwargs,
-                ),
-            ),
+        self._send(
+            plan_temp_turn_on(
+                color_temp_kelvin=self._attr_color_temp_kelvin,
+                brightness=self._attr_brightness,
+                kwargs=kwargs,
+            )
         )
         self.async_schedule_update_ha_state()
 
-    async def event_handler(self, e):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the color stream the handler parses.
+        return frozenset({self._color_uuid}) if isinstance(self._color_uuid, str) and self._color_uuid else frozenset()
+
+    @callback
+    def event_handler(self, e):
         request_update = False
-        if self._color_uuid in e.data:
-            _color = e.data[self._color_uuid]
+        if self._color_uuid in e:
+            _color = e[self._color_uuid]
 
             if _color.startswith("temp"):
                 _color = _color.replace("temp", "")
@@ -152,7 +153,7 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
         if request_update:
             if not self._attr_available:
                 self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @cached_property
     def icon(self):
@@ -206,7 +207,7 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
     async def async_turn_off(self, **kwargs) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="setBrightness/0"))
+        self._send("setBrightness/0")
         self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -220,25 +221,26 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
             # Keep the model in the coordinate system we're told to set.
             self._attr_hs_color = (hue, sat)
             self._attr_color_mode = ColorMode.HS
-        self.hass.bus.async_fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value=plan_turn_on(
-                    color_mode=self._attr_color_mode,
-                    hs_color=self._attr_hs_color,
-                    color_temp_kelvin=self._attr_color_temp_kelvin,
-                    brightness=self._attr_brightness,
-                    kwargs=kwargs,
-                ),
-            ),
+        self._send(
+            plan_turn_on(
+                color_mode=self._attr_color_mode,
+                hs_color=self._attr_hs_color,
+                color_temp_kelvin=self._attr_color_temp_kelvin,
+                brightness=self._attr_brightness,
+                kwargs=kwargs,
+            )
         )
         self.async_schedule_update_ha_state()
 
-    async def event_handler(self, e):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the color stream the handler parses.
+        return frozenset({self._color_uuid}) if isinstance(self._color_uuid, str) and self._color_uuid else frozenset()
+
+    @callback
+    def event_handler(self, e):
         request_update = False
-        if self._color_uuid in e.data:
-            _color = e.data[self._color_uuid]
+        if self._color_uuid in e:
+            _color = e[self._color_uuid]
 
             if _color.startswith("hsv"):
                 _color = _color.replace("hsv", "")
@@ -263,7 +265,7 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
         if request_update:
             if not self._attr_available:
                 self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @cached_property
     def icon(self):

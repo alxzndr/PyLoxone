@@ -11,12 +11,12 @@ from homeassistant.components.media_player import (
     MediaPlayerState,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .const import DEFAULT_AUDIO_ZONE_V2_PLAY_STATE, SENDDOMAIN
+from .const import DEFAULT_AUDIO_ZONE_V2_PLAY_STATE
 from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
@@ -101,6 +101,7 @@ async def async_setup_entry(
         audioZone.update(
             {
                 "hass": hass,
+                "config_entry": config_entry,
             }
         )
         entities.append(LoxoneAudioZoneV2(**audioZone))
@@ -123,19 +124,25 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
         self.type = "AudioZoneV2"
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
-    async def event_handler(self, event):
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the volume / playState state streams.
+        uuids = [_state_uuid(self.states, "volume"), _state_uuid(self.states, "playState")]
+        return frozenset(uuid for uuid in uuids if isinstance(uuid, str) and uuid)
+
+    @callback
+    def event_handler(self, event):
         should_update = False
 
-        if (u := _state_uuid(self.states, "volume")) and u in event.data:
-            self._volume = float(event.data[u]) / 100
+        if (u := _state_uuid(self.states, "volume")) and u in event:
+            self._volume = float(event[u]) / 100
             should_update = True
 
-        if (u := _state_uuid(self.states, "playState")) and u in event.data:
-            self._state = play_state_to_media_player_state(event.data[u])
+        if (u := _state_uuid(self.states, "playState")) and u in event:
+            self._state = play_state_to_media_player_state(event[u])
             should_update = True
 
         if should_update:
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     # properties
     @property
@@ -156,41 +163,41 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
     # commands
     async def async_media_play(self) -> None:
         """Send play command to device."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="play"))
+        self._send("play")
         self.async_schedule_update_ha_state()
 
     async def async_media_pause(self) -> None:
         """Send pause command to device."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="pause"))
+        self._send("pause")
         self.async_schedule_update_ha_state()
 
     async def async_media_stop(self) -> None:
         """Send stop command to device (PC-43)."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=audio_zone_stop_value()))
+        self._send(audio_zone_stop_value())
         self.async_schedule_update_ha_state()
 
     async def async_media_next_track(self) -> None:
         """Send next track command to device."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="next"))
+        self._send("next")
         self.async_schedule_update_ha_state()
 
     async def async_media_previous_track(self) -> None:
         """Send previous track command to device."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="prev"))
+        self._send("prev")
         self.async_schedule_update_ha_state()
 
     async def async_set_volume_level(self, volume: float) -> None:
         """Send new volume_level to device."""
         volume_int = int(volume * 100)
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"volume/{volume_int}"))
+        self._send(f"volume/{volume_int}")
         self.async_schedule_update_ha_state()
 
     async def async_volume_up(self) -> None:
         """Send volume UP to device."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="volUp"))
+        self._send("volUp")
         self.async_schedule_update_ha_state()
 
     async def async_volume_down(self) -> None:
         """Send volume DOWN to device."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="volDown"))
+        self._send("volDown")
         self.async_schedule_update_ha_state()

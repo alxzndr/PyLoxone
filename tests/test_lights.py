@@ -146,7 +146,9 @@ def _stub(cls, **kwargs):
 
 
 def _event(data: dict):
-    return SimpleNamespace(data=data)
+    """CORE-27/PS-13: handlers now take the plain ``{uuid: value}`` dict the
+    dispatcher delivers; identity for existing call sites."""
+    return dict(data)
 
 
 # --------------------------------------------------------------------------- #
@@ -155,7 +157,7 @@ def _event(data: dict):
 
 
 async def _feed_dimmer_states(dimmer: LoxoneDimmer, payload: dict) -> None:
-    await dimmer.event_handler(_event(payload))
+    dimmer.event_handler(_event(payload))
 
 
 class TestDimmer:
@@ -401,7 +403,7 @@ class TestTunableWhite:
 
     async def test_temp_state_event_drives_mode(self):
         light = self.light(states={"color": "st-color"})
-        await light.event_handler(_event({"st-color": "temp[0.85, 2700]"}))
+        light.event_handler(_event({"st-color": "temp[0.85, 2700]"}))
         assert light._attr_color_mode == ColorMode.COLOR_TEMP
         assert light._attr_color_temp_kelvin == 2700
         # hand: 0.85 * 2.55 = 2.1675 → round → 2
@@ -494,9 +496,9 @@ class TestLightControllerV2:
 
     async def test_active_moods_flip_is_on(self):
         light = _lcv2(uuidAction="ctl-lcv2-test-moods")
-        await light.event_handler(_event({"st-moods": "[778]"}))
+        light.event_handler(_event({"st-moods": "[778]"}))
         assert light._attr_is_on is False
-        await light.event_handler(_event({"st-moods": "[1]"}))
+        light.event_handler(_event({"st-moods": "[1]"}))
         assert light._attr_is_on is True
 
     async def test_master_position_read_is_rescaled(self):
@@ -521,10 +523,10 @@ class TestLightControllerV2:
         assert light._master_value_uuid == "ctl-master-pos"
         assert light._master_min_uuid == "st-master-min"
         assert light._master_max_uuid == "st-master-max"
-        await light.event_handler(_event({"st-master-min": "10", "st-master-max": "90"}))
-        await light.event_handler(_event({"st-master-pos": "90"}))
+        light.event_handler(_event({"st-master-min": "10", "st-master-max": "90"}))
+        light.event_handler(_event({"st-master-pos": "90"}))
         assert light._attr_brightness == 255
-        await light.event_handler(_event({"st-master-pos": "50"}))
+        light.event_handler(_event({"st-master-pos": "50"}))
         assert light._attr_brightness == 128
         assert light._attr_available is True
 

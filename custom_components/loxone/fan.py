@@ -7,14 +7,13 @@ import logging
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from typing import Any
 
 from . import LoxoneEntity
 from .binary_sensor import LoxoneDigitalSensor
-from .const import SENDDOMAIN
 from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 from .sensor import LoxoneSensor
@@ -222,12 +221,16 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
             | FanEntityFeature.TURN_OFF
         )
 
-    async def event_handler(self, event):
-        # _LOGGER.debug(f"Fan Event data: {event.data}")
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: every monitored state stream of the ventilation control.
+        return frozenset(uuid for uuid in self._stateAttribUuids.values() if isinstance(uuid, str) and uuid)
+
+    @callback
+    def event_handler(self, event):
         update = False
 
-        for key in set(self._stateAttribUuids.values()) & event.data.keys():
-            self._stateAttribValues[key] = event.data[key]
+        for key in set(self._stateAttribUuids.values()) & event.keys():
+            self._stateAttribValues[key] = event[key]
             update = True
 
         if update:
@@ -293,10 +296,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         if preset_mode not in STR_TO_VENTILATION_PROFILE_SETTABLE:
             _LOGGER.warning("Setting unsupported ventilation profile %r", preset_mode)
             return
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(uuid=self.uuidAction, value=ventilation_set_mode_command(preset_mode)),
-        )
+        self._send(ventilation_set_mode_command(preset_mode))
 
     def set_percentage(self, percentage: int) -> None:
         """Set the speed percentage of the fan (PC-29)."""
@@ -308,13 +308,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
             _LOGGER.warning("Ventilation profile not known (got %r); cannot send speed change", mode)
             return
         clamped = max(0, min(100, int(percentage)))
-        self.hass.bus.fire(
-            SENDDOMAIN,
-            dict(
-                uuid=self.uuidAction,
-                value=ventilation_set_timer_command(VENTILATION_SET_TIMER_INTERVAL, clamped, mode),
-            ),
-        )
+        self._send(ventilation_set_timer_command(VENTILATION_SET_TIMER_INTERVAL, clamped, mode))
 
     async def async_turn_on(
         self,

@@ -39,14 +39,14 @@ from homeassistant.const import (
     UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from . import LoxoneEntity
-from .const import CLIMATE_EVENT, CONF_ACTIONID, DOMAIN, ERROR_VALUE, EVENT, SENDDOMAIN, THROTTLE_KEEP_ALIVE_TIME
+from .const import CONF_ACTIONID, DOMAIN, ERROR_VALUE, EVENT, THROTTLE_KEEP_ALIVE_TIME, loxone_climate_demand_signal
 from .helpers import clean_unit, get_or_create_device, iter_controls
 from .miniserver import get_miniserver_from_hass
 
@@ -419,9 +419,10 @@ class LoxoneCustomSensor(LoxoneEntity, SensorEntity):
             return f"{self.uuidAction}-{name}"
         return self.uuidAction
 
-    async def event_handler(self, e):
-        if self.uuidAction in e.data:
-            data = e.data[self.uuidAction]
+    @callback
+    def event_handler(self, e):
+        if self.uuidAction in e:
+            data = e[self.uuidAction]
             if isinstance(data, (list, dict)):
                 data = str(data)
                 if len(data) >= 255:
@@ -431,7 +432,7 @@ class LoxoneCustomSensor(LoxoneEntity, SensorEntity):
             else:
                 self._attr_native_value = data
 
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def native_unit_of_measurement(self):
@@ -462,8 +463,13 @@ class LoxoneKeepAliveSensor(LoxoneEntity, SensorEntity):
         """Return a unique ID."""
         return f"{self._miniserver_serial}-{self._attr_unique_id}"
 
-    async def event_handler(self, e):
-        if "keep_alive" in e.data and e.data["keep_alive"] == "received":
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the special keep-alive stream injected by the coordinator.
+        return frozenset({"keep_alive"})
+
+    @callback
+    def event_handler(self, e):
+        if e.get("keep_alive") == "received":
             now = dt_util.utcnow()
             # only update if at least 60 seconds passed since last update
             if self._attr_native_value is not None:
@@ -474,7 +480,7 @@ class LoxoneKeepAliveSensor(LoxoneEntity, SensorEntity):
 
             # update the timestamp
             self._attr_native_value = now
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -509,12 +515,17 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
         self._state = None
         self._state_uuid = self.states.get("text") or self.uuidAction
 
-    async def event_handler(self, e):
-        if self._state_uuid in e.data:
-            self._state = _analog_value(e.data[self._state_uuid])
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the ``text`` state stream (falls back to uuidAction).
+        return frozenset({self._state_uuid, self.uuidAction})
+
+    @callback
+    def event_handler(self, e):
+        if self._state_uuid in e:
+            self._state = _analog_value(e[self._state_uuid])
             if self._state is not None:
                 self._state = str(self._state)
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def device_class(self):
@@ -528,7 +539,7 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
     async def async_set_value(self, value):
         """Set new value."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=f"{value}"))
+        self._send(f"{value}")
         self.async_schedule_update_ha_state()
 
     @property
@@ -624,10 +635,11 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
             return digits
         return None
 
-    async def event_handler(self, e):
-        if self.uuidAction in e.data:
-            self._attr_native_value = _analog_value(e.data[self.uuidAction])
-            self.async_schedule_update_ha_state()
+    @callback
+    def event_handler(self, e):
+        if self.uuidAction in e:
+            self._attr_native_value = _analog_value(e[self.uuidAction])
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -678,12 +690,20 @@ class LoxoneRoomControllerTemperatureSensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to Loxone events."""
-        self.async_on_remove(self.hass.bus.async_listen(EVENT, self.event_handler))
 
-    async def event_handler(self, e):
-        if self._uuid in e.data:
-            self._attr_native_value = _analog_value(e.data[self._uuid])
-            self.async_schedule_update_ha_state()
+        @callback
+        def _on_bus_message(event) -> None:
+            # CORE-27: handlers take the plain {uuid: value} dict on every
+            # path (the dispatcher slice or the bus event's data).
+            self.event_handler(event.data)
+
+        self.async_on_remove(self.hass.bus.async_listen(EVENT, _on_bus_message))
+
+    @callback
+    def event_handler(self, e):
+        if self._uuid in e:
+            self._attr_native_value = _analog_value(e[self._uuid])
+            self.async_write_ha_state()
 
 
 class LoxoneRoomControllerOverrideSensor(SensorEntity):
@@ -708,27 +728,37 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
 
     async def async_added_to_hass(self):
         """Subscribe to Loxone events."""
-        self.async_on_remove(self.hass.bus.async_listen(EVENT, self.event_handler))
 
-    async def event_handler(self, e):
-        if self._uuid in e.data:
+        @callback
+        def _on_bus_message(event) -> None:
+            # CORE-27: handlers take the plain {uuid: value} dict on every
+            # path (the dispatcher slice or the bus event's data).
+            self.event_handler(event.data)
+
+        self.async_on_remove(self.hass.bus.async_listen(EVENT, _on_bus_message))
+
+    @callback
+    def event_handler(self, e):
+        if self._uuid in e:
             try:
-                code = int(float(e.data[self._uuid]))
+                code = int(float(e[self._uuid]))
             except TypeError, ValueError:
                 return
             slug = OVERRIDE_REASON_SLUGS.get(code, OVERRIDE_REASON_UNKNOWN)
             if slug not in self._attr_options:
                 self._attr_options = [*self._attr_options, slug]
             self._attr_native_value = slug
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
 
 class LoxoneClimateController(LoxoneEntity, SensorEntity):
-    """Climate controller sensor that fires demand events for IRoomControllerV2.
+    """Climate controller sensor that fires the per-room demand signals
+    for IRoomControllerV2 (PS-18: entry-scoped dispatcher signal replacing
+    the global CLIMATE_EVENT bus event).
 
-    Reads the control list from the ClimateController's state and fires
-    CLIMATE_EVENT for each linked room controller with the current demand
-    (1 = heating, -1 = cooling, 0 = idle).
+    Reads the control list from the ClimateController's state and publishes
+    each room's demand (1 = heating, -1 = cooling, 0 = idle) to that
+    room's own per-uuid signal.
     """
 
     def __init__(self, **kwargs):
@@ -741,17 +771,26 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
 
         self._attr_device_info = get_or_create_device(self.unique_id, self.name, self.type, self.room)
 
-    async def event_handler(self, e):
-        update = False
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: every monitored state stream of the climate controller.
+        return frozenset(uuid for uuid in self._stateAttribUuids.values() if isinstance(uuid, str) and uuid)
 
-        for key in set(self._stateAttribUuids.values()) & e.data.keys():
-            raw = e.data[key]
+    @callback
+    def event_handler(self, e):
+        update = False
+        coordinator = self._connection_coordinator()
+        entry_id = coordinator.config_entry.entry_id if coordinator is not None else None
+
+        for key in set(self._stateAttribUuids.values()) & e.keys():
+            raw = e[key]
             # Parse JSON control lists from the Miniserver
             if isinstance(raw, str) and raw.startswith("["):
                 try:
                     parsed = json.loads(raw)
                     self._stateAttribValues[key] = parsed
-                    # Fire demand events for each control in the list
+                    # PS-18: fan out heat/cool demand per room via that
+                    # room's own per-uuid dispatcher signal — entry B's
+                    # ClimateController can no longer flip entry A's rooms.
                     heat_count = 0
                     cool_count = 0
                     for control in parsed:
@@ -760,10 +799,9 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
                             heat_count += 1
                         elif demand == -1:
                             cool_count += 1
-                        self.hass.bus.async_fire(
-                            CLIMATE_EVENT,
-                            {"uuid": control["uuid"], "value": demand},
-                        )
+                        room_uuid = control.get("uuid")
+                        if entry_id is not None and isinstance(room_uuid, str) and room_uuid:
+                            async_dispatcher_send(self.hass, loxone_climate_demand_signal(entry_id, room_uuid), demand)
                     self._heat_demand = heat_count
                     self._cool_demand = cool_count
                 except (json.JSONDecodeError, TypeError, KeyError) as err:

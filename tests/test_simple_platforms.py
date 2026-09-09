@@ -70,12 +70,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _event(data: dict):
-    return SimpleNamespace(data=data)
+    """CORE-27/PS-13: handlers now take the plain ``{uuid: value}`` dict the
+    dispatcher delivers; identity for existing call sites."""
+    return dict(data)
 
 
 def _stub_write(entity):
     entity.async_schedule_update_ha_state = lambda *a, **k: None
     entity.schedule_update_ha_state = lambda *a, **k: None
+    # CORE-27: handlers (now sync @callbacks) write via async_write_ha_state;
+    # raw (unattached) test instances would raise on the stock write.
+    entity.async_write_ha_state = lambda *a, **k: None
 
 
 def _fresh_loxapp3() -> dict:
@@ -186,16 +191,16 @@ async def test_smoke_alarm_reports_on_when_level_positive(hass):
     # The state uuid must be the *level*, not areAlarmSignalsOff (PS-04).
     assert e._state_uuid == SMOKE_LEVEL_UUID
 
-    await e.event_handler(_event({SMOKE_LEVEL_UUID: 1.0}))
+    e.event_handler(_event({SMOKE_LEVEL_UUID: 1.0}))
     assert e.is_on is True
     assert e.state == STATE_ON
     assert e._attr_available is True
 
-    await e.event_handler(_event({SMOKE_LEVEL_UUID: 2.0}))
+    e.event_handler(_event({SMOKE_LEVEL_UUID: 2.0}))
     assert e.is_on is True
 
     # Level 0 clears the event.
-    await e.event_handler(_event({SMOKE_LEVEL_UUID: 0.0}))
+    e.event_handler(_event({SMOKE_LEVEL_UUID: 0.0}))
     assert e.is_on is False
     assert e.state == STATE_OFF
 
@@ -205,10 +210,10 @@ async def test_smoke_alarm_ignores_areAlarmSignalsOff(hass):
     e = _smoke_sensor()
     e.hass = hass
     _stub_write(e)
-    await e.event_handler(_event({SMOKE_LEVEL_UUID: 1.0}))
+    e.event_handler(_event({SMOKE_LEVEL_UUID: 1.0}))
     assert e.is_on is True
 
-    await e.event_handler(_event({SMOKE_MUTE_UUID: 1.0}))
+    e.event_handler(_event({SMOKE_MUTE_UUID: 1.0}))
     assert e.is_on is True
 
 
@@ -274,11 +279,11 @@ async def test_analog_sensor_error_value_publishes_unknown(hass):
     e = _analog_sensor("Temperature", unit_format="%.1f °C")
     e.hass = hass
     _stub_write(e)
-    await e.event_handler(_event({e.uuidAction: 21.5}))
+    e.event_handler(_event({e.uuidAction: 21.5}))
     assert e.native_value == 21.5
-    await e.event_handler(_event({e.uuidAction: -1}))
+    e.event_handler(_event({e.uuidAction: -1}))
     assert e.native_value is None
-    await e.event_handler(_event({e.uuidAction: None}))
+    e.event_handler(_event({e.uuidAction: None}))
     assert e.native_value is None
 
 
@@ -440,22 +445,22 @@ async def test_override_reason_states_are_slugs(hass):
     assert e.native_value == "none"
 
     # 4 = eco override in the IRoomControllerV2 override-reason table.
-    await e.event_handler(_event({"reason-uuid": 4.0}))
+    e.event_handler(_event({"reason-uuid": 4.0}))
     assert e.native_value == "eco_override"
 
     # 8 = overridden by source.
-    await e.event_handler(_event({"reason-uuid": 8.0}))
+    e.event_handler(_event({"reason-uuid": 8.0}))
     assert e.native_value == "overridden_by_source"
 
     # Unknown codes collapse to the single "unknown" slug instead of a
     # runtime-minted "Unknown (n)" display string.
-    await e.event_handler(_event({"reason-uuid": 19.0}))
+    e.event_handler(_event({"reason-uuid": 19.0}))
     assert e.native_value == "unknown"
     assert "unknown" in e.options
     assert "Unknown (19)" not in e.options
 
     # Non-numeric values must not crash the handler.
-    await e.event_handler(_event({"reason-uuid": "garbage"}))
+    e.event_handler(_event({"reason-uuid": "garbage"}))
     assert e.native_value == "unknown"
 
 
@@ -478,7 +483,7 @@ async def test_switch_without_active_state_does_not_raise(hass):
     e = LoxoneSwitch(uuidAction="sw-0001", name="Mystery", room="Office", states={}, type="Switch")
     e.hass = hass
     _stub_write(e)
-    await e.event_handler(_event({"sw-0001": 1.0}))  # must not raise
+    e.event_handler(_event({"sw-0001": 1.0}))  # must not raise
     assert e._attr_is_on is None
 
 
@@ -557,7 +562,7 @@ async def test_select_current_option_from_output_event(hass):
     _stub_write(e)
     assert e.current_option is None
     # Output 3 is the "High" option of the sample Radio block.
-    await e.event_handler(_event({"r-output-01": 3.0}))
+    e.event_handler(_event({"r-output-01": 3.0}))
     assert e.current_option == "High"
     assert e.options == ["Off", "Low", "Med", "High"]
 
@@ -568,7 +573,7 @@ async def test_select_locked_raises(hass):
     e = LoxoneSelect(**_radio(states={"value": "r-v", "active": "r-a", "activeOutput": "r-o", "jLocked": "r-lock"}))
     e.hass = hass
     _stub_write(e)
-    await e.event_handler(_event({"r-lock": 1.0}))
+    e.event_handler(_event({"r-lock": 1.0}))
     assert e._locked is True
     with pytest.raises(HomeAssistantError):
         await e.async_select_option("Low")
@@ -580,8 +585,10 @@ async def test_select_single_state_write_per_event(hass):
     e = LoxoneSelect(**_radio(states={"value": "r-v", "active": "r-a", "activeOutput": "r-o", "jLocked": "r-lock"}))
     e.hass = hass
     calls = []
-    e.async_schedule_update_ha_state = lambda *a, **k: calls.append(1)
-    await e.event_handler(_event({"r-o": 2.0, "r-lock": 0.0}))
+    # CORE-27/PS-19: the handler is now a sync @callback; it writes once per
+    # event through async_write_ha_state.
+    e.async_write_ha_state = lambda *a, **k: calls.append(1)
+    e.event_handler(_event({"r-o": 2.0, "r-lock": 0.0}))
     assert calls == [1]
 
 
@@ -609,12 +616,12 @@ async def test_number_starts_unknown_and_listens_on_value(hass):
     assert e.state is None  # unknown, not the STATE_UNKNOWN string
 
     # The feed lands on the `value` state uuid, not the action uuid.
-    await e.event_handler(_event({"slv-01": 40.0}))
+    e.event_handler(_event({"slv-01": 40.0}))
     assert e.native_value == 40.0
     assert e._attr_available is True
 
     # A value-less event on the action uuid must not change the number.
-    await e.event_handler(_event({"slider-0001": "ignored"}))
+    e.event_handler(_event({"slider-0001": "ignored"}))
     assert e.native_value == 40.0
 
 
@@ -663,7 +670,7 @@ async def test_button_press_echo_becomes_attribute(hass):
     assert e.extra_state_attributes["last_pressed"] is None
 
     # The echo of an actual press (active == 1).
-    await e.event_handler(_event({"pb-active-01": 1.0}))
+    e.event_handler(_event({"pb-active-01": 1.0}))
     attr = e.extra_state_attributes
     assert attr["new_state"] is True
     assert attr["last_pressed"] is not None
@@ -671,7 +678,7 @@ async def test_button_press_echo_becomes_attribute(hass):
     # A release (active == 0) is indexed but does not move the
     # last-press timestamp.
     pressed = attr["last_pressed"]
-    await e.event_handler(_event({"pb-active-01": 0.0}))
+    e.event_handler(_event({"pb-active-01": 0.0}))
     assert e.extra_state_attributes["new_state"] is False
     assert e.extra_state_attributes["last_pressed"] == pressed
 

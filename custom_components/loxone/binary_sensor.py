@@ -154,9 +154,19 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
                 }
             )
 
-    async def event_handler(self, e):
-        if self._state_uuid in e.data:
-            value = e.data[self._state_uuid]
+    def _state_uuids(self) -> frozenset[str]:
+        """CORE-27: the state stream(s) this entity reacts to.
+
+        (``_state_uuid`` was computed in ``__init__`` for the
+        PS-04 read semantics; it doubles as the subscription set.)
+        """
+        uuid = getattr(self, "_state_uuid", None)
+        return frozenset({uuid}) if isinstance(uuid, str) and uuid else frozenset()
+
+    @callback
+    def event_handler(self, e):
+        if self._state_uuid in e:
+            value = e[self._state_uuid]
             # PS-04: react to the *level*/active value itself, not the
             # stale two-valued comparison (a sub-normal non-1.0 value such as
             # a fraction or a missing sentinel used to read as "off").
@@ -171,7 +181,7 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
             self._state = self._on_state if on else self._off_state
             if not self._attr_available:
                 self._attr_available = True
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @final
     @property
@@ -200,6 +210,11 @@ class LoxoneCustomBinarySensor(LoxoneEntity, BinarySensorEntity):
         else:
             self.uuidAction = ""
 
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the action stream the handler reads (may be empty, in
+        # which case the entity never updates from the wire).
+        return frozenset({self.uuidAction}) if isinstance(self.uuidAction, str) and self.uuidAction else frozenset()
+
     @property
     def is_on(self) -> bool | None:
         """Return true if sensor is on."""
@@ -212,14 +227,15 @@ class LoxoneCustomBinarySensor(LoxoneEntity, BinarySensorEntity):
             return None
         return STATE_ON if is_on else STATE_OFF
 
-    async def event_handler(self, e):
-        if self.uuidAction in e.data:
-            data = e.data[self.uuidAction]
+    @callback
+    def event_handler(self, e):
+        if self.uuidAction in e:
+            data = e[self.uuidAction]
             if data == 1.0:
                 self._state = self._on_state
             else:
                 self._state = self._off_state
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def name(self):

@@ -9,11 +9,10 @@ import logging
 
 from homeassistant.components.number import NumberEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .const import SENDDOMAIN
 from .helpers import clean_unit, get_or_create_device, iter_controls
 from .sensor import _is_numeric_format, match_sensor_description
 
@@ -130,9 +129,15 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
         """Return if the state is based on assumptions."""
         return self._assumed
 
-    async def event_handler(self, e):
-        if self._value_uuid in e.data:
-            data = e.data[self._value_uuid]
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the value stream the handler reads (plus the action
+        # stream it writes to, which may differ).
+        return frozenset({self._value_uuid, self.uuidAction})
+
+    @callback
+    def event_handler(self, e):
+        if self._value_uuid in e:
+            data = e[self._value_uuid]
             if isinstance(data, (int, float)) and not isinstance(data, bool):
                 self._attr_native_value = data
                 self._attr_available = True
@@ -140,7 +145,7 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
                 # Non-numeric garbage on a number stream: keep the last
                 # valid value instead of publishing it as a native value.
                 _LOGGER.debug("Ignoring non-numeric Slider value %r", data)
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -157,5 +162,5 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float):
         """Set new value."""
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="{}".format(value)))
+        self._send(f"{value}")
         self.async_schedule_update_ha_state()

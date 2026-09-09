@@ -33,6 +33,24 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   per entry via `async_schedule_reload` (CORE-05, tail of the interim
   fix)
 
+- Multi-instance isolation (WP-3.2, #491): inbound and outbound traffic is
+  fully separated per config entry. The coordinator dispatches received
+  values only through per-uuid signals of its own entry's signal dispatcher,
+  and every entity sends commands through its own entry's API instead of a
+  global `loxone.send` bus event (CORE-04): with two Miniserver entries,
+  service commands previously went to whichever listener fired first,
+  could be addressed to the *other* entry's uuid, and one global
+  `success` event answered every command-ack listener (CORE-11, PS-13).
+  Room-controller demand events are a per-(entry, room-uuid) signal, so
+  another entry's thermostat can no longer toggle this one (CORE-27).
+  The `loxone.send`-shaped domain event is kept only by legacy partial
+  send channels, with the coordinator subscribed to ignore the stray
+  `done` (PS-18; removal lands in WP-3.6). Entities that HA reuses across
+  a reload resolve the *current* platform's config entry, so a stale
+  coordinator from the previous setup is never captured (CORE-11).
+  New tests assert two entries with shifted Loxone uuids keep state and
+  commands independent in both directions
+
 - Sensor/binary/switch/select/number/button/scene platforms: one bad
   control or a missing detail key no longer aborts the entire platform
   (per-control `try/except` in every `async_setup_entry`, shared
