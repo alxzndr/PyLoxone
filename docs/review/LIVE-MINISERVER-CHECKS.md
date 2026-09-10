@@ -204,6 +204,28 @@ logger:
   release it — add a state to `LoxoneUpDownDigitalButton` (one place)
   and send the matching `<side>Off` on toggle-off.
 
+### 16. Meter-family register set (WP-6.5, PS-26)
+
+- **Helper:** `METER_STATE_CLASSES` / `METER_FORMAT_KEYS` /
+  `meter_sub_sensor_kwargs` in `custom_components/loxone/sensor.py`
+- **The doubt:** the generalised loop assumes `EnergyManager`,
+  `EnergyManager2`, `PowerUnit` and `Wallbox` advertise the same
+  register states as the legacy `Meter` (`actual`, `total`, `totalNeg`,
+  `storage`, with `actualFormat`/`totalFormat`/`storageFormat`).  The
+  2026-09 catalogue says so ("Meter sub-state loop generalises"), but
+  no structure file from a live Miniserver with these controls was held
+  at the time of writing.
+- **Test:** with debug logging on, find the structure-file dump of a
+  Miniserver that has any of the four controls and compare its
+  `states`/`details` against the `Meter` table above; watch how many
+  sub-entities appear.
+- **Pass:** registers appear as "Actual" / "Total" / "Total Neg" /
+  "Level" with the right units and classes.
+- **Fail / adjust:** if a real control uses different register names or
+  format keys, extend the three tables in `sensor.py` (one place each);
+  a control with no matching states simply yields no sub-registers today, so the
+  failure mode is missing data, never a crash.
+
 ---
 
 ## Regression sweep
