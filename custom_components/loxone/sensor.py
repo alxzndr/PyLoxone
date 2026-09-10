@@ -109,6 +109,24 @@ METER_NAME_SUFFIX = {
     "storage": "Level",
 }
 
+# #461: the analog sub-readings a PresenceDetector control publishes
+# alongside its presence signal, as ``state key -> (entity name, Loxone
+# format)``.  Presence detectors without light/sound hardware advertise
+# no such state, so only the present states yield a sub-sensor; the
+# format fixes the unit (lux / dB), which drives the device class via
+# the unit table below (illuminance matches ``lx``, noise gets a plain
+# numeric measurement).  WP-6.1 keeps the *presence* device linkage in
+# the binary_sensor platform: the sub-sensors here carry the parent
+# control's device identifiers, so HA merges them into the same device.
+PRESENCE_SUB_SENSOR_SPECS: dict[str, tuple[str, str]] = {
+    "illuminance": ("Illuminance", "%.0f lx"),
+    "noise": ("Noise", "%.0f dB"),
+}
+# The model name the binary_sensor platform stamps on the presence
+# device (`self.type` = "presence"), so a structure file emits one
+# merged device instead of two.
+PRESENCE_DEVICE_MODEL = "presence"
+
 # A plain InfoOnlyAnalog that counts total energy/water deserves
 # ``TOTAL_INCREASING`` only when its name/category actually says it is a
 # meter. Anything else (e.g. "Consumption today") is a resetting value and
@@ -248,6 +266,52 @@ def _metering_indicated(name: str, category: str) -> bool:
     return any(kw in lowered for kw in METERING_KEYWORDS)
 
 
+def presence_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
+    """``LoxoneSensor`` kwargs for the illuminance/noise sub-states of a
+    PresenceDetector control (#461).
+
+    One sub-sensor dict per advertised sub-state: short entity name
+    (the device is named after the parent control), the *parent*
+    control's uuid as ``parent_id``, and device info built from the
+    parent's identifiers so the sub-sensors land on the same device as
+    the presence binary sensor (same house pattern as the Meter and
+    IRoomControllerV2 sub-sensors).  Every ``states``/``details`` lookup
+    is guarded with ``.get()``: a structure file without the states
+    yields *no* sub-sensors instead of aborting the platform.  The
+    return order is the insertion order of ``PRESENCE_SUB_SENSOR_SPECS``.
+    """
+    states = control.get("states")
+    if not isinstance(states, dict):
+        return []
+    uuid_action = control.get("uuidAction")
+    if not isinstance(uuid_action, str) or not uuid_action:
+        # PC-05: device_info_for needs the parent uuid for the shared
+        # device identifiers; without it there is no device to attach to.
+        return []
+    room = control.get("room", "")
+    kwargs_list: list[dict] = []
+    for state_name, (name, default_format) in PRESENCE_SUB_SENSOR_SPECS.items():
+        uuid = states.get(state_name)
+        if not isinstance(uuid, str) or not uuid:
+            continue
+        kwargs_list.append(
+            {
+                "parent_id": uuid_action,
+                "uuidAction": uuid,
+                "type": "analog",
+                "room": room,
+                "cat": control.get("cat", ""),
+                "name": name,
+                "details": {"format": default_format},
+                "device_info": device_info_for(
+                    config_entry, uuid_action, control.get("name", ""), PRESENCE_DEVICE_MODEL, room
+                ),
+                "config_entry": config_entry,
+            }
+        )
+    return kwargs_list
+
+
 def match_sensor_description(
     unit: str,
     name: str = "",
@@ -357,6 +421,20 @@ async def async_setup_entry(
                 entities.append(LoxoneMeterSensor(**subsensor))
         except Exception:
             _LOGGER.exception("Skipping Meter control %s", sensor.get("name", "?"))
+
+    # #461: PresenceDetector illuminance/noise sub-sensors.  The analog
+    # sub-readings live on the sensor platform (a LoxoneSensor added via
+    # the binary_sensor platform would be pinned to the *binary_sensor*
+    # domain); they share the parent control's device identifiers, so
+    # the device registry keeps them on the presence device.
+    for sensor in iter_controls(hass, config_entry, "PresenceDetector"):
+        try:
+            for sub in presence_sub_sensor_kwargs(sensor, config_entry):
+                entities.append(LoxoneSensor(**sub))
+        except Exception:
+            # One bad control must not abort the whole sensor platform
+            # (PS-08).
+            _LOGGER.exception("Skipping PresenceDetector control %s", sensor.get("name", "?"))
 
     # Climate controller demand sensors
     for ctrl_type in ("ClimateController", "ClimateControllerUS"):

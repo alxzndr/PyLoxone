@@ -331,6 +331,28 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.hall_hallway_presence_illuminance",
+    "unique_id": "36333734-014e-9336-ffff-d303134632d3000078",
+    "name": null,
+    "original_name": "Illuminance",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Hallway Presence",
+    "device_model": "presence"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_hallway_presence_noise",
+    "unique_id": "36333734-014f-9336-ffff-d303134632d3000079",
+    "name": null,
+    "original_name": "Noise",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Hallway Presence",
+    "device_model": "presence"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.kitchen_energy_kitchenv2",
     "unique_id": "63746c3a-010d-9657-ffff-779204b69746000013",
     "name": null,

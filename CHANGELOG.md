@@ -100,6 +100,14 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   last unload, and the stale empty `hass.data["loxone"]` dict no longer
   survives (verifiable in the test suite: `tests/test_runtime_data.py`).
 
+### Added
+
+- Presence detectors now expose the `illuminance` and `noise` states
+  they advertise as analog sub-sensors (`Illuminance`, `Noise`) on the
+  sensor platform, attached to the presence binary sensor's device —
+  lux readings pick up the `illuminance` device class, noise is a plain
+  numeric measurement (upstream issue JoDehli/PyLoxone#461, WP-6.1).
+
 ### Changed
 
 - The `loxone_options` option `generate_groups` (new: default `false`;
