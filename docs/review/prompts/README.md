@@ -41,3 +41,4 @@ Example: `claude "$(cat docs/review/prompts/WP-0.1.md)"` or paste the file into 
 | `WP-6.7.md` | AudioZoneV2 sources/favourites/metadata/mute/on-off. | Phase 6 | WP-5.3 | 0 |
 | `WP-6.8.md` | Alarm `ARM_NIGHT`/`ARM_VACATION`, arming delay surfaced (#323); Gate `SET_POSITION`; Jalousie auto/shade select; AcControl polish (#398). | Phase 6 | WP-5.3 | 0 |
 | `WP-6.9.md` | Zeroconf discovery via `discover.py` if not done in WP-3.4. | Phase 6 | WP-5.3 | 0 |
+| `WP-6.10.md` | `NfcCodeTouch` and `LightsceneRGB` (PS-27) — two control types confirmed | Phase 6 | WP-5.3 | 1 |

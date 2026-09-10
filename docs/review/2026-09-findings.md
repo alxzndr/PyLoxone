@@ -448,6 +448,34 @@ Upstream issue numbers refer to https://github.com/JoDehli/PyLoxone/issues.
 - `binary_sensor.py:8-23` unused imports (`cv`, `vol`, `CONF_*`, `DOMAIN`, `SENDDOMAIN`); `switch.py:64-65` `_` used as a real variable; `sensor.py:588` magic `14`; `const.py:31 ERROR_VALUE` unused; `sensor.py:454` `if precision:` treats `0` as "none".
 - Effort: S
 
+### PS-27 [medium] `NfcCodeTouch` and `LightsceneRGB` controls produce no entities
+- Where: no platform matches either `type`. Confirmed against a live Miniserver
+  (firmware 17.2.8.28) on 2026-09-10: both are present in a real structure file and
+  the integration creates nothing for them.
+- **`NfcCodeTouch`** (Loxone NFC Code Touch, read-only in practice). Live states:
+  `lastuser`, `lastcode`, `lasttag`, `lastid`, `codeDate`, `historyDate`, `events`,
+  `keyPadAuthType`, `nfcLearnResult`, `deviceState`, `jLocked`. `details` is just
+  `{"jLockable": true}`, no sub-controls.
+  Natural mapping: a sensor for `lastuser` (who last authenticated) with `codeDate` as
+  a timestamp, plus diagnostic sensors for `deviceState`. `lastcode`/`lasttag` identify
+  a credential and should **not** be exposed as state — treat them the way CORE-08
+  treats the serial.
+  This is an access-control device, so an HA event on each authentication is more
+  useful than a polled sensor: it lets an automation react to a specific person
+  arriving.
+- **`LightsceneRGB`** (two present, in a home cinema). Live states: `activeScene`,
+  `color`, `red`, `green`, `blue`, `jLocked`. `details` carries `sceneList` (empty on
+  this installation) and `jLockable`.
+  Natural mapping: a `light` with `ColorMode.RGB` driven by `red`/`green`/`blue`, or a
+  `select` over `sceneList` when it is populated. Note the separate `color` state
+  alongside the three channels: establish which one is authoritative before writing,
+  since `lights/colorpickers.py` already has a parser for Loxone colour strings.
+- Fix: two small platform packages following the WP-4.x pattern. Neither appears in
+  any upstream issue, so there is no reported-behaviour reference: the block shapes
+  above are the only evidence, and anything beyond them is inference that belongs in
+  `LIVE-MINISERVER-CHECKS.md`.
+- Effort: M (two packages) · Upstream: none
+
 ### PS-26 [gap] Control types that are cheap to add with existing patterns
 - `InfoOnlyText` (clone of `LoxoneTextSensor`); `EnergyManager`/`EnergyManager2`/`PowerUnit`/`Wallbox` (Meter sub-state loop generalises); `Tracker` (JSON list, pattern in `LoxoneClimateController`); `UpDownDigital` (two buttons); `PresenceDetector` illumination/noise sub-sensors (#461, pattern in `fan.py:81-135`); `IntercomV2` (#466); message center → repairs (#515, upstream PR exists); `InfoOnlyDigital` device class from `details.text.on/off` and category (#402); recursive `get_all` over `subControls` (`helpers.py:125-135` scans top level only); icons from `details.image`.
 

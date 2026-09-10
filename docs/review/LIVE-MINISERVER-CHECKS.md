@@ -355,3 +355,29 @@ users will notice:
 
 A practical way to exercise #475 and #486 together: reboot the Miniserver from the
 Loxone app and watch Home Assistant recover on its own.
+
+---
+
+## Confirmed against live hardware (2026-09-10)
+
+Run against a Gen 1 Miniserver, firmware 17.2.8.28, 35 controls. These are settled and
+need no further testing.
+
+| Check | Result |
+|---|---|
+| Connection, auth, structure download, subscribe | works; 407 state uuids, 494 updates in 45s |
+| Log noise on a normal session (#514) | **no WARNING or ERROR records** |
+| Meter registers (PS-21) | 7 meters, all `actual`→power/measurement, `total`→energy/total_increasing |
+| Meter format details (PS-08) | all present; the crash path cannot trigger on this structure |
+| `softwareVersion` shape (CORE-16) | list `[17,2,8,28]`, joined correctly |
+| Dimmer min/max brightness (PC-17) | **fixed and proven**: HA 128 → Loxone 75 on a `min=50,max=100` circuit, read back independently. The old path sent 50 (the floor), and HA 1 mapped to 0 = off |
+| Jalousie position inversion | Loxone `position: 1.0` → HA position 0 = closed, `_closed = True` |
+
+Items 1-4 (alarm arming, ventilation mode and timer, legacy `IRoomController`) could **not**
+be tested: that installation has no Alarm, Ventilation or legacy room-controller block.
+They remain open, and the suspected alarm inversion is still unconfirmed.
+
+Also observed on that installation: `except A, B:` (unparenthesised, PEP 758) is used in
+20 places across 12 files. It is valid only on Python 3.14+, which the supported Home
+Assistant floor already requires, so it is not a live defect — but it does pin the
+minimum interpreter silently, and `ruff` will not flag it while `target-version = "py314"`.

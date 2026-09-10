@@ -266,6 +266,10 @@ Each is an independent WP following the platform pattern established in Phase 4.
 8. **WP-6.8** Alarm `ARM_NIGHT`/`ARM_VACATION`, arming delay surfaced (#323); Gate `SET_POSITION`; Jalousie auto/shade select; AcControl polish (#398).
 9. **WP-6.9** Zeroconf discovery via `discover.py` if not done in WP-3.4.
 
+10. **WP-6.10** `NfcCodeTouch` and `LightsceneRGB` (PS-27) — two control types confirmed
+   present on a live Miniserver that produce no entities today. Live block shapes are in
+   the finding. Treat `lastcode`/`lasttag` as credentials, not state: do not publish them.
+   Prefer firing an HA event per authentication over a polled sensor for the NFC reader.
 ---
 
 ## Suggested release cut points
