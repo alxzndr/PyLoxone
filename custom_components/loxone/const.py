@@ -65,6 +65,20 @@ def loxone_uuid_signal(config_entry_id: str, uuid: str) -> str:
     return f"loxone_{config_entry_id}_{uuid}"
 
 
+def loxone_message_signal(config_entry_id: str) -> str:
+    """WP-6.2: entry-scoped signal carrying the FULL state message.
+
+    In addition to the per-uuid fan-out (``loxone_uuid_signal``), the
+    coordinator dispatches the whole message once per entry.  Command
+    responses (e.g. the Message Center ``getEntries`` sync) arrive as
+    ``control``/``value`` payloads rather than as {uuid: value} entries,
+    so the per-uuid signals cannot deliver them.  Only platforms that
+    need the complete message (the Message Center sensor) subscribe.
+    Namespaced by config entry id like every other dispatcher signal.
+    """
+    return f"loxone_message_{config_entry_id}"
+
+
 def loxone_climate_demand_signal(config_entry_id: str, room_uuid: str) -> str:
     """PS-18: entry-scoped control-list fan-out replacing the global
     ``CLIMATE_EVENT`` bus event.

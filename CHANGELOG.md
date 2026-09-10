@@ -29,6 +29,17 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
+- Message Center sync (WP-6.2): a diagnostic `Message Center` sensor per
+  top-level message-center control of the structure file (state:
+  highest active severity class, `status` attribute: per-severity
+  counts) and a `Notifications` text sensor for the Miniserver's global
+  notification stream, both on the Miniserver device.  Changes on the
+  Message Center's `changed` stream re-sync via the `getEntries` command;
+  active entries are mirrored as persistent repair issues (with severity
+  WARNING/ERROR/CRITICAL, a `more-info` link when the affected control
+  has an entity, and the official help link), and resolved (historic)
+  entries delete their issue again.  Ports the approach from
+  JoDehli/PyLoxone#515 by @mpcaddy.
 - `InfoOnlyDigital` binary sensors get an inferred `device_class` (WP-6.4,
   #402): first the control's own on/off display text (`details.text`),
   then the control's category name.  Common EN/DE label phrases map to

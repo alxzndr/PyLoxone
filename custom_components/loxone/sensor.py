@@ -9,6 +9,8 @@ import json
 import logging
 import re
 from dataclasses import replace
+from datetime import datetime
+from functools import partial
 from typing import Any
 
 import homeassistant.helpers.config_validation as cv
@@ -37,7 +39,10 @@ from homeassistant.const import (
     UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
@@ -47,12 +52,22 @@ from . import LoxoneEntity
 from .const import (
     CONF_ACTIONID,
     DEVICE_TYPE_ANALOG,
+    DOMAIN,
     ERROR_VALUE,
     EVENT,
     THROTTLE_KEEP_ALIVE_TIME,
     loxone_climate_demand_signal,
+    loxone_message_signal,
 )
-from .helpers import clean_unit, device_info_for, get_miniserver_type, iter_controls, software_version_string
+from .helpers import (
+    add_room_and_cat_to_value_values,
+    clean_unit,
+    device_info_for,
+    get_miniserver_type,
+    iter_controls,
+    loxone_timestamp,
+    software_version_string,
+)
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -132,6 +147,17 @@ PRESENCE_DEVICE_MODEL = "presence"
 # meter. Anything else (e.g. "Consumption today") is a resetting value and
 # gets MEASUREMENT (PS-21).
 METERING_KEYWORDS = ("total", "meter", "zähler", "zaehler", "compteur", "counter")
+
+# WP-6.2 (#515): the command that syncs the Miniserver's Message Center
+# entries, addressed at the Message Center control's ``uuidAction``.
+# The ``/2`` suffix is the upstream's literal (VERIFY against a live
+# Miniserver whether it is a server-side version counter).
+MESSAGE_CENTER_GET_ENTRIES_COMMAND = "getEntries/2"
+MESSAGE_CENTER_GET_ENTRIES_PREFIX = "getEntries"
+# WP-6.2: every repair issue the Message Center mirror creates is
+# namespaced per config entry (two Miniservers on one HA instance must
+# never share one) and per Message Center entry.
+MESSAGE_CENTER_ISSUE_PREFIX = "message_center_"
 
 
 class LoxoneEntityDescription(SensorEntityDescription, frozen_or_thawed=True):
@@ -266,6 +292,119 @@ def _metering_indicated(name: str, category: str) -> bool:
     return any(kw in lowered for kw in METERING_KEYWORDS)
 
 
+# --------------------------------------------------------------------------- #
+# WP-6.2 (#515): Message Center -> repair issues
+# --------------------------------------------------------------------------- #
+
+
+def _as_int_severity(value) -> int:
+    """Normalise a Message Center entry ``severity`` (int, integral float,
+    numeric string) to the int the severity classes are defined on.
+    Non-numeric junk maps to 0 (reported below any real severity), so
+    a corrupt entry can never escalate the summary."""
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        return int(value.strip())
+    return 0
+
+
+def message_center_summary(entries) -> tuple[dict[str, int], int]:
+    """The (severity -> count) tallies and the maximum severity of the
+    *active* Message Center entries.
+
+    Historic entries are already resolved — the upstream port deletes
+    their repair issue instead of counting them.  Corrupt entries
+    (non-dicts, non-numeric severity) are skipped rather than aborting
+    the whole sync.  Returns ``({}, 0)`` for an empty/absent list.
+    """
+    if not isinstance(entries, list):
+        entries = []
+    counts: dict[str, int] = {}
+    max_severity = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("isHistoric"):
+            continue
+        severity = _as_int_severity(entry.get("severity"))
+        counts[str(severity)] = counts.get(str(severity), 0) + 1
+        max_severity = max(max_severity, severity)
+    return counts, max_severity
+
+
+def message_center_issue_severity(severity: int) -> "ir.IssueSeverity":
+    """The HA issue severity for a Message Center severity class.
+
+    Exact port of the upstream mapping (#515): ``> 3`` is CRITICAL,
+    ``> 2`` is ERROR, everything else (1 = warning, 0/absent) is
+    WARNING.  (0 = informational is not a repair.)
+    """
+    severities = _as_int_severity(severity)
+    if severities > 3:
+        return ir.IssueSeverity.CRITICAL
+    if severities > 2:
+        return ir.IssueSeverity.ERROR
+    return ir.IssueSeverity.WARNING
+
+
+def message_center_entry_timestamp(timestamps) -> "datetime | None":
+    """The *occurred at* moment of a Message Center entry, or None.
+
+    The entry ``timestamps`` field is a list of Unix epoch seconds
+    (hand-derived expected values in ``tests/test_message_center.py``);
+    the first element is the original occurrence.  Guards: non-list
+    values, empty lists and non-numeric heads return None instead of
+    crashing the sync.
+    """
+    if not isinstance(timestamps, (list, tuple)) or not timestamps:
+        return None
+    value = timestamps[0]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        return dt_util.utc_from_timestamp(value)
+    except OverflowError, OSError, ValueError:
+        return None
+
+
+def _is_get_entries_response(control) -> bool:
+    """True when a state message's ``control`` field acknowledges a
+    Message Center ``getEntries`` request addressed at this sensor.
+
+    Tolerant of the two shapes the websocket layer can produce for a
+    command response (a dict of uuid -> command list, or the raw command
+    string).  The command value must contain the ``getEntries`` token so
+    unrelated control echoes do not replay another Miniserver's state.
+    """
+    if isinstance(control, str):
+        return MESSAGE_CENTER_GET_ENTRIES_PREFIX in control
+    if not isinstance(control, dict):
+        return False
+    for address in control.values():
+        try:
+            addresses = [address] if isinstance(address, str) else list(address)
+        except TypeError:
+            continue
+        for item in addresses:
+            if isinstance(item, str) and MESSAGE_CENTER_GET_ENTRIES_PREFIX in item:
+                return True
+    return False
+
+
+def message_center_issue_id(config_entry_id: str, entry_uuid: str) -> str:
+    """The per-(entry, message) repair issue id (WP-6.2).
+
+    Namespaced by config entry id: two Miniservers on one HA instance
+    must never share an issue (same convention as the CORE-30
+    per-entry ids in ``__init__.py``).  The Message Center entry UUID
+    is stable for the lifetime of the message on the Miniserver.
+    """
+    return f"{MESSAGE_CENTER_ISSUE_PREFIX}{config_entry_id}_{entry_uuid}"
+
+
 def presence_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
     """``LoxoneSensor`` kwargs for the illuminance/noise sub-states of a
     PresenceDetector control (#461).
@@ -361,6 +500,12 @@ async def async_setup_entry(
     miniserver = get_miniserver_from_hass(hass, config_entry)
 
     loxconfig = miniserver.lox_config.json
+    if not isinstance(loxconfig, dict):
+        # A structure file that failed to parse/degrade to None: the
+        # keep-alive sensor still comes up, every structure-driven
+        # sensor is skipped (the old code crashed on `in loxconfig`).
+        _LOGGER.error("No LoxAPP3 structure file for %s; only the keep-alive sensor is set up", config_entry.entry_id)
+        loxconfig = {}
 
     # PS-20: the keep-alive and version sensors belong to the Miniserver
     # host device (identifiers = (DOMAIN, serial)), not to no device at
@@ -486,6 +631,34 @@ async def async_setup_entry(
                 )
         except Exception:
             _LOGGER.exception("Skipping IRoomControllerV2 control %s", irc.get("name", "?"))
+
+    # WP-6.2 (#515): the Miniserver's Message Center.  The structure file
+    # carries it as a top-level ``messageCenter`` block (one control per
+    # key, consumed by LoxoneMessageCenterSensor) instead of under
+    # ``controls`` (it is command-address state, not a polled entity).  One
+    # severity-summary diagnostic sensor per control; the Miniserver's
+    # active entries are mirrored as repair issues.
+    message_center = loxconfig.get("messageCenter")
+    if isinstance(message_center, dict):
+        for key, control in message_center.items():
+            if not isinstance(control, dict):
+                continue
+            try:
+                # A copy: LoxoneEntity setattr's every kwarg onto the entity,
+                # and room/cat are resolved in place — the shared structure
+                # file must not be mutated on platform construction.
+                ctrl_kwargs = dict(control)
+                add_room_and_cat_to_value_values(loxconfig, ctrl_kwargs)
+                ctrl_kwargs["config_entry"] = config_entry
+                entities.append(LoxoneMessageCenterSensor(**ctrl_kwargs))
+            except Exception:
+                _LOGGER.exception("Skipping Message Center control %s", key)
+
+    # WP-6.2 (#515): the Miniserver's global notification text stream.
+    global_states = loxconfig.get("globalStates")
+    notifications_uuid = global_states.get("notifications") if isinstance(global_states, dict) else None
+    if isinstance(notifications_uuid, str) and notifications_uuid:
+        entities.append(LoxoneNotificationsSensor(notifications_uuid, ms_device_info))
 
     # CORE-17: the old code subscribed to an ``async_signal_new_device``
     # signal that no code path ever sent and leaked the unsubscribe on
@@ -946,4 +1119,293 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
             "heat_demand": self._heat_demand,
             "cool_demand": self._cool_demand,
             "device_type": self.type,
+        }
+
+
+class LoxoneNotificationsSensor(LoxoneEntity, SensorEntity):
+    """The Miniserver's global notification text (WP-6.2, #515).
+
+    ``globalStates.notifications`` in the structure file addresses a free
+    text stream (e.g. "Maintenance mode active").  The sensor mirrors it
+    on the Miniserver host device, matching the upstream PR's intent.
+    """
+
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:notifications"
+
+    def __init__(self, notifications_uuid: str, device_info: DeviceInfo | None = None, **kwargs):
+        # No ``uuidAction``: the global-state stream is command-less, so
+        # the unique id and the stream uuid are the state uuid itself.
+        super().__init__(**kwargs)
+        self._attr_name = "Notifications"
+        self._state_uuid = notifications_uuid
+        # CORE-26: stored as attribute; stable per entry.
+        self._attr_unique_id = notifications_uuid
+        self._attr_native_value = None
+        if device_info is not None:
+            self._attr_device_info = device_info
+
+    def _state_uuids(self) -> frozenset[str]:
+        return frozenset({self._state_uuid})
+
+    @callback
+    def event_handler(self, e):
+        value = e.get(self._state_uuid)
+        if value is None:
+            return
+        self._attr_native_value = value if isinstance(value, str) else str(value)
+        self.async_write_ha_state()
+
+
+class LoxoneMessageCenterSensor(LoxoneEntity, SensorEntity):
+    """Message Center severity summary + HA repair issues (WP-6.2, #515).
+
+    One per top-level ``messageCenter`` control of the structure file.  The
+    sensor state is the max severity class (0 = no active entries) and the
+    ``status`` attribute carries the per-severity counts.  Re-sync is
+    event-driven: a newer value on the control's ``states.changed`` stream
+    sends the ``getEntries/2`` command through this entry's own coordinator
+    (``LoxoneEntity._send``), and the Miniserver's response arrives as a
+    full-message fan-out on the entry-scoped
+    ``loxone_message_signal`` (CORE-27 decoded: the response carries no
+    stream uuid to dispatch on).  Each active entry is mirrored as a
+    persistent, non-fixable repair issue, translated per its affected
+    entities; resolved (historic) entries delete their issue.
+    """
+
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:dashboard"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # The change counter stream that triggers a re-fetch of the entries
+        # (guarded: absent/corrupt structures fall back to a manual PM
+        # re-read of the structure).  ``value`` / ``control`` message fields
+        # are not stream names, so they are never dispatched here.
+        states = getattr(self, "states", None)
+        self._changed_uuid = states.get("changed") if isinstance(states, dict) else None
+        if not isinstance(self._changed_uuid, str) or not self._changed_uuid:
+            self._changed_uuid = None
+        self._last_changed: datetime | None = None
+        self._status: dict[str, int] = {}
+        self._attr_native_value = 0
+        # CORE-20: fresh device built from the control's own identity,
+        # linked to the Miniserver host device.
+        room = self.room if isinstance(self.room, str) else None
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"),
+            self._attr_unique_id,
+            self._lox_name,
+            kwargs.get("type") or "MessageCenter",
+            room,
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        uuids = {self.uuidAction}
+        if self._changed_uuid is not None:
+            uuids.add(self._changed_uuid)
+        return frozenset(uuids)
+
+    def _owning_entry(self):
+        """The live platform config entry (prefers ``platform.config_entry``
+        over the construction-time reference, same resolution as
+        ``LoxoneEntity._connection_coordinator``)."""
+        platform = getattr(self, "platform", None)
+        entry = getattr(platform, "config_entry", None)
+        if entry is None:
+            entry = getattr(self, "config_entry", None)
+        return entry
+
+    def _issue_id(self, entry_uuid: str) -> str:
+        entry = self._owning_entry()
+        return message_center_issue_id(entry.entry_id, entry_uuid)
+
+    async def async_added_to_hass(self):
+        """Subscribe to the entry's FULL message fan-out in addition to the
+        per-uuid streams (only the Message Center sensor needs it — the
+        getEntries response has no stream uuid to dispatch on)."""
+        await super().async_added_to_hass()
+        config_entry = self._owning_entry()
+        if config_entry is None:
+            return
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, loxone_message_signal(config_entry.entry_id), partial(self.event_handler)
+            )
+        )
+
+    @callback
+    def event_handler(self, e):
+        """Handles per-uuid stream slices *and* full-message fanouts alike.
+
+        The base ``LoxoneEntity`` callback wrapper routes the per-uuid fan-in
+        to this dict; the extra full-message subscription feeds the same
+        handler.  Only the fields used below are read.
+        """
+        if not isinstance(e, dict):
+            return
+        # 1) A newer change counter -> one re-sync of the Message Center.
+        if self._changed_uuid is not None and self._changed_uuid in e:
+            self._maybe_request_entries(e.get(self._changed_uuid))
+        # 2) The getEntries response (control + value fields).
+        if _is_get_entries_response(e.get("control")):
+            self._schedule_entry_processing(e.get("value"))
+
+    @callback
+    def _maybe_request_entries(self, changed_value):
+        """Send ``getEntries/2`` when the change counter moved forward."""
+        changed = loxone_timestamp(changed_value)
+        if changed is None:
+            return
+        if self._last_changed is not None and changed <= self._last_changed:
+            return
+        self._last_changed = changed
+        self._send(MESSAGE_CENTER_GET_ENTRIES_COMMAND)
+
+    @callback
+    def _schedule_entry_processing(self, value):
+        if not isinstance(value, str):
+            return
+        config_entry = self._owning_entry()
+        if config_entry is None:
+            # No entry to scope the task to (and no path to re-sync); skip.
+            return
+        config_entry.async_create_background_task(
+            self.hass, self._process_entries(value), name="message-center-entries"
+        )
+
+    async def _process_entries(self, value):
+        """Parse the ``getEntries`` response and reconcile the issues."""
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError, TypeError:
+            _LOGGER.exception("Failed to parse the Message Center getEntries response")
+            return
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            return
+
+        active_ids: set[str] = set()
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_uuid = entry.get("entryUuid")
+            if not isinstance(entry_uuid, str) or not entry_uuid:
+                continue
+            if entry.get("isHistoric"):
+                self._delete_issue(entry_uuid)
+            else:
+                self._upsert_issue(entry)
+                active_ids.add(self._issue_id(entry_uuid))
+
+        counts, max_severity = message_center_summary(entries)
+        self._status = counts
+        self._attr_native_value = max_severity
+        self._remove_stale_issues(active_ids)
+        self.async_write_ha_state()
+
+    # -- repair issue helpers -------------------------------------------------
+
+    def _delete_issue(self, entry_uuid: str):
+        entry = self._owning_entry()
+        if entry is None:
+            return
+        ir.async_delete_issue(self.hass, DOMAIN, self._issue_id(entry_uuid))
+
+    def _upsert_issue(self, entry: dict):
+        if self._owning_entry() is None:
+            _LOGGER.debug("Message Center entry without an owning entry; no repair issue")
+            return
+        entry_uuid = entry["entryUuid"]
+        severity = _as_int_severity(entry.get("severity"))
+        title = entry.get("title")
+        name = entry.get("affectedName") or "Unknown"
+        message = entry.get("desc") or ""
+        if not isinstance(message, str):
+            message = str(message)
+        message = message.replace("<br><br>Further details can be found under the following link.", "\n")
+        occurred = message_center_entry_timestamp(entry.get("timestamps"))
+        if occurred is not None:
+            message += f"\n\nOccurred at: {occurred.isoformat()}"
+
+        placeholders = {"name": name, "message_name": name, "title": title, "description": message}
+        linked_entities: list[str] = []
+        linked = self._link_affected_entities(entry, placeholders, linked_entities)
+        translation_key = "loxone_device_status" if linked else "loxone_status"
+        help_link = entry.get("helpLink")
+
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._issue_id(entry_uuid),
+            is_fixable=False,
+            is_persistent=True,
+            severity=message_center_issue_severity(severity),
+            translation_key=translation_key,
+            translation_placeholders=placeholders,
+            learn_more_url=help_link if isinstance(help_link, str) and help_link else None,
+            data={"entry": entry, "devices": linked_entities},
+        )
+
+    def _link_affected_entities(self, entry: dict, placeholders: dict, linked_entities: list[str]) -> bool:
+        """Attach the affected controls' HA entities to the issue.
+
+        Returns True when at least one affected uuid resolved to an entity
+        of this entry (the translation switches to the {title}: {name} form
+        in that case, per the upstream keys).
+        """
+        affected = entry.get("affectedUuids")
+        if not isinstance(affected, list) or not affected:
+            return False
+        entry_obj = self._owning_entry()
+        if entry_obj is None:
+            return False
+        registry = er.async_get(self.hass)
+        entities = registry.entities.get_entries_for_config_entry_id(entry_obj.entry_id)
+        source = entry.get("sourceUuid")
+        linked = False
+        by_uuid = {e.unique_id: e for e in entities if isinstance(e.unique_id, str)}
+        for uuid in affected:
+            if not isinstance(uuid, str) or not uuid:
+                continue
+            entity = by_uuid.get(uuid)
+            if entity is None:
+                continue
+            linked = True
+            linked_entities.append(entity.entity_id)
+            # WP-5.1: primary entities store no registry name (None / None)
+            # — the *device* carries the display name, so fall back to it.
+            display_name = entity.name or entity.original_name
+            if not display_name and entity.device_id:
+                device = dr.async_get(self.hass).async_get(entity.device_id)
+                display_name = device.name if device else None
+            if isinstance(display_name, str) and display_name:
+                placeholders["description"] += f"\n[{display_name}](/?more-info-entity-id={entity.entity_id})"
+                if source == uuid:
+                    placeholders["name"] = display_name
+        return linked
+
+    def _remove_stale_issues(self, active_ids: set[str]):
+        """Drop this entry's message-center issues no longer in ``active_ids``"""
+        entry = self._owning_entry()
+        if entry is None:
+            return
+        prefix = f"{MESSAGE_CENTER_ISSUE_PREFIX}{entry.entry_id}_"
+        registry = ir.async_get(self.hass)
+        stale = [
+            issue.issue_id
+            for issue in registry.issues.values()
+            if issue.domain == DOMAIN and issue.issue_id.startswith(prefix) and issue.issue_id not in active_ids
+        ]
+        for issue_id in stale:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {
+            **self._attr_extra_state_attributes,
+            "status": self._status,
         }

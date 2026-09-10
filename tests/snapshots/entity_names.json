@@ -375,6 +375,17 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.message_center",
+    "unique_id": "4d536763-7474-6c63-ffff-4d536774746c6301",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Message Center",
+    "device_model": "MessageCenter"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.office_status_input",
     "unique_id": "63746c3a-0116-9617-ffff-57320496e707000022",
     "name": null,
@@ -412,6 +423,17 @@
     "unique_id": "TEST-SERIAL-0001-loxone_software_version_uuid",
     "name": null,
     "original_name": "Loxone Software Version",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "PyLoxone Test Miniserver",
+    "device_model": "Miniserver (Gen 2)"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.pyloxone_test_miniserver_notifications",
+    "unique_id": "4d53676c-616c-6c4e-ffff-4e4f474c31303041",
+    "name": null,
+    "original_name": "Notifications",
     "has_entity_name": true,
     "disabled": false,
     "device_name": "PyLoxone Test Miniserver",
