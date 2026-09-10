@@ -13,6 +13,22 @@
     "0",
     "28"
   ],
+  "globalStates": {
+    "notifications": "4d53676c-616c-6c4e-ffff-4e4f474c31303041"
+  },
+  "messageCenter": {
+    "MessageCenter": {
+      "name": "Message Center",
+      "type": "MessageCenter",
+      "compound": false,
+      "details": {},
+      "states": {
+        "changed": "4d536763-6867-2020-ffff-4d53686720202001"
+      },
+      "uuidAction": "4d536763-7474-6c63-ffff-4d536774746c6301",
+      "isHidden": false
+    }
+  },
   "rooms": {
     "726f6f6d-0101-9617-ffff-c6f7572726f6000001": {
       "name": "Parlour"

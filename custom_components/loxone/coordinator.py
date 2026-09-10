@@ -14,6 +14,7 @@ from .const import (
     DEFAULT_PORT,
     DEFAULT_VERIFY_SSL,
     EVENT,
+    loxone_message_signal,
     loxone_uuid_signal,
 )
 from .miniserver import MiniServer
@@ -237,6 +238,10 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         # The public bus event first (automations), with the owning entry
         # id so user automations can discriminate instances.
         self.hass.bus.async_fire(EVENT, {**message, ATTR_ENTRY_ID: entry_id})
+        # WP-6.2: one full-message signal per entry for platforms that need
+        # message fields the per-uuid fan-out cannot express (the
+        # Message Center sensor's getEntries responses).
+        async_dispatcher_send(self.hass, loxone_message_signal(entry_id), message)
         for uuid, value in message.items():
             if not isinstance(uuid, str):
                 continue

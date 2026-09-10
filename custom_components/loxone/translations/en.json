@@ -164,6 +164,14 @@
     "unsupported_firmware": {
       "title": "Loxone Miniserver firmware is not supported",
       "description": "The Miniserver reports firmware {version} and the integration requires at least {minimum}. Update the Miniserver firmware (Loxone Config app) and reload the entry. Until then the JSON websocket session this integration relies on may not be available."
+    },
+    "loxone_status": {
+      "title": "{title}",
+      "description": "{description}"
+    },
+    "loxone_device_status": {
+      "title": "{title}: {name}",
+      "description": "{description}"
     }
   }
 }

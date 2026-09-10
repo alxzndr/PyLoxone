@@ -90,6 +90,14 @@
     "unsupported_firmware": {
       "title": "Firmware Loxone Miniserveru není podporován",
       "description": "Miniserver hlásí firmware {version}, integrace vyžaduje alespoň {minimum}. Aktualizujte firmware Miniserveru (aplikace Loxone Config) a znovu načtěte záznam. Do té doby nemusí být k dispozici JSON websocket koppání, na kterém integrace závisí."
+    },
+    "loxone_status": {
+      "title": "{title}",
+      "description": "{description}"
+    },
+    "loxone_device_status": {
+      "title": "{title}: {name}",
+      "description": "{description}"
     }
   }
 }

@@ -8,8 +8,12 @@ https://home-assistant.io/components/loxone/
 import ast
 import copy
 import json
+import math
 import re
-from typing import Any, Iterator
+from datetime import datetime
+from typing import Any, Final, Iterator
+
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, cfmt
 
@@ -240,6 +244,35 @@ def software_version_string(version):
     if isinstance(version, (list, tuple)):
         return ".".join(str(part) for part in version if part is not None and str(part) != "")
     return str(version)
+
+
+# WP-6.2: the Miniserver's Message Center ``changed`` state is a counter
+# of *milliseconds since 2009-01-01T00:00:00Z* (Loxone's internal epoch),
+# unlike the Message Center entry ``timestamps`` which are plain Unix
+# epoch seconds.  The second literal is 2009-01-01T00:00:00Z in Unix
+# seconds (hand-derived); it is NOT produced by parsing a naive string
+# (``dt_util.parse_datetime`` leaves the datetime naive, whose
+# ``.timestamp()`` then shifts with the host's timezone).
+LOXONE_EPOCH_SECONDS: Final = 1230768000
+
+
+def loxone_timestamp(value) -> datetime | None:
+    """Convert a Loxone-epoch millisecond counter to an aware UTC datetime.
+
+    Accepts the millisecond counter the Message Center's ``changed``
+    state carries (ms since 2009-01-01T00:00:00Z) and returns the
+    equivalent aware UTC datetime.  Guards (returns None) so a corrupt
+    stream value cannot take the entity down: non-numbers, bools, non-finite
+    floats and values that overflow the platform's timestamp range.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    try:
+        return dt_util.utc_from_timestamp(value / 1000 + LOXONE_EPOCH_SECONDS)
+    except OverflowError, OSError, ValueError:
+        return None
 
 
 # CORE-30 (WP-5.2): floor for the ``unsupported_firmware`` repair issue.
