@@ -59,7 +59,7 @@ loop on real-world mDNS behaviour is live-check #20.
 - `custom_components/loxone/config_flow.py`
   - New module helpers, both clearly named so the VERIFY assumption
     sits in one readable place:
-    - **`_discovered_prefill(found) -> str, int | None`** — the single
+    - **`_discovered_prefill(found) -> tuple[str, int] | None`** — the single
       gate deciding what a raw `discover()` answer may contribute to
       the form: a 2-tuple of non-empty host string and 1..65535 port
       (bools/floats rejected); anything else → `None`.
