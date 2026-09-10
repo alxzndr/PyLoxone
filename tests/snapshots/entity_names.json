@@ -44,6 +44,17 @@
     "device_model": "presence"
   },
   {
+    "domain": "binary_sensor",
+    "entity_id": "binary_sensor.hall_main_door",
+    "unique_id": "63746c3a-0301-96d7-ffff-572617475726000098",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Main Door",
+    "device_model": "digital"
+  },
+  {
     "domain": "button",
     "entity_id": "button.hall_introduce_pushbutton",
     "unique_id": "63746c3a-0161-9747-ffff-f64756365205000097",

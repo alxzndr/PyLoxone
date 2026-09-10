@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal, final
+from collections.abc import Mapping
+from typing import Any, Literal, final
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -23,6 +24,100 @@ LOXONE_DEVICE_CLASS_MAP: dict[str, BinarySensorDeviceClass] = {
     "presence": BinarySensorDeviceClass.PRESENCE,
     "smoke": BinarySensorDeviceClass.SMOKE,
 }
+
+#
+# WP-6.4 (#402): ``InfoOnlyDigital`` controls carry no control-type hint a
+# device class could be derived from, so the class is *inferred* from the
+# labels the LoxConfig author actually wrote:
+#
+#   1. ``details.text`` — the control's own on/off display text (e.g.
+#      ``{"on": "Bewegung erkannt", "off": "Frei"}``).  Matched *exactly*
+#      (case/space-insensitive): real Loxone labels are short phrases, and
+#      a substring match would class a "No motion" off-label as `motion`.
+#      Text wins: it is per-control and more specific than the category.
+#   2. the control *category* name (e.g. "Doors") — matched by substring,
+#      because Loxone categories are multi-word groupings.
+#
+# Both sources are user data in any language, so the tables carry the
+# common EN/DE spellings; anything unknown keeps the current behaviour
+# (no device class).  The tables are a heuristic that needs a
+# live-Miniserver check before it is assumed right (VERIFY, see the PR).
+_DIGITAL_TEXT_PHRASES: dict[str, BinarySensorDeviceClass] = {
+    "open": BinarySensorDeviceClass.OPENING,
+    "closed": BinarySensorDeviceClass.OPENING,
+    "offen": BinarySensorDeviceClass.OPENING,
+    "zugefallen": BinarySensorDeviceClass.OPENING,
+    "door open": BinarySensorDeviceClass.DOOR,
+    "door closed": BinarySensorDeviceClass.DOOR,
+    "tür offen": BinarySensorDeviceClass.DOOR,
+    "tür zu": BinarySensorDeviceClass.DOOR,
+    "moving": BinarySensorDeviceClass.MOVING,
+    "motion": BinarySensorDeviceClass.MOTION,
+    "bewegung": BinarySensorDeviceClass.MOTION,
+    "bewegung erkannt": BinarySensorDeviceClass.MOTION,
+    "smoke": BinarySensorDeviceClass.SMOKE,
+    "rauch": BinarySensorDeviceClass.SMOKE,
+    "gas": BinarySensorDeviceClass.GAS,
+    "water leak": BinarySensorDeviceClass.MOISTURE,
+    "flood": BinarySensorDeviceClass.MOISTURE,
+    "water": BinarySensorDeviceClass.MOISTURE,
+    "wasserschaden": BinarySensorDeviceClass.MOISTURE,
+    "vibration": BinarySensorDeviceClass.VIBRATION,
+    "window open": BinarySensorDeviceClass.WINDOW,
+    "window closed": BinarySensorDeviceClass.WINDOW,
+    "fenster offen": BinarySensorDeviceClass.WINDOW,
+    "fenster zu": BinarySensorDeviceClass.WINDOW,
+}
+
+_DIGITAL_CATEGORY_KEYWORDS: tuple[tuple[tuple[str, ...], BinarySensorDeviceClass], ...] = (
+    (("door", "tür"), BinarySensorDeviceClass.DOOR),
+    (("window", "fenster"), BinarySensorDeviceClass.WINDOW),
+    (("motion", "bewegung"), BinarySensorDeviceClass.MOTION),
+    (("smoke", "rauch"), BinarySensorDeviceClass.SMOKE),
+    (("gas",), BinarySensorDeviceClass.GAS),
+    (("water", "leak", "flood", "wasserschaden"), BinarySensorDeviceClass.MOISTURE),
+    (("vibration",), BinarySensorDeviceClass.VIBRATION),
+    # a breaker whose category says it powers something → power available
+    (("energy", "power"), BinarySensorDeviceClass.PLUG),
+)
+
+
+def _normalize_label(label: object) -> str | None:
+    """A text label to the canonical lowercase-space-normalised form.
+
+    Returns ``None`` for anything that is not a string.
+    """
+    if not isinstance(label, str):
+        return None
+    normalised = " ".join(label.split())
+    return normalised.casefold() or None
+
+
+def _category_device_class(category: str) -> BinarySensorDeviceClass | None:
+    """Category-name → device class (substring, case-insensitive)."""
+    if not isinstance(category, str):
+        return None
+    needle = category.casefold()
+    for keywords, device_class in _DIGITAL_CATEGORY_KEYWORDS:
+        if any(keyword in needle for keyword in keywords):
+            return device_class
+    return None
+
+
+def infer_digital_device_class(details: Mapping[str, Any] | None, category: str) -> BinarySensorDeviceClass | None:
+    """``InfoOnlyDigital`` → HA binary sensor device class (WP-6.4, #402).
+
+    Pure: no entity state, no HA.  The control's own on/off text
+    (``details.text.{on,off}``) wins over the category name; both are user
+    data, everything is ``.get()``-guarded, and unknown inputs degrade to
+    ``None`` (the pre-inference behaviour) instead of aborting the platform.
+    """
+    text = (details or {}).get("text") if isinstance(details, Mapping) else None
+    if isinstance(text, Mapping):
+        for label in (text.get("on"), text.get("off")):
+            if (phrase := _normalize_label(label)) and (device_class := _DIGITAL_TEXT_PHRASES.get(phrase)):
+                return device_class
+    return _category_device_class(category)
 
 
 async def async_setup_platform(
@@ -127,6 +222,12 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
         self._attr_available = True
         if self.type in LOXONE_DEVICE_CLASS_MAP:
             self._attr_device_class = LOXONE_DEVICE_CLASS_MAP[self.type]
+        elif self.type == "digital" and not self._parent_id:
+            # WP-6.4 (#402): InfoOnlyDigital has no control-type hint; the
+            # class is inferred from the control's on/off text and its
+            # category (or stays None when neither yields a match).
+            # Sub-sensors keep their dedicated class (fan presence, …).
+            self._attr_device_class = infer_digital_device_class(kwargs.get("details", {}), kwargs.get("cat", ""))
         else:
             self._attr_device_class = None
 

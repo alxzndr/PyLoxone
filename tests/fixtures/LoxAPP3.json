@@ -174,6 +174,26 @@
       "isFavorite": false,
       "isSecured": false
     },
+    "63746c3a-0301-96d7-ffff-572617475726000098": {
+      "name": "Main Door",
+      "type": "InfoOnlyDigital",
+      "uuidAction": "63746c3a-0301-96d7-ffff-572617475726000098",
+      "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
+      "cat": "6361743a-0171-96f7-ffff-36361743a446000113",
+      "details": {
+        "text": {
+          "on": "ON",
+          "off": "OFF"
+        }
+      },
+      "states": {
+        "active": "36333734-0302-9336-ffff-d303131322d3000099",
+        "values": "36333734-0303-9336-ffff-d303131322d3000100"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
     "63746c3a-0116-9617-ffff-57320496e707000022": {
       "name": "Status Input",
       "type": "TextInput",

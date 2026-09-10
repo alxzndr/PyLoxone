@@ -29,6 +29,15 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
+- `InfoOnlyDigital` binary sensors get an inferred `device_class` (WP-6.4,
+  #402): first the control's own on/off display text (`details.text`),
+  then the control's category name.  Common EN/DE label phrases map to
+  `motion`, `moving`, `opening`, `door`, `window`, `smoke`, `gas`,
+  `moisture` and `vibration`; categories are substring-matched ("Doors"
+  → `door`, "Energy" → `plug`).  Controls without a matching label or
+  category stay classless as before, and the keyword tables are a
+  heuristic that needs a live-Miniserver check (flagged in the PR).
+  Entity ids, device identities and unique ids are unchanged.
 - Device registry and identity (WP-3.3): the Miniserver itself is now a
   device in the registry (`Miniserver <serial>`, model
   `ControlVersion8.61.0` already reported by the server, the real

@@ -1,6 +1,6 @@
 # Live-Miniserver checks required before proposing this upstream
 
-Everything in the 2026-09 remediation work is covered by 522 automated tests, but a
+Everything in the 2026-09 remediation work is covered by 530 automated tests, but a
 test can only prove that the code does what we *believe* the Loxone protocol wants.
 The items below are the places where that belief is an assumption. Each was
 deliberately implemented behind a named helper so the assumption sits in one
@@ -145,6 +145,22 @@ logger:
 - **Pass:** wrong password is rejected *in the form*, not after the entry is
   created; reauth appears and succeeds.
 - **Also:** adding the same Miniserver twice should abort as already configured.
+
+### 13. `InfoOnlyDigital` device-class inference table (WP-6.4, #402)
+
+- **Helper:** `infer_digital_device_class` in `custom_components/loxone/binary_sensor.py`
+- **The doubt:** the keyword tables are a guess at the labels and category
+  names LoxConfig authors actually use. The expected outcomes are pinned in
+  `tests/test_digital_device_class.py` with hand-derived literals, but the
+  coverage of the tables themselves is an assumption.
+- **Test:** on a real Miniserver, inspect a few `InfoOnlyDigital` controls
+  (their `details.text` and category name) and check the `device_class`
+  their binary sensors end up with.
+- **Pass:** the class matches what a human would expect for the control, or
+  it stays classless where nothing can reasonably be inferred.
+- **Fail / adjust:** a labelled control ended up classless, or was classed
+  wrongly — add or correct the phrase/keyword in the two tables (one place
+  each).
 
 ---
 
