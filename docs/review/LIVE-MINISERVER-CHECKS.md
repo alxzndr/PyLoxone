@@ -455,3 +455,34 @@ Also observed on that installation: `except A, B:` (unparenthesised, PEP 758) is
 20 places across 12 files. It is valid only on Python 3.14+, which the supported Home
 Assistant floor already requires, so it is not a live defect — but it does pin the
 minimum interpreter silently, and `ruff` will not flag it while `target-version = "py314"`.
+
+### Attempted 2026-09-10: LightsceneRGB write path (item 22) — INCONCLUSIVE
+
+Tried against two live `LightsceneRGB` blocks. Four candidate commands were sent and
+**none produced any state change** on `red`, `green`, `blue`, `color` or `activeScene`:
+
+    red/100                 (the shape lightscene_channel_command currently assumes)
+    hsv(0,100,100)          (the ColorPickerV2 shape; `color` is reported as hsv(...))
+    setColor/hsv(0,100,100)
+    color/hsv(0,100,100)
+
+The subscription was confirmed live — the baseline was read from the state stream, not
+the structure file — so the Miniserver received the commands and ignored them.
+
+This does **not** prove the assumed command is wrong. Both blocks on that installation
+have an empty `sceneList` and `activeScene: -1`, i.e. no scenes are configured on the
+Loxone side, and the physical strips are driven by a Shelly device whose wiring lives in
+Loxone Config and is therefore invisible in `LoxAPP3.json`. An unconfigured block would
+ignore every command regardless of shape.
+
+To settle it, someone needs a `LightsceneRGB` with a populated `sceneList`. The cheapest
+method is to change the scene from the Loxone app while watching the control's state
+stream: that reveals both whether the block reacts and whether `color` or the
+`red`/`green`/`blue` channels is authoritative, without having to guess a write command.
+
+Until then `lightscene_channel_command` and `lightscene_on_command` remain assumptions,
+and the read path (channels authoritative) is equally unconfirmed.
+
+Note for anyone driving RGB strips through a Shelly: Home Assistant talks to Shelly
+devices natively. Going via a Loxone `LightsceneRGB` is only worthwhile if the Loxone
+*scenes* need to be visible in Home Assistant.
