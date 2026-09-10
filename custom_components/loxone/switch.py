@@ -23,6 +23,63 @@ from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
 
+# WP-6.3 (#466): the newer firmware reports the same intercom block as
+# ``IntercomV2``; the reporter whose V2-suffix workaround worked
+# (@mousator, JoDehli/PyLoxone#466) confirms the sub-controls are
+# handled the same way.  The match lives in this one tuple: the
+# ``iter_controls`` filter and the dispatch below both use it.
+INTERCOM_TYPES = ("Intercom", "IntercomV2")
+
+
+def intercom_sub_control_kwargs(control, config_entry=None, loxconfig=None):
+    """``LoxoneIntercomSubControl`` kwargs for the sub-controls of one
+    intercom block (``Intercom`` / ``IntercomV2``) — WP-6.3, #466.
+
+    One kwargs dict per *actable* sub-control: it must advertise an
+    ``active`` state stream (PS-05: without one the switch cannot
+    report state at all — it is skipped with a warning instead of
+    raising on every event).  Each keeps its own name (the device is
+    named after the intercom — WP-5.1), carries the parent's
+    ``uuidAction`` as ``parent_id``, and shares the parent's device
+    payload so the device registry merges all sub-controls onto the
+    intercom's one device.  Every ``states``/``subControls`` lookup is
+    guarded with ``.get()``: a malformed structure file yields no
+    sub-switches, never an aborted platform.
+    """
+    if not isinstance(control, dict):
+        return []
+    parent_uuid = control.get("uuidAction")
+    if not isinstance(parent_uuid, str) or not parent_uuid:
+        # PC-05: device_info_for needs the parent uuid for the shared
+        # device identifiers; without it there is no device to attach to.
+        return []
+    model = control.get("type") or "Intercom"
+    device_info = device_info_for(config_entry, parent_uuid, control.get("name", ""), model, control.get("room", ""))
+    kwargs_list: list[dict] = []
+    subcontrols = control.get("subControls")
+    if not isinstance(subcontrols, dict):
+        return kwargs_list
+    for sub_name, subcontrol in subcontrols.items():
+        if not isinstance(subcontrol, dict):
+            continue
+        # Work on a copy: the setup path hands the helper a shallow copy
+        # of the cached structure file, and entities mutate their kwargs.
+        subcontrol = dict(subcontrol)
+        if loxconfig is not None:
+            subcontrol = add_room_and_cat_to_value_values(loxconfig, subcontrol)
+        states = subcontrol.get("states")
+        active = states.get("active") if isinstance(states, dict) else None
+        if not active:
+            _LOGGER.warning(
+                "Skipping Intercom sub-control %s: no 'active' state",
+                subcontrol.get("name", sub_name),
+            )
+            continue
+        subcontrol["parent_id"] = parent_uuid
+        subcontrol["device_info"] = device_info
+        kwargs_list.append(subcontrol)
+    return kwargs_list
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -35,7 +92,7 @@ async def async_setup_entry(
     entities = []
 
     for switch_entity in iter_controls(
-        hass, config_entry, ["Switch", "TimedSwitch", "Intercom", "IRoomControllerV2", "LightControllerV2"]
+        hass, config_entry, ["Switch", "TimedSwitch", *INTERCOM_TYPES, "IRoomControllerV2", "LightControllerV2"]
     ):
         try:
             if switch_entity["type"] in ["Switch"]:
@@ -46,32 +103,11 @@ async def async_setup_entry(
                 new_switch = LoxoneTimedSwitch(**switch_entity)
                 entities.append(new_switch)
 
-            elif switch_entity["type"] == "Intercom":
-                for sub_name in switch_entity.get("subControls", {}) or {}:
-                    subcontrol = switch_entity["subControls"][sub_name]
-                    subcontrol = add_room_and_cat_to_value_values(loxconfig, subcontrol)
-                    # WP-5.1: the sub-control keeps its *own* name — the
-                    # device is named after the Intercom (its payload is
-                    # passed alongside), so prefixing the master name
-                    # would duplicate it in the UI (has_entity_name).
-                    # PS-05: a sub-control without an `active` state cannot
-                    # report at all -- skip it instead of raising on every event.
-                    if not subcontrol.get("states", {}).get("active"):
-                        _LOGGER.warning(
-                            "Skipping Intercom sub-control %s: no 'active' state",
-                            subcontrol.get("name", sub_name),
-                        )
-                        continue
-
-                    subcontrol["parent_id"] = switch_entity.get("uuidAction")
-                    subcontrol["device_info"] = device_info_for(
-                        config_entry,
-                        switch_entity.get("uuidAction"),
-                        switch_entity.get("name"),
-                        "Intercom",
-                        switch_entity.get("room", ""),
-                    )
-                    new_switch = LoxoneIntercomSubControl(**subcontrol)
+            elif switch_entity["type"] in INTERCOM_TYPES:
+                # WP-6.3 (#466): IntercomV2 is handled like Intercom —
+                # the pure helper keeps this branch at one call site.
+                for sub_kwargs in intercom_sub_control_kwargs(switch_entity, config_entry, loxconfig):
+                    new_switch = LoxoneIntercomSubControl(**sub_kwargs)
                     entities.append(new_switch)
             elif switch_entity["type"] == "IRoomControllerV2":
                 states = switch_entity.get("states", {})

@@ -531,6 +531,34 @@
         }
       }
     },
+    "63746c3a-9c7d-96f2-ffff-e301696e743276000024": {
+      "name": "Entrance Intercom",
+      "type": "IntercomV2",
+      "uuidAction": "63746c3a-9c7d-96f2-ffff-e301696e743276000024",
+      "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
+      "cat": "6361743a-0164-9637-ffff-269747963617000100",
+      "details": {},
+      "states": {
+        "active": "36333734-9c8d-9336-ffff-d303136a2b42d300025"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false,
+      "subControls": {
+        "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026": {
+          "name": "Door Lock",
+          "type": "IntercomSubControl",
+          "uuidAction": "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026",
+          "details": {},
+          "states": {
+            "active": "37333735-9cad-9336-ffff-d303136b2c42d300027"
+          },
+          "defaultRating": 0,
+          "isFavorite": false,
+          "isSecured": false
+        }
+      }
+    },
     "63746c3a-016a-9696-ffff-8746e6573732000106": {
       "name": "Brightness Slider",
       "type": "Slider",

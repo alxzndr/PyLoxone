@@ -226,6 +226,35 @@ logger:
   a control with no matching states simply yields no sub-registers today, so the
   failure mode is missing data, never a crash.
 
+### 17. `IntercomV2` block shape and sub-control command names (WP-6.3, #466)
+
+- **Helper:** `intercom_sub_control_kwargs` / `INTERCOM_TYPES` in
+  `custom_components/loxone/switch.py` (the fixture entry
+  "Entrance Intercom" in `tests/fixtures/LoxAPP3.json` encodes the
+  assumed shape)
+- **The doubt:** no structure file from a Miniserver that reports
+  `IntercomV2` was held at the time of writing. The block is treated
+  as wire-compatible with the legacy `Intercom`: same
+  `subControls` fan-out, each sub-control needing one `active`
+  state stream to report state, master binds on the control's own
+  `uuidAction`. Turn-on sends `on` on the sub-control's action
+  uuid, turn-off sends `Off` (inherited from `LoxoneSwitch`) —
+  note the case mismatch with the lowercase `on`, which
+  pre-dates this WP and applies to legacy Intercoms too.
+- **Test:** with debug logging on, find an `IntercomV2` control in
+  the structure file and compare its `states`/`subControls` against
+  the fixture entry; then turn one sub-control on and off from HA
+  and watch the outgoing commands in the debug log.
+- **Pass:** the sub-controls appear the way the Loxone app sees them,
+  the switch reflects the sub-control's real state after each feed,
+  and both operands are executed on the Miniserver without a
+  `Message not handled`.
+- **Fail / adjust:** a V2 sub-control has a different state set
+  (no `active`) or different command names — adjust the fan-out in
+  `intercom_sub_control_kwargs` (one place) and, if the off
+  command is case-sensitive, give `LoxoneIntercomSubControl` an
+  explicit `turn_off` there (one place).
+
 ---
 
 ## Regression sweep
@@ -243,6 +272,7 @@ users will notice:
 | #501 | a Window without `targetPosition` sets up and reports position |
 | #512 | an RGB light can be turned on with brightness in one call |
 | #402 | sensors carry sensible device classes |
+| #466 | an intercom control of type `IntercomV2` creates its sub-control switches (e.g. a door lock) the way a legacy `Intercom` does |
 
 A practical way to exercise #475 and #486 together: reboot the Miniserver from the
 Loxone app and watch Home Assistant recover on its own.

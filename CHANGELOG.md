@@ -90,6 +90,22 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   category stay classless as before, and the keyword tables are a
   heuristic that needs a live-Miniserver check (flagged in the PR).
   Entity ids, device identities and unique ids are unchanged.
+- Intercoms now also match `IntercomV2` (WP-6.3, JoDehli/PyLoxone#466):
+  newer firmware (~16.2+) reports the same intercom block with the V2
+  suffix, and before this change the switch platform simply skipped it
+  (only a light and a custom push button got imported).  Both block
+  shapes now fan out their `subControls` the same way — each sub-control
+  that advertises an `active` state stream becomes a switch on the
+  intercom's device (e.g. a door-lock sub-control); sub-controls without
+  one are skipped with a warning (PS-05 semantics, unchanged).  The
+  match lives in one place (`INTERCOM_TYPES`) and the fan-out in one
+  pure helper (`intercom_sub_control_kwargs`).  **VERIFY**: the V2
+  sub-control modelled in the test fixture (one `active` stream, master
+  and sub on the intercom's shared device) is inferred from the
+  reporter's V2-suffix workaround, not from a live structure file — a
+  live-Miniserver check is required before merge (item in
+  `docs/review/LIVE-MINISERVER-CHECKS.md`).  Existing entities are
+  unchanged.
 - Device registry and identity (WP-3.3): the Miniserver itself is now a
   device in the registry (`Miniserver <serial>`, model
   `ControlVersion8.61.0` already reported by the server, the real

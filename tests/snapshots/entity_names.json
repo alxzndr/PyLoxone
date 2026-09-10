@@ -683,6 +683,17 @@
   },
   {
     "domain": "switch",
+    "entity_id": "switch.hall_entrance_intercom_door_lock",
+    "unique_id": "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026",
+    "name": null,
+    "original_name": "Door Lock",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entrance Intercom",
+    "device_model": "IntercomV2"
+  },
+  {
+    "domain": "switch",
     "entity_id": "switch.parlour_living_room_light_switch",
     "unique_id": "63746c3a-0157-9766-ffff-e6720526f6f6000087",
     "name": null,
