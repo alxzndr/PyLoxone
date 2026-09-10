@@ -11,6 +11,35 @@ import asyncio
 import re
 import socket
 
+# A responding Miniserver announces itself as
+#   ``LoxLIVE:<software version> <ip>:<port> (Mac ...) Hardware: ...``
+# and the HTTP service then runs on the announced port.  The trailing
+# space after the port is part of the observed format.
+_DISCOVERY_RESPONSE_RE = re.compile(r"^LoxLIVE:.* (?P<ip>(?:[0-9]{1,3}\.){3}[0-9]{1,3}):(?P<port>\d+) ")
+
+
+def parse_discovery_response(response: str) -> tuple[str, int] | None:
+    """Parse a LoxLIVE broadcast reply into ``(ip, port)``.
+
+    Pure function, hand-testable: returns the announced IPv4 address and
+    port, or ``None`` when the reply is not a LoxLIVE announcement or
+    announces unusable values (an IP octet above 255 or a port above
+    65535).  Callers may treat ``None`` as "no usable Miniserver
+    advertised" and fall back to manual entry.
+    """
+    if not isinstance(response, str):
+        return None
+    if (found := _DISCOVERY_RESPONSE_RE.match(response)) is None:
+        return None
+    ip = found.group("ip")
+    port = int(found.group("port"))
+    if port > 65535:
+        return None
+    octets = ip.split(".")
+    if len(octets) != 4 or any(int(octet) > 255 for octet in octets):
+        return None
+    return ip, port
+
 
 async def discover(wait: int = 5) -> tuple[str, int, str] | None:
     """
@@ -28,8 +57,6 @@ async def discover(wait: int = 5) -> tuple[str, int, str] | None:
 
 def _discover_blocking(wait: int) -> tuple[str, int, str] | None:
     """Blocking Loxone discovery. Runs on a worker thread, never on the event loop."""
-    r = re.compile(r"^LoxLIVE:.* ((?:[0-9]{1,3}\.){3}[0-9]{1,3}):(\d+) ")
-
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP) as read_sock:
         read_sock.setblocking(False)
         read_sock.bind(("0.0.0.0", 7071))
@@ -45,11 +72,10 @@ def _discover_blocking(wait: int) -> tuple[str, int, str] | None:
             read_sock.settimeout(float(wait))
             try:
                 response = read_sock.recv(1024).decode()
-            except socket.timeout, TimeoutError, OSError:
+            except TimeoutError, OSError:
                 return None
 
             # Look for a Loxone Response.
-            if (found := re.match(r, response)) is not None:
-                ip, port = found.groups()
-                return ip, int(port), response
+            if (found := parse_discovery_response(response)) is not None:
+                return found[0], found[1], response
             return None

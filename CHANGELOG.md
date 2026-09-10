@@ -29,6 +29,19 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
+- Setup form discovery (WP-6.9, CORE-19): opening the Loxone setup form
+  runs one best-effort LoxLIVE broadcast probe (UDP 7070/7071, the
+  vendored `pyloxone_api.discover`) and prefills the address and port of
+  a Miniserver that answers on the LAN.  The probe has a 2-second
+  budget, runs once per flow (the reauth flow never probes), and a
+  failed/probeless LAN only leaves the fields blank — manual input
+  always wins, so a multi-Miniserver home is unaffected.  Deliberately
+  not an HA `zeroconf` step: the Miniserver runs mDNS but advertises no
+  Loxone mDNS service, so no `zeroconf` entry was added to
+  `manifest.json` (live re-check listed in
+  `docs/review/LIVE-MINISERVER-CHECKS.md`).  The vendored `discover.py`
+  gained a pure, validating parser (`parse_discovery_response`: rejects
+  non-LoxLIVE lines, IPv4 octets above 255, and ports above 65535).
 - Audio zones get the missing media controls (WP-6.7, PC-43): the
   `AudioZoneV2` media player now advertises `turn_on` / `turn_off`
   (zone power), `volume_mute` (mute / unmute), and `select_source`

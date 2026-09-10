@@ -1,6 +1,6 @@
 # Live-Miniserver checks required before proposing this upstream
 
-Everything in the 2026-09 remediation work is covered by 643 automated tests, but a
+Everything in the 2026-09 remediation work is covered by 689 automated tests, but a
 test can only prove that the code does what we *believe* the Loxone protocol wants.
 The items below are the places where that belief is an assumption. Each was
 deliberately implemented behind a named helper so the assumption sits in one
@@ -303,6 +303,36 @@ logger:
   `intercom_sub_control_kwargs` (one place) and, if the off
   command is case-sensitive, give `LoxoneIntercomSubControl` an
   explicit `turn_off` there (one place).
+
+### 20. LoxLIVE broadcast discovery in the setup form (WP-6.9, CORE-19)
+
+- **Helpers:** `_discover_miniserver` / `_discovered_prefill` in
+  `custom_components/loxone/config_flow.py` and
+  `parse_discovery_response` in
+  `custom_components/loxone/pyloxone_api/discover.py` (the wire regex
+  lives there, unchanged from the vendored original).
+- **The doubts:** (1) whether the reply of a *current* Miniserver still
+  matches the vendored format `^LoxLIVE:<version> <ip>:<port> (Mac ...)`,
+  incl. the space after the port; (2) whether the UDP 7070 broadcast
+  reaches the Miniserver from the HA host in its typical deployments
+  (Docker bridge / macvlan, VLAN); (3) whether the port in the reply
+  header is always the actual HTTP service port (i.e. valid as the form
+  port prefill).
+- **Test:** with Home Assistant on the same LAN, open
+  Settings → Devices & Services → Add Device → Loxone.  Watch the host
+  and port fields *before* typing anything, and confirm setup with the
+  prefilled values.  Then run the same with two Miniservers on the LAN
+  (or a Wi-Fi isolation profile) and verify the form still completes with
+  a manually corrected address.
+- **Pass:** the real address and port are prefilled, the entry is created
+  and loads; on a broadcast-free LAN the fields are simply blank within
+  ~2 s and setup works by typing.
+- **Fail/adjust:** no prefill despite peer connectivity → packet-capture
+  the 7070/7071 exchange from the HA host; if the reply format differs,
+  fix **`parse_discovery_response`** (one place); if UDP is blocked, that
+  is a deployment property — the probe must stay best-effort and silent.
+  If the header port turns out to be the *discovery* port rather than the
+  HTTP port, stop taking the port from the reply (prefill host only).
 
 ---
 

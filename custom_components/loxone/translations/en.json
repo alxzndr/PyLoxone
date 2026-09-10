@@ -36,7 +36,7 @@
     "step": {
       "user": {
         "title": "Set up Loxone",
-        "description": "Configure your Loxone Miniserver connection. The form is only submitted once the Miniserver accepts the credentials.",
+        "description": "Configure your Loxone Miniserver connection. If a Miniserver answered the network probe, its address is already prefilled — adjust it if it is not your unit. The form is only submitted once the Miniserver accepts the credentials.",
         "data": {
           "username": "User",
           "port": "Port",

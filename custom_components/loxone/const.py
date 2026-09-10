@@ -31,6 +31,14 @@ LOXONE_DEFAULT_PORT = 8080
 
 ERROR_VALUE = -1
 DEFAULT_PORT = 8080
+# WP-6.9: how long (seconds) the config flow waits for a LoxLIVE broadcast
+# answer when prefilling the setup form.  A Miniserver on the LAN replies
+# within milliseconds; the window only bounds the "no answer / UDP blocked"
+# case, and the form must never open more slowly than this.
+# Note: this is the LoxLIVE UDP broadcast (ports 7070/7071), NOT HA's mDNS
+# ``zeroconf`` hook -- the Miniserver runs mDNS but does not advertise a
+# Loxone service, so no ``zeroconf`` entry is added to the manifest.
+DISCOVERY_WAIT = 2
 DEFAULT_VERIFY_SSL = True
 DEFAULT_DELAY_SCENE = 3
 DEFAULT_IP = ""

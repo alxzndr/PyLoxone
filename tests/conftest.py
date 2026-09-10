@@ -50,6 +50,37 @@ def enable_custom_integrations(hass):
     custom_components.__path__ = original
 
 
+@pytest.fixture(autouse=True)
+def loxone_flow_discovery_off():
+    """WP-6.9: the config flow's LoxLIVE broadcast probe is off in tests.
+
+    In production the first render of the user step broadcasts a one-byte
+    payload to 255.255.255.255:7070 (``pyloxone_api.discover``).  Test
+    machines must not fire real broadcasts onto a LAN (nor spend a 2-second
+    no-answer window in every flow test): this pins
+    ``config_flow.loxone_broadcast_discover`` to "no answer", which is
+    exactly the pre-WP-6.9 behaviour the rest of the suite keeps testing.
+    ``tests/test_wp69_discovery.py`` repatches the same attribute per test
+    to exercise the probe itself.
+    """
+    import custom_components
+
+    original_path = list(custom_components.__path__)
+    custom_components.__path__ = [str(REPO_ROOT / "custom_components")]
+    try:
+        from custom_components.loxone import config_flow
+    except ImportError:
+        custom_components.__path__ = original_path
+        return
+
+    async def _no_answer(wait: int = 5):
+        return None
+
+    with patch.object(config_flow, "loxone_broadcast_discover", _no_answer):
+        yield
+    custom_components.__path__ = original_path
+
+
 @pytest.fixture
 def mock_connection(hass, loxapp3, enable_custom_integrations):
     """Patch `LoxoneConnection.open` to skip auth and seed `structure_file`.

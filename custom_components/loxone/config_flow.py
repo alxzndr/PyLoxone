@@ -49,9 +49,11 @@ from .const import (
     DEFAULT_GENERATE_GROUPS,
     DEFAULT_PORT,
     DEFAULT_VERIFY_SSL,
+    DISCOVERY_WAIT,
     DOMAIN,
 )
 from .pyloxone_api.connection import LoxoneConnection
+from .pyloxone_api.discover import discover as loxone_broadcast_discover
 from .pyloxone_api.exceptions import LoxoneUnauthorisedError, SESSION_TRANSPORT_ERRORS
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,12 +85,69 @@ def _connection_fields(host: str = "", port: int = DEFAULT_PORT, username: str =
     }
 
 
-DATA_SCHEMA_USER = vol.Schema(
-    {
-        **_connection_fields(),
-        vol.Required(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): BooleanSelector(),
-    }
-)
+def _user_form_schema(host: str = "", port: int = DEFAULT_PORT) -> vol.Schema:
+    """The user form schema, with prefillable host/port defaults.
+
+    The defaults come from the LoxLIVE broadcast probe (see
+    :func:`_discover_miniserver`) when it found a Miniserver on the LAN;
+    otherwise they stay blank/``DEFAULT_PORT``.  Prefill never restricts
+    input — a submitted value always wins.
+    """
+    return vol.Schema(
+        {
+            **_connection_fields(host=host, port=port),
+            vol.Required(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): BooleanSelector(),
+        }
+    )
+
+
+def _discovered_prefill(found) -> tuple[str, int] | None:
+    """WP-6.9: reduce a raw ``discover()`` answer to a usable form prefill.
+
+    The single place that decides what a LoxLIVE broadcast reply may
+    contribute to the setup form before anything is shown: a 2-tuple of a
+    non-empty host string and an in-range port (``1..65535``); anything
+    else (``None``, a differently shaped or out-of-range answer) becomes
+    ``None`` and the form opens blank, exactly like before this feature.
+    """
+    if (
+        isinstance(found, tuple)
+        and len(found) == 2
+        and isinstance(found[0], str)
+        and found[0]
+        and isinstance(found[1], int)
+        and not isinstance(found[1], bool)
+        and 1 <= found[1] <= 65535
+    ):
+        return found[0], found[1]
+    return None
+
+
+async def _discover_miniserver() -> tuple[str, int] | None:
+    """Best-effort LoxLIVE broadcast probe (pyloxone_api ``discover.py``).
+
+    Runs ONCE per flow, only while the first form is being rendered, and
+    may never block manual entry: a timeout, a blocked/bound-collision UDP
+    socket, or a malformed reply all become ``None`` (blank form).  The
+    Miniserver never sees our probe as an action — it only answers with
+    its address.
+
+    Deliberately NOT an HA ``zeroconf`` step: the Miniserver speaks mDNS
+    but advertises no Loxone service, so a ``manifest.json``
+    ``"zeroconf"`` hook could never match (verified against the Miniserver
+    networking documentation; flag for one live re-check, see
+    docs/review/LIVE-MINISERVER-CHECKS.md).
+    """
+    # OSError: the socket work (bind/send/recv), including the timeout;
+    # UnicodeDecodeError: a reply byte sequence the protocol parser could
+    # not decode.  Any failure here means "no usable address", never a
+    # reason to break the manual flow.
+    try:
+        found = await loxone_broadcast_discover(DISCOVERY_WAIT)
+    except (OSError, UnicodeDecodeError) as err:
+        _LOGGER.debug("LoxLIVE broadcast discovery failed: %s", err)
+        return None
+    return _discovered_prefill(found)
 
 
 def _reauth_confirm_schema(current: Mapping[str, Any]) -> vol.Schema:
@@ -236,6 +295,10 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
         # Serial observed by the most recent successful connection test
         # (set per submitted form, read in the same step).
         self._last_serial: str = ""
+        # WP-6.9: the LoxLIVE probe result for this flow run (``None`` =
+        # no Miniserver answered, or the probe failed).  Probed exactly
+        # once, on the first render of the user form.
+        self._discovered: tuple[str, int] | None = None
 
     @staticmethod
     def async_get_options_flow(_config_entry):
@@ -282,8 +345,13 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
     # user
     # ------------------------------------------------------------------ #
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """First run: connect, identify the Miniserver, create the entry."""
+        """First run: discover (best effort), connect, identify, create."""
         if user_input is None:
+            # One best-effort LoxLIVE broadcast per flow run; the answer
+            # only prefills the form, it never short-circuits the
+            # connection test on submit.
+            if self._discovered is None:
+                self._discovered = await _discover_miniserver()
             return self._show_user_form({})
         error = await self._validate_and_connect(user_input)
         if error is not None:
@@ -318,7 +386,8 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     def _show_user_form(self, errors: dict[str, str]) -> ConfigFlowResult:
-        return self.async_show_form(step_id="user", data_schema=DATA_SCHEMA_USER, errors=errors)
+        host, port = self._discovered if self._discovered is not None else ("", DEFAULT_PORT)
+        return self.async_show_form(step_id="user", data_schema=_user_form_schema(host=host, port=port), errors=errors)
 
     # ------------------------------------------------------------------ #
     # reauth (CORE-19 / CORE-09)
