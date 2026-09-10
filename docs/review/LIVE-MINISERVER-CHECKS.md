@@ -334,6 +334,80 @@ logger:
   If the header port turns out to be the *discovery* port rather than the
   HTTP port, stop taking the port from the reply (prefill host only).
 
+### 21. NfcCodeTouch `codeDate` format and auth-event trigger (WP-6.10, PS-27)
+
+- **Helpers:** `nfc_code_date`, `nfc_auth_event_payload` and
+  `LoxoneNfcCodeTouchSensor.event_handler` in
+  `custom_components/loxone/sensor.py` (the fixture control "Entry NFC" in
+  `tests/fixtures/LoxAPP3.json` encodes the assumed state map, with the
+  real uuids from a live structure file).
+- **The doubts:** (1) nothing documents the wire format of the NFC
+  reader's `codeDate` state. `nfc_code_date` assumes either a
+  Loxone-epoch millisecond counter (the epoch family of the Message
+  Center's `changed` state) or a `YYYY-MM-DD HH:MM:SS` / ISO-8601 string
+  read as UTC; (2) "an authentication happened" is inferred from a
+  *change* of the `codeDate` value — the integration cannot tell a real
+  authentication from the initial state push the Miniserver sends when
+  the subscription is established, so the first `codeDate` after (re)
+  connecting also fires one `loxone_nfc_auth` event, and an event is not
+  fired if the reader re-authenticates with the same *code date*
+  granularity (the `events` state was not consumed for this still);
+  (3) the `deviceState` register value is surfaced raw, its numeric
+  meaning is not documented anywhere we hold.
+- **Test:** with debug logging on, authenticate at the reader and watch
+  the `codeDate` stream's raw value and the `sensor.<reader>` / Code
+  Date sensors; check the `loxone_nfc_auth` event payload in the log.
+- **Pass:** the parse yields the actual authentication instant, and one
+  event per authentication lands on the bus.
+- **Fail / adjust:** the stream carries a different format (e.g. a
+  Unix timestamp, an ISO string with a local offset, or an LoxApp date
+  string) → correct `nfc_code_date` (one place); if a *separate*
+  `lastid`/`events` payload is the reliable authentication marker,
+  change the trigger in
+  `LoxoneNfcCodeTouchSensor.event_handler` (one place) to that stream
+  instead.
+- **Confirmed meanwhile:** `lastcode`/`lasttag` are treated as
+  credentials and are *not* published as state, attribute or event
+  payload (PS-27 rule, enforced by
+  `tests/test_wp610_nfc_lightscene.py`).
+
+### 22. LightsceneRGB colour authority, write commands and scene shape (WP-6.10, PS-27)
+
+- **Helpers:** `lightscene_channel_value`, `lightscene_channel_command`,
+  `lightscene_on_command`, `lightscene_off_command` in
+  `custom_components/loxone/light.py`; `lightscene_scene_lookup`,
+  `lightscene_active_scene_option`, `lightscene_scene_command` in
+  `custom_components/loxone/select.py` (the fixture controls "Cinema
+  Light 1" / "Cinema Light 2" carry the real state maps).
+- **The doubts:** (1) authoritative colour source: the control advertises
+  both a combined `color` state and separate `red`/`green`/`blue`
+  channels. The light entity uses **the three channels** (they map
+  11:1 to `ColorMode.RGB`), and ignores `color` — if the channels turn
+  out to be empty/stale in practice, the entity will read (0,0,0) and
+  the `color` string is the fallback (it would have to be parsed the
+  `hsv(...)`/`temp(...)` way `lights/colorpickers.py` does); (2) the
+  outbound write path is undocumented: `turn_on(rgb_color=…)` sends the
+  three channel commands `red/<0-100>` / `green/<0-100>` /
+  `blue/<0-100>` one by one, `turn_off` sends `Off`, and a plain power-on
+  sends `On` — the two bare words mirror `TunableWhiteLight` /
+  `LoxoneSwitch`, the channel command shape is a guess; (3) `sceneList`
+  is `{}` on the live installation, so its populated shape is
+  assumed to be either a list of names or the Radio-style
+  `{number: name}` dict, and `activeScene` is assumed to report a scene
+  name or a zero-based index.
+- **Test:** turn on a scene light from HA with an rgb color and with a
+  plain power on, turn it off, and watch the debug log for the outgoing
+  commands and the Miniserver's reaction; if the installation gains
+  scenes, select one from the `Scene` select (it appears only when
+  `sceneList` is populated) and watch `activeScene`.
+- **Pass:** the Miniserver executes the commands, the channels follow,
+  and the scene select tracks the active scene.
+- **Fail / adjust:** a command is a `Message not handled` no-op →
+  correct the command shape in the helper the failing direction uses
+  (one place each); the `color` stream is the one that actually moves →
+  consume it in `LoxoneLightsceneRGB.event_handler` instead of/alongside
+  the channels (one place).
+
 ---
 
 ## Regression sweep

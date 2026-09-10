@@ -29,6 +29,19 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
+- NfcCodeTouch and LightsceneRGB controls now create entities (WP-6.10,
+  PS-27 — both types were confirmed present on a live Miniserver with no
+  entities before). NfcCodeTouch: a `lastuser` sensor plus diagnostic
+  `codeDate` (timestamp) and `deviceState` sensors, and a
+  `loxone_nfc_auth` bus event fired on every `codeDate` change carrying
+  *who* and *when* — `lastcode`/`lasttag` are credentials and are never
+  exposed (treated like the CORE-08 serial; verify items are live checks
+  #21/#22 in `docs/review/LIVE-MINISERVER-CHECKS.md`).
+  LightsceneRGB: a `light` entity in `ColorMode.RGB` driven by the
+  `red`/`green`/`blue` channel states (the combined `color` stream is
+  deliberately not consumed), and — only when `details.sceneList` is
+  populated — a `select` over it; an empty sceneList degrades to no
+  select entity instead of a broken one.
 - Setup form discovery (WP-6.9, CORE-19): opening the Loxone setup form
   runs one best-effort LoxLIVE broadcast probe (UDP 7070/7071, the
   vendored `pyloxone_api.discover`) and prefills the address and port of
