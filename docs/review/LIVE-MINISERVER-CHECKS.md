@@ -1,6 +1,6 @@
 # Live-Miniserver checks required before proposing this upstream
 
-Everything in the 2026-09 remediation work is covered by 530 automated tests, but a
+Everything in the 2026-09 remediation work is covered by 643 automated tests, but a
 test can only prove that the code does what we *believe* the Loxone protocol wants.
 The items below are the places where that belief is an assumption. Each was
 deliberately implemented behind a named helper so the assumption sits in one
@@ -77,11 +77,60 @@ logger:
 - **Note:** if you have no V1 controller, say so — the safest resolution is then to
   make the V1 path refuse unknown modes loudly instead of guessing.
 
+### 5. Audio zone on-off commands (WP-6.7, PC-43)
+
+- **Helper:** `audio_zone_power_command` in `custom_components/loxone/media_player.py`
+- **The doubt:** `turn_on` / `turn_off` on an AudioZoneV2 send `on` / `off`
+  (mirroring the power sub-command naming seen in other LoxApp
+  integrations), and the zone reads `off` when its `active` stream
+  reports 0. Neither the command words nor the `active`-stream
+  semantics are documented anywhere we hold.
+- **Test:** call `media_player.turn_on` / `media_player.turn_off` on a
+  zone and watch the debug log for the outgoing command.
+- **Pass:** the Loxone app agrees the zone is on/off; the entity reads
+  `off` while powered off.
+- **Fail:** the app does not change the zone. Capture what the Loxone
+  app sends for the same action and correct the helper.
+
+### 6. Audio zone mute / unmute commands (WP-6.7, PC-43)
+
+- **Helper:** `audio_zone_mute_command` in `custom_components/loxone/media_player.py`
+- **The doubt:** `volume_mute` sends `mute` / `unmute`, and the
+  `mute` stream is read as a 0/1 mute flag via
+  `audio_zone_two_state`.
+- **Test:** call `media_player.volume_mute` with and without
+  `is_volume_muted` on a zone; mute/unmute the same zone in the
+  Loxone app and watch the `mute` stream.
+- **Pass:** the wire value changes exactly when the app mutes;
+  the entity's mute flag follows both directions.
+- **Fail:** the app ignores the command or the stream encodes mute
+  differently (e.g. `1` means *un*muted). Correct the helper / the
+  two-state mapping.
+
+### 7. Audio zone source selection and stream shapes (WP-6.7, PC-43)
+
+- **Helpers:** `audio_zone_source_command`, `audio_zone_stream_names_list`,
+  `audio_zone_metadata` in `custom_components/loxone/media_player.py`
+- **The doubt:** `select_source` sends `source/<name>`; the
+  `sourceList` / `favouriteList` streams are assumed to push JSON name
+  lists; the `metadata` stream is assumed to be a JSON object with
+  `title` / `artist` / `album`.
+- **Test:** play something from two different sources; switch the
+  source in the Loxone app and in HA. Watch the four
+  streams (`source`, `sourceList`, `favouriteList`, `metadata`) in
+  the debug log for their real payloads.
+- **Pass:** the command selects the source and `source` / the media
+  attributes follow.
+- **Fail:** the command is ignored, or the streams carry a different
+  shape (e.g. `sourceList` is a dict, `metadata` is absent). Adjust the
+  helpers to the observed wiring (drop the `metadata` stream entirely if
+  the server does not push it).
+
 ---
 
 ## Non-blocking — correctness of detail
 
-### 5. Username percent-encoding: UTF-8 vs latin-1 (API-12)
+### 8. Username percent-encoding: UTF-8 vs latin-1 (API-12)
 
 - **Helper:** `percent_encode_credential` in `pyloxone_api/connection.py`
 - **The doubt:** usernames are now percent-encoded in protocol commands. We encode
@@ -91,7 +140,7 @@ logger:
 - **Pass:** authentication succeeds. **Fail:** flip the encoding in that one helper.
 - **Related:** upstream #506, where the HTTP side had the same class of bug.
 
-### 6. Strict header-to-body frame sequencing (API-18)
+### 9. Strict header-to-body frame sequencing (API-18)
 
 - **Where:** `_do_start_listening` in `pyloxone_api/connection.py`
 - **The doubt:** framing no longer guesses from message length; it reads a header
@@ -101,7 +150,7 @@ logger:
   `Message not handled` or framing errors in the debug log.
 - **Pass:** none appear and states keep updating.
 
-### 7. Library-level ping disabled (API-06)
+### 10. Library-level ping disabled (API-06)
 
 - **Where:** `websocket_options` in `pyloxone_api/connection.py`, `ping_interval=None`
 - **The doubt:** we now rely solely on Loxone's own 30s keepalive. If the server or
@@ -110,20 +159,20 @@ logger:
 - **Pass:** no unexplained reconnects. **Fail:** set `ping_interval` to something
   above 30s rather than re-enabling the 20s default.
 
-### 8. Cloud DNS redirect keeps the scheme (API-11)
+### 11. Cloud DNS redirect keeps the scheme (API-11)
 
 - **Test:** only if you use `https://dns.loxonecloud.com/<serial>`. Configure it and
   confirm setup completes and the websocket connects.
 - **Pass:** connects. The bug was `wss://` being used against a plain-HTTP endpoint.
 
-### 9. `killtoken` form for JWT tokens (API-17)
+### 12. `killtoken` form for JWT tokens (API-17)
 
 - **The doubt:** the token is now killed on entry removal using the legacy 32-char
   form. Whether it also cancels SHA256 JSON-web tokens is unconfirmed.
 - **Test:** remove the integration, then check the Miniserver's token list.
 - **Pass:** the token is gone.
 
-### 10. Colour picker type mapping and default Kelvin (WP-4.3)
+### 13. Colour picker type mapping and default Kelvin (WP-4.3)
 
 - **The doubt:** `PICKER_TYPE_TO_CLASS` maps integer `pickerType` values
   (`0 = RGB`, and so on), and `DEFAULT_TURN_ON_KELVIN = 4000` is a chosen default
@@ -131,13 +180,13 @@ logger:
 - **Test:** with an RGB and a tunable-white picker, confirm each is created as the
   right entity type and that turning on from cold produces a sensible white.
 
-### 11. Media player stop uses `pause` (PC-43)
+### 14. Media player stop uses `pause` (PC-43)
 
 - **The doubt:** `MediaPlayerEntityFeature.STOP` is implemented by sending `pause`,
   because no distinct stop command is known for AudioZoneV2.
 - **Test:** press stop on a media player entity. **Pass:** playback stops.
 
-### 12. Config flow connection test and reauth (WP-3.4)
+### 15. Config flow connection test and reauth (WP-3.4)
 
 - **Test:** add the integration with a deliberately wrong password. Then add it
   with the right one. Then change the password on the Miniserver and confirm Home
@@ -146,7 +195,7 @@ logger:
   created; reauth appears and succeeds.
 - **Also:** adding the same Miniserver twice should abort as already configured.
 
-### 13. `InfoOnlyDigital` device-class inference table (WP-6.4, #402)
+### 16. `InfoOnlyDigital` device-class inference table (WP-6.4, #402)
 
 - **Helper:** `infer_digital_device_class` in `custom_components/loxone/binary_sensor.py`
 - **The doubt:** the keyword tables are a guess at the labels and category
@@ -162,7 +211,7 @@ logger:
   wrongly — add or correct the phrase/keyword in the two tables (one place
   each).
 
-### 14. `Tracker` entries payload shape (WP-6.6, PS-26)
+### 17. `Tracker` entries payload shape (WP-6.6, PS-26)
 
 - **Helper:** `tracker_entries` in `custom_components/loxone/sensor.py`
 - **The doubt:** the `entries` stream of a Tracker control is assumed to push a
@@ -182,7 +231,7 @@ logger:
   device uuids, …) — parse it in `tracker_entries` (one place) so the
   sensor reads the intended value.
 
-### 15. `UpDownDigital` rocker on-press semantics (WP-6.6, PS-26)
+### 18. `UpDownDigital` rocker on-press semantics (WP-6.6, PS-26)
 
 - **Helper:** `LoxoneUpDownDigitalButton.async_press` in
   `custom_components/loxone/button.py` (sends `UpOn` / `DownOn`)
@@ -204,7 +253,7 @@ logger:
   release it — add a state to `LoxoneUpDownDigitalButton` (one place)
   and send the matching `<side>Off` on toggle-off.
 
-### 16. Meter-family register set (WP-6.5, PS-26)
+### 19. Meter-family register set (WP-6.5, PS-26)
 
 - **Helper:** `METER_STATE_CLASSES` / `METER_FORMAT_KEYS` /
   `meter_sub_sensor_kwargs` in `custom_components/loxone/sensor.py`

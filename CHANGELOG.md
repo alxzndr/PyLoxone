@@ -29,7 +29,26 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
-- Meter family (WP-6.5, PS-26): `EnergyManager`, `EnergyManager2`,
+- Audio zones get the missing media controls (WP-6.7, PC-43): the
+  `AudioZoneV2` media player now advertises `turn_on` / `turn_off`
+  (zone power), `volume_mute` (mute / unmute), and `select_source`
+  (the zone's selectable source names from `details.sources` / the
+  pushed `sourceList` stream; selecting an unknown name is a no-op).
+  The currently active source and the zone's favourites are exposed as
+  the `source` and `favourites` attributes, and a `metadata` stream
+  (JSON object with `title` / `artist` / `album`) feeds
+  `media_title` / `media_artist` / `media_album_name`; a zone the
+  server reports powered off reads as `off` regardless of
+  `playState`.  **VERIFY**: the wire values (`on` / `off`,
+  `mute` / `unmute`, `source/<name>`) and the stream payload shapes
+  (`sourceList` / `favouriteList` as JSON name lists, `metadata` as a
+  JSON object) sit behind the named helpers `audio_zone_power_command`,
+  `audio_zone_mute_command`, `audio_zone_source_command`,
+  `audio_zone_stream_names_list` and `audio_zone_metadata` and need a
+  live-Miniserver check before relying on them (see
+  `docs/review/LIVE-MINISERVER-CHECKS.md`).
+- Meter family (WP-6.5, PS-26):
+ `EnergyManager`, `EnergyManager2`,
   `PowerUnit` and `Wallbox` controls now create sensor sub-entities
   for their registers with the same names and classifications as the
   legacy `Meter` ("Actual" → power/measurement; "Total" / "Total Neg"

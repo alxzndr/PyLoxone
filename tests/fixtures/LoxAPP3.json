@@ -923,7 +923,9 @@
       "details": {
         "devices": {
           "1": "Living Room Speaker"
-        }
+        },
+        "sources": ["Radio", "Library", "AirPlay"],
+        "favourites": ["Classical Mix", "Jazz Station"]
       },
       "states": {
         "active": "36333734-01b7-9336-ffff-d303162362d3000183",
@@ -932,7 +934,10 @@
         "volume": "36333734-01ba-9336-ffff-d303162362d3000186",
         "mute": "36333734-01bb-9336-ffff-d303162362d3000187",
         "fadeIn": "36333734-01bc-9336-ffff-d303162362d3000188",
-        "fadeOut": "36333734-01bd-9336-ffff-d303162362d3000189"
+        "fadeOut": "36333734-01bd-9336-ffff-d303162362d3000189",
+        "playState": "36333734-01be-9336-ffff-d303162362704c73",
+        "metadata": "36333734-01bf-9336-ffff-d303162362726d74",
+        "favouriteList": "36333734-01c3-9336-ffff-d303162362666c73"
       },
       "defaultRating": 2,
       "isFavorite": false,

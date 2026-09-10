@@ -385,8 +385,11 @@ def test_media_player_advertsts_stop_feature() -> None:
     assert e.supported_features & MediaPlayerEntityFeature.STOP
     assert e.supported_features & MediaPlayerEntityFeature.PAUSE
     assert e.supported_features & MediaPlayerEntityFeature.PLAY
-    # Unchanged by this WP:
-    assert not (e.supported_features & MediaPlayerEntityFeature.SELECT_SOURCE)
+    # WP-6.7 added source selection / mute / on-off to the advertised set:
+    assert e.supported_features & MediaPlayerEntityFeature.SELECT_SOURCE
+    assert e.supported_features & MediaPlayerEntityFeature.VOLUME_MUTE
+    assert e.supported_features & MediaPlayerEntityFeature.TURN_ON
+    assert e.supported_features & MediaPlayerEntityFeature.TURN_OFF
 
 
 async def test_media_stop_sends_pause_command(hass) -> None:
