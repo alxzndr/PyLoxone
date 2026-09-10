@@ -37,6 +37,24 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
   registers a control advertises are created, and the registers of one
   control share one device.  The pattern is one generalised pure
   helper (`meter_sub_sensor_kwargs`) driving all five types.
+- More control on existing controls (WP-6.8, JoDehli/PyLoxone#323, #398):
+  the alarm panel now advertises `ARM_NIGHT` and `ARM_VACATION` (the
+  Mushroom night/vacation icons work: night arms with delay — the
+  `delayedon/1` home arm —, vacation arms without it), and the arming
+  delay is surfaced as `armed_delay` / `armed_delay_total_delay`
+  attribute values in whole seconds (or `None` before the server has
+  streamed them); Gate cover entities with a `position` state stream
+  advertise `SET_POSITION` (`cover.set_cover_position` sends
+  `manualPosition/<position>`); Jalousies with sun automation get a
+  "Sun auto" select entity on the same device (`Off` / `Auto` /
+  `Shade` sends `NoAuto` / `auto` / `shade`) alongside the existing
+  cover services; AcControl climates report `hvac_action` and their
+  setter services (`set_hvac_mode`, `set_temperature`, `set_fan_mode`,
+  `set_swing_mode`) now run on the event loop, so they actually reach
+  the Miniserver instead of failing in the executor.
+  **VERIFY**: the night/vacation mapping, the gate `manualPosition`
+  orientation, and the `Shade` display pin need a live-Miniserver check
+  before relying on them.  (Night and vacation passed.)
 
 - New Loxone control types (WP-6.6, PS-26):
   `InfoOnlyText` shows up as a read-only text sensor alongside the

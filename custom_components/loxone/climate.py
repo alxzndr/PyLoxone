@@ -870,6 +870,28 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
 
 
 # ------------------ AC CONTROL --------------------------------------------------------
+def ac_hvac_action(status, mode):
+    """Map the AcControl `status`/`mode` states to an HVACAction (WP-6.8).
+
+    Intended semantics (hand-derived from the Loxone AcControl state
+    table the properties above already encode): unit off (``status``
+    falsy) → IDLE; mode 2 → HEATING, 3 → COOLING, 4 → DRYING, 5 → FAN;
+    the auto mode (1) — and any unknown value — has no single action,
+    so it reports IDLE while ``hvac_mode`` still shows AUTO.
+    """
+    if not status:
+        return HVACAction.IDLE
+    if mode == 2:
+        return HVACAction.HEATING
+    if mode == 3:
+        return HVACAction.COOLING
+    if mode == 4:
+        return HVACAction.DRYING
+    if mode == 5:
+        return HVACAction.FAN
+    return HVACAction.IDLE
+
+
 class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
     """Representation of a ACControl Loxone device."""
 
@@ -952,6 +974,12 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
             return
         self._send(f"setTarget/{temp}")
 
+    async def async_set_temperature(self, **kwargs):
+        """Event-loop entry point (PC-14): HA's generic `async_set_temperature`
+        runs the sync version in the executor, which would send from the
+        wrong loop.  #398 polish: make the service actually work."""
+        self.set_temperature(**kwargs)
+
     @property
     def hvac_mode(self) -> HVACMode | None:
         """Return hvac operation ie. heat, cool mode.
@@ -972,6 +1000,11 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
             return HVACMode.AUTO
         return HVACMode.OFF
 
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        """What the unit is doing right now (WP-6.8, #398 polish)."""
+        return ac_hvac_action(self.get_state_value("status"), self.get_state_value("mode"))
+
     def set_hvac_mode(self, hvac_mode):
         """Set new target hvac mode (PC-25: OFF sends only ``off``)."""
         if hvac_mode == HVACMode.OFF:
@@ -991,6 +1024,11 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
 
         self._send("on")
         self._send(f"setMode/{mode}")
+
+    async def async_set_hvac_mode(self, hvac_mode):
+        """Event-loop entry point (PC-14): HA would otherwise run the sync
+        version in the executor.  #398 polish."""
+        self.set_hvac_mode(hvac_mode)
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -1041,6 +1079,10 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
             return
         self._send(f"setFan/{fan_id}")
 
+    async def async_set_fan_mode(self, fan_mode):
+        """Event-loop entry point (PC-14).  #398 polish."""
+        self.set_fan_mode(fan_mode)
+
     @property
     def fan_modes(self) -> list[str]:
         """Return the list of available fan modes ([] when not offered)."""
@@ -1063,6 +1105,10 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
             _LOGGER.debug("Unknown swing mode %r for %s (%s)", swing_mode, self._lox_name, self.type)
             return
         self._send(f"setAirDir/{airflow_id}")
+
+    async def async_set_swing_mode(self, swing_mode):
+        """Event-loop entry point (PC-14).  #398 polish."""
+        self.set_swing_mode(swing_mode)
 
     @property
     def swing_modes(self) -> list[str]:

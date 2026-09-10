@@ -423,7 +423,9 @@ def _cover_state_ids(hass, loxapp3) -> dict[str, str]:
             continue
         control_type = type_by_uuid.get(entry.unique_id)
         if control_type:
-            collected[control_type] = entry.entity_id
+            # First entity of a type wins: the fixture carries two Jalousies
+            # since WP-6.8 and these tests target the original one.
+            collected.setdefault(control_type, entry.entity_id)
     return collected
 
 
