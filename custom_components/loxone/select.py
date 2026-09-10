@@ -140,7 +140,158 @@ async def async_setup_entry(
         jalousie.update({"hass": hass, "config_entry": config_entry})
         entities.append(LoxoneJalousieAuto(**jalousie))
 
+    # WP-6.10 / PS-27: the LightsceneRGB scene select.  Only created when
+    # the control's `sceneList` is populated: on the live Miniserver that
+    # confirmed this control type (firmware 17.2.8.28) the sceneList is
+    # empty, and an empty sceneList must degrade to *no* select (PS-19,
+    # same guard shape as the empty-Radio skip above) rather than a
+    # broken zero-option entity.
+    for scene_light in iter_controls(hass, config_entry, "LightsceneRGB"):
+        try:
+            options, _raw = lightscene_scene_lookup(scene_light.get("details"))
+            if not options:
+                _LOGGER.debug(
+                    "LightsceneRGB control %s has an empty sceneList; no scene select is created",
+                    scene_light.get("name") or scene_light.get("uuidAction") or "?",
+                )
+                continue
+            scene_light.update({"config_entry": config_entry})
+            entities.append(LoxoneLightsceneRGBScene(**scene_light))
+        except Exception:
+            _LOGGER.exception("Skipping LightsceneRGB scene select %s", scene_light.get("name", "?"))
+
     async_add_entities(entities)
+
+
+# --------------------------------------------------------------------------- #
+# WP-6.10 (PS-27): LightsceneRGB scene select
+# --------------------------------------------------------------------------- #
+
+
+def lightscene_scene_lookup(details) -> tuple[list[str], list[str]]:
+    """The scene names of one LightsceneRGB `details.sceneList` as
+    ``(options, raw_labels)`` — pre-dedupe labels kept in the same order.
+
+    The real entry shape is not documented in anything we hold (VERIFY —
+    live check #22); both plausible shapes are accepted:
+
+    * a dict `{scene number: scene name}` (the Radio `outputs` shape) —
+      the key order is sorted, the name values are the labels;
+    * a bare list of names.
+
+    The PS-27 degrade rule: a missing, non-dict/non-list or otherwise
+    *empty* `sceneList` (the state of the block on the live Miniserver)
+    yields ``([], [])`` and the setup skips the select — a broken
+    zero-option entity is never created (PS-19).
+    """
+    if not isinstance(details, dict):
+        return [], []
+    scene_list = details.get("sceneList")
+    if isinstance(scene_list, dict):
+        raw = [
+            str(value).strip() if isinstance(value, str) and value.strip() else str(key)
+            for key, value in sorted(scene_list.items(), key=lambda item: str(item[0]))
+        ]
+    elif isinstance(scene_list, (list, tuple)):
+        raw = [str(item).strip() for item in scene_list if isinstance(item, str) and item.strip()]
+    else:
+        return [], []
+    used: set[str] = set()
+    options = [_dedupe_label(label, used) for label in raw]
+    return options, raw
+
+
+def lightscene_active_scene_option(value, options: list[str], raw_labels: list[str]) -> str | None:
+    """Map the LightsceneRGB `activeScene` stream to a select option.
+
+    Intended semantics (VERIFY — live check #22): `activeScene` reports
+    either the scene *name* (matching a `sceneList` label) or the scene's
+    *index* within the `sceneList` (numeric value or all-digit string).
+    Unknown values — renamed scenes, out-of-range indexes, non-scalar
+    garbage — return ``None`` so the select keeps its last known option
+    instead of crashing or bouncing.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        index = int(value)
+        return options[index] if 0 <= index < len(options) else None
+    if isinstance(value, str):
+        text = value.strip()
+        if text in raw_labels:
+            return options[raw_labels.index(text)]
+        if text.lstrip("-").isdigit() and 0 <= int(text) < len(options):
+            return options[int(text)]
+    return None
+
+
+def lightscene_scene_command(option: str) -> str:
+    """The outbound command that activates one scene (VERIFY —
+    live check #22).
+
+    No wire capture documents the LightsceneRGB write path; this assumes
+    the `scene/<name>` shape (the way scene-selecting controls elsewhere
+    address their scenes by name).
+    """
+    return f"scene/{option}"
+
+
+class LoxoneLightsceneRGBScene(LoxoneEntity, SelectEntity):
+    """LightsceneRGB (WP-6.10, PS-27): a scene select over the control's
+    `sceneList`.
+
+    Only ever constructed for a *populated* `sceneList` (the setup
+    guard); the `activeScene` stream reflects the currently active scene.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = "LightsceneRGB"
+        # WP-5.1: short sub-entity name; the device is the scene light's
+        # own control device (CORE-26).
+        self._attr_name = "Scene"
+        # The light entity takes the bare `uuidAction`; the select needs
+        # its own registry identity on the same device.
+        self._attr_unique_id = f"{self.uuidAction}/scene"
+        self._attr_options, self._raw_labels = lightscene_scene_lookup(kwargs.get("details"))
+        states = kwargs.get("states")
+        states = states if isinstance(states, dict) else {}
+        self._active_scene_uuid = (
+            states.get("activeScene")
+            if isinstance(states.get("activeScene"), str) and states.get("activeScene")
+            else None
+        )
+        self._attr_current_option: str | None = None
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, self.room
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the activeScene stream.
+        return frozenset({self._active_scene_uuid}) if self._active_scene_uuid else frozenset()
+
+    @callback
+    def event_handler(self, e: dict) -> None:
+        if self._active_scene_uuid and self._active_scene_uuid in e:
+            option = lightscene_active_scene_option(e[self._active_scene_uuid], self._attr_options, self._raw_labels)
+            if option is not None:
+                self._attr_current_option = option
+                self.async_write_ha_state()
+
+    async def select_option(self, option: str) -> None:
+        if option not in self._attr_options:
+            raise HomeAssistantError(f"Option {option} is not a scene of {self._lox_name}")
+        self._send(lightscene_scene_command(option))
+        self._attr_current_option = option
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {
+            **self._attr_extra_state_attributes,
+            "device_type": self.type,
+        }
 
 
 class LoxoneSelect(LoxoneEntity, SelectEntity):

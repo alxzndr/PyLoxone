@@ -44,6 +44,11 @@ DEFAULT_DELAY_SCENE = 3
 DEFAULT_IP = ""
 
 EVENT = "loxone_event"
+# WP-6.10 (PS-27): the per-authentication event fired on the bus by the
+# NfcCodeTouch sensor (see `sensor.py`).  The payload carries the control
+# identity, *who* (`user` = `lastuser`) and *when* (`code_date`) — and,
+# per the PS-27 credential rule, never `lastcode` / `lasttag`.
+EVENT_NFC_AUTH = "loxone_nfc_auth"
 DOMAIN = "loxone"
 LOX_CONFIG = "loxconfig"
 

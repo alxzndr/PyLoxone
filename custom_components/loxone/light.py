@@ -1,12 +1,19 @@
 import logging
+import math
 from enum import StrEnum
 
+from homeassistant.components.light import (
+    ATTR_RGB_COLOR,
+    ColorMode,
+    LightEntity,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .helpers import add_room_and_cat_to_value_values, get_all
+from . import LoxoneEntity
+from .helpers import add_room_and_cat_to_value_values, device_info_for, get_all, hass_to_lox, iter_controls
 from .lights.colorpickers import LumiTech, RGBColorPicker, TunableWhiteLight
 from .lights.dimmer import EIBDimmer, LoxoneDimmer
 from .lights.lightcontroller import LoxoneLightControllerV2
@@ -56,6 +63,155 @@ def picker_class_for(picker_type):
     representations; note in particular that ``0`` (RGB) is a valid, falsy
     value (the old truthiness check silently skipped every RGB picker)."""
     return PICKER_TYPE_TO_CLASS.get(picker_type)
+
+
+# --------------------------------------------------------------------------- #
+# WP-6.10 (PS-27): LightsceneRGB
+#
+# The ``red`` / ``green`` / ``blue`` channel states are authoritative for
+# the entity's colour (verified against the live-block shape in
+# ``docs/review/2026-09-findings.md``; the separate combined ``color``
+# stream is **not** consumed — live check #22 records the assumption).
+# --------------------------------------------------------------------------- #
+
+LIGHTSCENE_CHANNELS = ("red", "green", "blue")
+
+
+def lightscene_channel_value(raw) -> float | None:
+    """Normalise a raw LightsceneRGB ``red``/``green``/``blue`` stream value
+    (a 0-100 % channel level) to a clamped ``[0.0, 100.0]`` float.
+
+    Accepts numbers and numeric strings (Loxone streams do both); bools,
+    non-numbers and non-finite values return ``None`` so one malformed
+    feed keeps the entity's last known colour instead of wiping it.
+    """
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, str):
+        try:
+            raw = float(raw.strip())
+        except ValueError:
+            return None
+    if not isinstance(raw, (int, float)) or not math.isfinite(raw):
+        return None
+    return min(100.0, max(0.0, float(raw)))
+
+
+def lightscene_channel_command(channel: str, value: float) -> str:
+    """The outbound command for one LightsceneRGB channel (VERIFY —
+    live check #22).
+
+    No structure file, upstream issue or wire capture documents the write
+    path of a ``LightsceneRGB`` control; this assumes the plain
+    ``<state>/<value>`` command shape the other Loxone controls use, with
+    the channel name as state and the 0-100 level as value (e.g.
+    ``red/50``).  Flip the whole write path here in one place.
+    """
+    return f"{channel}/{int(round(value))}"
+
+
+def lightscene_on_command() -> str:
+    """Turn-on command for a LightsceneRGB that was asked to come on with
+    no explicit colour (VERIFY — live check #22).
+
+    Assumes the bare ``On`` word, the same shape :class:`TunableWhiteLight`
+    sends for a stateless turn-on.
+    """
+    return "On"
+
+
+def lightscene_off_command() -> str:
+    """Turn-off command for a LightsceneRGB (VERIFY — live check #22).
+
+    Assumes the ``Off`` word, the same shape :class:`LoxoneSwitch` uses
+    for its ``turn_off``.
+    """
+    return "Off"
+
+
+class LoxoneLightsceneRGB(LoxoneEntity, LightEntity):
+    """LightsceneRGB control (WP-6.10, PS-27) as a RGB light.
+
+    The three channel states report the colour (0-100 % each); the
+    combined ``color`` stream is deliberately not consumed (the channels
+    are authoritative — see live check #22).  A scene over the control's
+    ``sceneList``, when populated, is exposed by the select platform.
+    """
+
+    _attr_supported_color_modes = {ColorMode.RGB}
+    _attr_available = False
+    _attr_icon = "mdi:lightbulb"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._attr_unique_id = self.uuidAction
+        self.type = "LightsceneRGB"
+        # HA refuses to render a light that reports no colour mode at all;
+        # UNKNOWN until the first channel feed establishes RGB (the
+        # ColorPickerV2 lights use the same initial value).
+        self._attr_color_mode = ColorMode.UNKNOWN
+        self._attr_rgb_color: tuple[int, int, int] | None = None
+        states = kwargs.get("states")
+        states = states if isinstance(states, dict) else {}
+        self._channel_uuids = {name: states.get(name) for name in LIGHTSCENE_CHANNELS}
+        self._channel_values: dict[str, float] = {}
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, self.room
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the three channel streams (the `color` stream is not consumed).
+        return frozenset(uuid for uuid in self._channel_uuids.values() if isinstance(uuid, str) and uuid)
+
+    def _rgb_color(self) -> tuple[int, int, int]:
+        """The channel values recomputed to the 0-255 RGB triplet HA stores."""
+        return tuple(int(round(255.0 * self._channel_values.get(name, 0.0) / 100.0)) for name in LIGHTSCENE_CHANNELS)
+
+    @property
+    def is_on(self) -> bool:
+        return any(value > 0 for value in self._channel_values.values())
+
+    @callback
+    def event_handler(self, e: dict) -> None:
+        update = False
+        for name, uuid in self._channel_uuids.items():
+            if isinstance(uuid, str) and uuid in e:
+                value = lightscene_channel_value(e[uuid])
+                if value is None:
+                    # A malformed feed part keeps the channel's last value.
+                    continue
+                self._channel_values[name] = value
+                update = True
+        if not update:
+            return
+        self._attr_rgb_color = self._rgb_color()
+        self._attr_color_mode = ColorMode.RGB
+        if not self._attr_available:
+            self._attr_available = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **_kwargs) -> None:
+        self._send(lightscene_off_command())
+        self.async_schedule_update_ha_state()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        if ATTR_RGB_COLOR in kwargs and isinstance(kwargs[ATTR_RGB_COLOR], (list, tuple)):
+            # Optimistic local model: mirror the requested 0-255 levels into
+            # the channel values before the server echoes them back.
+            for name, level in zip(LIGHTSCENE_CHANNELS, (int(c) for c in kwargs[ATTR_RGB_COLOR]), strict=True):
+                value = lightscene_channel_value(hass_to_lox(max(0, min(255, level))))
+                if value is not None:
+                    self._channel_values[name] = value
+                self._send(lightscene_channel_command(name, value if value is not None else 0.0))
+            self._attr_rgb_color = self._rgb_color()
+            self._attr_color_mode = ColorMode.RGB
+        else:
+            # A plain power-on (brightness excluded: the control has no
+            # brightness state) asks the Miniserver to restore its scene.
+            self._send(lightscene_on_command())
+        if not self._attr_available:
+            self._attr_available = True
+        self.async_schedule_update_ha_state()
 
 
 class DimmerTypes(StrEnum):
@@ -180,5 +336,15 @@ async def async_setup_entry(
             continue
 
         entities.append(picker_class(**color_picker))
+
+    # WP-6.10 / PS-27: the LightsceneRGB scene lights are standalone
+    # controls (no LightControllerV2 parent).  The red/green/blue channel
+    # streams drive the RGB light; a `select` over the control's
+    # `sceneList` is created by the select platform when it is populated.
+    for scene_light in iter_controls(hass, config_entry, "LightsceneRGB"):
+        try:
+            entities.append(LoxoneLightsceneRGB(**{**scene_light, "config_entry": config_entry}))
+        except Exception:
+            _LOGGER.exception("Skipping LightsceneRGB control %s", scene_light.get("name", "?"))
 
     async_add_entities(entities)

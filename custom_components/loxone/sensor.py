@@ -50,11 +50,14 @@ from homeassistant.util import dt as dt_util
 
 from . import LoxoneEntity
 from .const import (
+    ATTR_ENTRY_ID,
+    ATTR_UUID,
     CONF_ACTIONID,
     DEVICE_TYPE_ANALOG,
     DOMAIN,
     ERROR_VALUE,
     EVENT,
+    EVENT_NFC_AUTH,
     THROTTLE_KEEP_ALIVE_TIME,
     loxone_climate_demand_signal,
     loxone_message_signal,
@@ -544,6 +547,248 @@ def meter_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
     return kwargs_list
 
 
+# --------------------------------------------------------------------------- #
+# WP-6.10 (PS-27): NfcCodeTouch
+#
+# A Loxone NFC Code Touch is an access-control reader.  The ``lastcode``
+# and ``lasttag`` states identify *how* someone authenticated (a
+# credential) and are never exposed — not as a sensor state, not as an
+# attribute, not in the event payload (the same treatment the
+# Miniserver serial gets from CORE-08).  Only *who* (``lastuser``) and
+# *when* (``codeDate``) are surfaced; the per-authentication
+# ``loxone_nfc_auth`` bus event is the primary exposure (an access
+# device is interesting at the moment it authenticates, not as a
+# polled "last user" string).
+# --------------------------------------------------------------------------- #
+
+NFC_DEVICE_MODEL = "NfcCodeTouch"
+
+
+def nfc_code_date(value: Any) -> "datetime | None":
+    """Normalise a raw NfcCodeTouch ``codeDate`` stream value to an aware UTC datetime.
+
+    Intended semantics (**VERIFY** — live check #21 in
+    ``docs/review/LIVE-MINISERVER-CHECKS.md``): ``codeDate`` carries the
+    moment the last code was entered.  The wire format is not documented
+    in anything we hold, so the parse tries, in order:
+
+    1. a Loxone-epoch millisecond counter (the same epoch family the
+       Message Center's ``changed`` stream uses —
+       :func:`loxone_timestamp`), also as an all-digit string;
+    2. a ``2026-09-10 12:34:56`` / ISO-8601 string, read as UTC when
+       it carries no offset.
+
+    Anything unparseable returns ``None`` so the caller keeps its last
+    known value instead of going silent on a corrupt feed.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return loxone_timestamp(value)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.lstrip("-").isdigit():
+            return loxone_timestamp(int(text))
+        parsed = dt_util.parse_datetime(text)
+        if parsed is None:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt_util.UTC)
+        return dt_util.as_utc(parsed)
+    return None
+
+
+def nfc_auth_event_payload(*, control: dict, user: Any, code_date: Any, entry_id: str | None = None) -> dict:
+    """The bus-event data of one NfcCodeTouch authentication (PS-27).
+
+    The automation receives *who* (``user`` = the ``lastuser`` state)
+    and *when* (``code_date``: the parsed ISO-8601 UTC instant, falling
+    back to the raw string when the value is not parseable) plus the
+    control's identity and the owning config entry.  ``lastcode`` /
+    ``lasttag`` feed in nowhere: the credential of an authentication is
+    never part of this payload (PS-27 credential rule).
+    """
+    parsed = nfc_code_date(code_date)
+    payload = {
+        ATTR_UUID: control.get("uuidAction", ""),
+        "name": control.get("name", ""),
+        "user": None if user in (None, "") else str(user),
+        # ISO-8601 (aware UTC) for automation use, raw value when the
+        # format is not one this integration can parse.
+        "code_date": parsed.isoformat() if parsed is not None else (None if code_date is None else str(code_date)),
+    }
+    if entry_id is not None:
+        payload[ATTR_ENTRY_ID] = entry_id
+    return payload
+
+
+class LoxoneNfcCodeTouchSensor(LoxoneEntity, SensorEntity):
+    """NfcCodeTouch (PS-27): who last authenticated, and the per-authentication
+    ``loxone_nfc_auth`` bus event.
+
+    The state is the ``lastuser`` value (a credential-free "who").  The
+    entity also subscribes to ``codeDate``: every *change* of it fires
+    the authentication event with the current ``lastuser``.  The
+    ``lastcode`` / ``lasttag`` states are never consumed.
+    """
+
+    _attr_icon = "mdi:identifier"
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = NFC_DEVICE_MODEL
+        states = kwargs.get("states")
+        states = states if isinstance(states, dict) else {}
+        self._lastuser_uuid = states.get("lastuser") if isinstance(states.get("lastuser"), str) else None
+        self._code_date_uuid = states.get("codeDate") if isinstance(states.get("codeDate"), str) else None
+        self._attr_native_value: str | None = None
+        self._last_code_date_raw = None
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, self.room
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the lastuser stream (the state) plus codeDate (the event trigger).
+        return frozenset(uuid for uuid in (self._lastuser_uuid, self._code_date_uuid) if uuid)
+
+    def control_identity(self) -> dict:
+        """The ``uuidAction``/``name`` of the parent control, for the event payload."""
+        return {"uuidAction": self.uuidAction, "name": self._lox_name}
+
+    @callback
+    def event_handler(self, e: dict) -> None:
+        if self._lastuser_uuid and self._lastuser_uuid in e:
+            user = e[self._lastuser_uuid]
+            self._attr_native_value = None if user in (None, "") else str(user)
+            self.async_write_ha_state()
+        if self._code_date_uuid and self._code_date_uuid in e and e[self._code_date_uuid] != self._last_code_date_raw:
+            self._last_code_date_raw = e[self._code_date_uuid]
+            self._fire_auth_event(e[self._code_date_uuid])
+
+    def _fire_auth_event(self, code_date_raw: Any) -> None:
+        if self.hass is None:
+            return
+        coordinator = self._connection_coordinator()
+        entry_id = coordinator.config_entry.entry_id if coordinator is not None else None
+        self.hass.bus.async_fire(
+            EVENT_NFC_AUTH,
+            nfc_auth_event_payload(
+                control=self.control_identity(),
+                user=self._attr_native_value,
+                code_date=code_date_raw,
+                entry_id=entry_id,
+            ),
+        )
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {
+            **self._attr_extra_state_attributes,
+            "device_type": self.type,
+        }
+
+
+class LoxoneNfcCodeDateSensor(LoxoneEntity, SensorEntity):
+    """NfcCodeTouch (PS-27): when the last code was entered (diagnostic).
+
+    A TIMESTAMP sensor fed by the ``codeDate`` stream through
+    :func:`nfc_code_date`; unparseable values keep the last known instant.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = NFC_DEVICE_MODEL
+        # WP-5.1: short sub-entity name; the device is named after the
+        # parent control (CORE-26).
+        self._attr_name = "Code Date"
+        self._attr_unique_id = f"{self.uuidAction}-code_date"
+        states = kwargs.get("states")
+        states = states if isinstance(states, dict) else {}
+        self._code_date_uuid = (
+            states.get("codeDate") if isinstance(states.get("codeDate"), str) and states.get("codeDate") else None
+        ) or self.uuidAction
+        self._attr_native_value: datetime | None = None
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, self.room
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the codeDate stream (falls back to the control's action uuid).
+        return frozenset({self._code_date_uuid, self.uuidAction})
+
+    @callback
+    def event_handler(self, e: dict) -> None:
+        parsed = None
+        if self._code_date_uuid in e:
+            parsed = nfc_code_date(e[self._code_date_uuid])
+        if self.uuidAction in e and self.uuidAction != self._code_date_uuid:
+            # Fallback wiring (no codeDate stream in the structure file).
+            parsed = nfc_code_date(e[self.uuidAction])
+        if parsed is None:
+            # A malformed value keeps the last known instant.
+            return
+        self._attr_native_value = parsed
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {
+            **self._attr_extra_state_attributes,
+            "device_type": self.type,
+        }
+
+
+class LoxoneNfcDeviceStateSensor(LoxoneEntity, SensorEntity):
+    """NfcCodeTouch (PS-27): the raw ``deviceState`` register (diagnostic)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = NFC_DEVICE_MODEL
+        self._attr_name = "Device State"
+        self._attr_unique_id = f"{self.uuidAction}-device_state"
+        states = kwargs.get("states")
+        states = states if isinstance(states, dict) else {}
+        self._device_state_uuid = (
+            states.get("deviceState")
+            if isinstance(states.get("deviceState"), str) and states.get("deviceState")
+            else None
+        ) or self.uuidAction
+        self._attr_native_value: str | None = None
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, self.room
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the deviceState stream (falls back to the control's action uuid).
+        return frozenset({self._device_state_uuid, self.uuidAction})
+
+    @callback
+    def event_handler(self, e: dict) -> None:
+        for key in (self._device_state_uuid, self.uuidAction):
+            if key in e:
+                value = e[key]
+                self._attr_native_value = None if value is None else str(value)
+                self.async_write_ha_state()
+                break
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {
+            **self._attr_extra_state_attributes,
+            "device_type": self.type,
+        }
+
+
 def match_sensor_description(
     unit: str,
     name: str = "",
@@ -671,6 +916,20 @@ async def async_setup_entry(
             entities.append(LoxoneTrackerSensor(**sensor))
         except Exception:
             _LOGGER.exception("Skipping Tracker control %s", sensor.get("name", "?"))
+
+    # WP-6.10 / PS-27: the NfcCodeTouch access reader — a lastuser sensor
+    # plus diagnostic codeDate (timestamp) and deviceState sensors, all on
+    # the control's device.  The lastuser sensor fires the
+    # ``loxone_nfc_auth`` bus event on every codeDate change; ``lastcode``
+    # / ``lasttag`` are credentials and are never exposed (PS-27).
+    for sensor in iter_controls(hass, config_entry, "NfcCodeTouch"):
+        try:
+            sensor.update({"config_entry": config_entry})
+            entities.append(LoxoneNfcCodeTouchSensor(**sensor))
+            entities.append(LoxoneNfcCodeDateSensor(**sensor))
+            entities.append(LoxoneNfcDeviceStateSensor(**sensor))
+        except Exception:
+            _LOGGER.exception("Skipping NfcCodeTouch control %s", sensor.get("name", "?"))
 
     # Climate controller demand sensors
     for ctrl_type in ("ClimateController", "ClimateControllerUS"):

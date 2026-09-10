@@ -199,6 +199,17 @@
   },
   {
     "domain": "light",
+    "entity_id": "light.bedroom_cinema_light_1",
+    "unique_id": "1cf643a3-0083-7c35-ffff47167370ed09",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Cinema Light 1",
+    "device_model": "LightsceneRGB"
+  },
+  {
+    "domain": "light",
     "entity_id": "light.bedroom_eib_dimmer",
     "unique_id": "63746c3a-01a3-9422-ffff-4696d6d65723000163",
     "name": null,
@@ -218,6 +229,17 @@
     "disabled": false,
     "device_name": "Standalone Dimmer",
     "device_model": "Dimmer"
+  },
+  {
+    "domain": "light",
+    "entity_id": "light.parlour_cinema_light_2",
+    "unique_id": "1d6c95a2-00b6-e46f-ffff0d3a09848c7c",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Cinema Light 2",
+    "device_model": "LightsceneRGB"
   },
   {
     "domain": "light",
@@ -559,6 +581,39 @@
     "disabled": false,
     "device_name": "Energy Meter",
     "device_model": "Meter"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_entry_nfc",
+    "unique_id": "13a9fb56-01bb-fda5-ffff47167370ed09",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entry NFC",
+    "device_model": "NfcCodeTouch"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_entry_nfc_code_date",
+    "unique_id": "13a9fb56-01bb-fda5-ffff47167370ed09-code_date",
+    "name": null,
+    "original_name": "Code Date",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entry NFC",
+    "device_model": "NfcCodeTouch"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_entry_nfc_device_state",
+    "unique_id": "13a9fb56-01bb-fda5-ffff47167370ed09-device_state",
+    "name": null,
+    "original_name": "Device State",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entry NFC",
+    "device_model": "NfcCodeTouch"
   },
   {
     "domain": "sensor",

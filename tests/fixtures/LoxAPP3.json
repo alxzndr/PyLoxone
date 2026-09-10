@@ -1087,6 +1087,82 @@
       "defaultRating": 2,
       "isFavorite": false,
       "isSecured": false
+    },
+    "13a9fb56-01bb-fda5-ffff47167370ed09": {
+      "name": "Entry NFC",
+      "type": "NfcCodeTouch",
+      "uuidAction": "13a9fb56-01bb-fda5-ffff47167370ed09",
+      "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
+      "cat": "6361743a-015c-9637-ffff-269747963617000092",
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": true,
+      "configState": {
+        "isConfigured": false
+      },
+      "restrictions": 0,
+      "details": {
+        "jLockable": true
+      },
+      "states": {
+        "jLocked": "93a9fb56-01bb-fd91-ffff928adbaba279",
+        "historyDate": "1cf8a1de-01ff-c0e8-ffff47167370ed09",
+        "codeDate": "1cf8a1de-01ff-c0e9-ffff47167370ed09",
+        "deviceState": "1cf8a1de-01ff-c0ea-ffff47167370ed09",
+        "nfcLearnResult": "1cf8a1de-01ff-c0eb-ffff47167370ed09",
+        "events": "1cf8a1de-01ff-c0ec-ffff47167370ed09",
+        "lastid": "1cf8a1de-01ff-c0ed-ffff47167370ed09",
+        "lastuser": "1cf8a1de-01ff-c0ee-ffff47167370ed09",
+        "lasttag": "1cf8a1de-01ff-c0ef-ffff47167370ed09",
+        "lastcode": "1cf8a1de-01ff-c0f0-ffff47167370ed09",
+        "keyPadAuthType": "1cf8a1de-01ff-c0f1-ffff47167370ed09"
+      }
+    },
+    "1cf643a3-0083-7c35-ffff47167370ed09": {
+      "name": "Cinema Light 1",
+      "type": "LightsceneRGB",
+      "uuidAction": "1cf643a3-0083-7c35-ffff47167370ed09",
+      "room": "726f6f6d-0104-9656-ffff-26f6f6d726f6000004",
+      "cat": "6361743a-0108-96d6-ffff-f72746361743000008",
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false,
+      "restrictions": 0,
+      "details": {
+        "jLockable": true,
+        "sceneList": {}
+      },
+      "states": {
+        "jLocked": "9cf643a3-0083-7c2c-05ff494c2b0681a0",
+        "activeScene": "1cf643a3-0083-7c32-0bff494c2b0681a0",
+        "red": "1cf643a3-0083-7c2f-08ff494c2b0681a0",
+        "green": "1cf643a3-0083-7c30-09ff494c2b0681a0",
+        "blue": "1cf643a3-0083-7c31-0aff494c2b0681a0",
+        "color": "1cf643a3-0083-7c33-0cff494c2b0681a0"
+      }
+    },
+    "1d6c95a2-00b6-e46f-ffff0d3a09848c7c": {
+      "name": "Cinema Light 2",
+      "type": "LightsceneRGB",
+      "uuidAction": "1d6c95a2-00b6-e46f-ffff0d3a09848c7c",
+      "room": "726f6f6d-0101-9617-ffff-c6f7572726f6000001",
+      "cat": "6361743a-0108-96d6-ffff-f72746361743000008",
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false,
+      "restrictions": 0,
+      "details": {
+        "jLockable": true,
+        "sceneList": {}
+      },
+      "states": {
+        "jLocked": "9d6c95a2-00b6-e475-ffff0d3a09848c7c",
+        "activeScene": "1d6c95a2-00b6-e47b-ffff0d3a09848c7c",
+        "red": "1d6c95a2-00b6-e478-ffff0d3a09848c7c",
+        "green": "1d6c95a2-00b6-e479-ffff0d3a09848c7c",
+        "blue": "1d6c95a2-00b6-e47a-ffff0d3a09848c7c",
+        "color": "1d6c95a2-00b6-e47c-ffff0d3a09848c7c"
+      }
     }
   }
 }
