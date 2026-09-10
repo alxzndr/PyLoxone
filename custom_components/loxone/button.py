@@ -34,6 +34,18 @@ async def async_setup_entry(
             # One bad control must not abort the whole button platform.
             _LOGGER.exception("Skipping Pushbutton control %s", button_entity.get("name", "?"))
 
+    # WP-6.6 / PS-26: UpDownDigital is a virtual up/down rocker with no
+    # states at all — each side gets its own button; a press sends the
+    # ``UpOn`` / ``DownOn`` command.
+    for button_entity in iter_controls(hass, config_entry, "UpDownDigital"):
+        try:
+            up = dict(button_entity, direction="up")
+            down = dict(button_entity, direction="down")
+            entities.append(LoxoneUpDownDigitalButton(**up))
+            entities.append(LoxoneUpDownDigitalButton(**down))
+        except Exception:
+            _LOGGER.exception("Skipping UpDownDigital control %s", button_entity.get("name", "?"))
+
     async_add_entities(entities)
 
 
@@ -102,5 +114,57 @@ class LoxoneButton(LoxoneEntity, ButtonEntity):
             "new_state": self._attr_state,
             "state_value": self._state_value,
             "last_pressed": self._last_pressed,
+            "device_type": self.type,
+        }
+
+
+class LoxoneUpDownDigitalButton(LoxoneEntity, ButtonEntity):
+    """One side of an ``UpDownDigital`` rocker (WP-6.6, PS-26).
+
+    An UpDownDigital control is a virtual up/down input: it has *no* state
+    streams, only the commands ``UpOn`` / ``UpOff`` / ``DownOn`` /
+    ``DownOff`` (the rocker is inverted-matching: pushing one side sets the
+    other off).  A press therefore sends that side's ``<Side>On`` command
+    the entity has no state itself and tracks no press echo (there is none
+    to track) — callers must not expect a state change either way.
+    """
+
+    _attr_should_poll = False
+
+    def __init__(self, **kwargs):
+        direction = kwargs.pop("direction", "up")
+        super().__init__(**kwargs)
+        self._direction = "up" if direction == "up" else "down"
+        # Stable per-side unique id (the structure file's own sub-control
+        # convention is ``"<parent>/<key>"``).
+        self._attr_unique_id = f"{self.uuidAction}/{self._direction}"
+        # WP-5.1: short sub-entity name — the device is named after the
+        # rocker (CORE-26).
+        self._attr_name = "Up" if self._direction == "up" else "Down"
+        self._attr_icon = "mdi:arrow-up-bold" if self._direction == "up" else "mdi:arrow-down-bold"
+        self._command = "UpOn" if self._direction == "up" else "DownOn"
+        self.type = "UpDownDigital"
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the control has no state streams to subscribe to.
+        return frozenset()
+
+    async def async_press(self, **_kwargs) -> None:
+        """Handle a press (sends ``UpOn`` / ``DownOn``).
+
+        Async on purpose: HA dispatches a *sync* ``press`` off the event
+        loop, where the coordinator-provided ``_send`` path cannot create
+        its send task (the pre-existing sync-``press`` platforms hit the
+        same wall — follow-up noted in the WP-6.6 PR)."""
+        self._send(self._command)
+        self.async_schedule_update_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {
+            **self._attr_extra_state_attributes,
+            "command": self._command,
             "device_type": self.type,
         }

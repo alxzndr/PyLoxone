@@ -66,6 +66,28 @@
     "device_model": "Pushbutton"
   },
   {
+    "domain": "button",
+    "entity_id": "button.hall_stairwell_down",
+    "unique_id": "63746c3a-01c2-96d7-ffff-f5726172626c000192/down",
+    "name": null,
+    "original_name": "Down",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Stairwell",
+    "device_model": "UpDownDigital"
+  },
+  {
+    "domain": "button",
+    "entity_id": "button.hall_stairwell_up",
+    "unique_id": "63746c3a-01c2-96d7-ffff-f5726172626c000192/up",
+    "name": null,
+    "original_name": "Up",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Stairwell",
+    "device_model": "UpDownDigital"
+  },
+  {
     "domain": "climate",
     "entity_id": "climate.bedroom_bedroom_controller",
     "unique_id": "63746c3a-0126-9647-ffff-f6f6d20436f6000038",
@@ -276,6 +298,17 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.alarm_sensors",
+    "unique_id": "63746c3a-01a7-96d6-ffff-0416c61726d3000167/sensors",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Alarm Sensors",
+    "device_model": "Tracker"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.bedroom_bedroom_controller_comfort_temperature",
     "unique_id": "36333734-0129-9336-ffff-d303132362d3000041",
     "name": null,
@@ -298,6 +331,17 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.dev_status",
+    "unique_id": "63746c3a-01c0-96d7-ffff-f696e726f756000190",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Dev Status",
+    "device_model": "InfoOnlyText"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.garden_climate_controller",
     "unique_id": "63746c3a-0121-9696-ffff-1746520436f6000033",
     "name": null,
@@ -306,6 +350,17 @@
     "disabled": false,
     "device_name": "Climate Controller",
     "device_model": "ClimateController"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.garden_device_tracker",
+    "unique_id": "63746c3a-01c4-96d7-ffff-f726636b6572000194",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Device Tracker",
+    "device_model": "Tracker"
   },
   {
     "domain": "sensor",

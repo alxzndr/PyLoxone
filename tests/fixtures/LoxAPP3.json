@@ -770,6 +770,22 @@
         "level": "36333734-01a9-9336-ffff-d303161372d3000169",
         "nextLevelAt": "36333734-01aa-9336-ffff-d303161372d3000170"
       },
+      "subControls": {
+        "63746c3a-01a7-96d6-ffff-0416c61726d3000167/sensors": {
+          "name": "Alarm Sensors",
+          "type": "Tracker",
+          "uuidAction": "63746c3a-01a7-96d6-ffff-0416c61726d3000167/sensors",
+          "defaultRating": 0,
+          "isFavorite": false,
+          "isSecured": false,
+          "details": {
+            "maxEntries": 40
+          },
+          "states": {
+            "entries": "36333734-01ab-9336-ffff-d303161372d3000196"
+          }
+        }
+      },
       "defaultRating": 2,
       "isFavorite": false,
       "isSecured": false
@@ -849,6 +865,45 @@
         "mute": "36333734-01bb-9336-ffff-d303162362d3000187",
         "fadeIn": "36333734-01bc-9336-ffff-d303162362d3000188",
         "fadeOut": "36333734-01bd-9336-ffff-d303162362d3000189"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-01c0-96d7-ffff-f696e726f756000190": {
+      "name": "Dev Status",
+      "type": "InfoOnlyText",
+      "uuidAction": "63746c3a-01c0-96d7-ffff-f696e726f756000190",
+      "room": "726f6f6d-0102-9666-965726f6f6000002",
+      "cat": "6361743a-0182-96d6-ffff-f72746361743000130",
+      "states": {
+        "text": "36333734-01c1-9336-ffff-d303204b72d3000191"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-01c2-96d7-ffff-f5726172626c000192": {
+      "name": "Stairwell",
+      "type": "UpDownDigital",
+      "uuidAction": "63746c3a-01c2-96d7-ffff-f5726172626c000192",
+      "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
+      "cat": "6361743a-0182-96d6-ffff-f72746361743000130",
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-01c4-96d7-ffff-f726636b6572000194": {
+      "name": "Device Tracker",
+      "type": "Tracker",
+      "uuidAction": "63746c3a-01c4-96d7-ffff-f726636b6572000194",
+      "room": "726f6f6d-0106-9617-ffff-4656e726f6f6000006",
+      "cat": "6361743a-015c-9637-ffff-269747963617000092",
+      "details": {
+        "maxEntries": 5
+      },
+      "states": {
+        "entries": "36333734-01c5-9336-ffff-d303131372d3000195"
       },
       "defaultRating": 2,
       "isFavorite": false,

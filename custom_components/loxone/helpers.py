@@ -299,12 +299,22 @@ def meets_minimum_firmware(version) -> bool:
     return comparable >= MINIMUM_SUPPORTED_FIRMWARE
 
 
-def get_all(json_data, name) -> list[dict]:
+def get_all(json_data, name, recursive: bool = False) -> list[dict]:
     """Return all controls of the given type (or list of types).
 
     Tolerates a structure file with no ``controls`` key and controls that
     lack a ``type``: those are skipped instead of raising (CORE-32, Uni Ulm
     fuzzing PR #292).
+
+    ``recursive=True`` (WP-6.6) also walks controls nested in other
+    controls' ``subControls`` dicts (any depth) — e.g. the ``Tracker``
+    control a real structure file nests under an ``Alarm`` for its
+    ``sensors`` state.  Off by default: enabling it for a *widely-used*
+    type would surface nested sub-controls that their parent platform
+    already creates (the ``Dimmer``/``Switch`` sub-controls of a
+    ``LightControllerV2``), producing duplicate entities.  Controls are
+    de-duplicated on ``uuidAction`` so a control referenced in several
+    places only comes up once.
     """
     controls: list[dict] = []
     if not isinstance(json_data, dict):
@@ -313,20 +323,38 @@ def get_all(json_data, name) -> list[dict]:
     if not isinstance(all_controls, dict):
         return controls
     wanted = set(name) if isinstance(name, (list, tuple, set)) else {name}
-    for control in all_controls.values():
-        if isinstance(control, dict) and control.get("type") in wanted:
-            # Deep copy: the structure file is cached per Miniserver and
-            # *shared* across setups/platforms, while several platforms
-            # mutate their control (rooms, `type`, runtime references) in
-            # place.  A shallow copy of just the top dict is not enough --
-            # nested writes (e.g. the Intercom/Dimmer/LCV2 sub-controls,
-            # ``sub_control.update(...)``) were leaking into the cached
-            # file and poisoning every later setup in the process.
-            controls.append(copy.deepcopy(control))
+    seen_uuids: set[str] = set()
+
+    def walk(control_dicts: dict) -> None:
+        for control in control_dicts.values():
+            if not isinstance(control, dict) or not isinstance(control.get("type"), str):
+                continue
+            uuid_action = control.get("uuidAction")
+            if isinstance(uuid_action, str) and uuid_action:
+                if uuid_action in seen_uuids:
+                    continue
+                seen_uuids.add(uuid_action)
+            if control.get("type") in wanted:
+                # Deep copy: the structure file is cached per Miniserver
+                # and *shared* across setups/platforms, while several
+                # platforms mutate their control (rooms, `type`, runtime
+                # references) in place.  A shallow copy of just the top
+                # dict is not enough -- nested writes (e.g. the
+                # Intercom/Dimmer/LCV2 sub-controls,
+                # ``sub_control.update(...)``) were leaking into the
+                # cached file and poisoning every later setup in the
+                # process.
+                controls.append(copy.deepcopy(control))
+            if recursive:
+                sub_controls = control.get("subControls")
+                if isinstance(sub_controls, dict):
+                    walk(sub_controls)
+
+    walk(all_controls)
     return controls
 
 
-def iter_controls(hass, config_entry, types) -> Iterator[dict]:
+def iter_controls(hass, config_entry, types, recursive: bool = False) -> Iterator[dict]:
     """Yield each control of ``types`` with its room/cat names resolved.
 
     Shared setup boilerplate (PS-24): replaces the repeated
@@ -341,7 +369,7 @@ def iter_controls(hass, config_entry, types) -> Iterator[dict]:
 
     miniserver = get_miniserver_from_hass(hass, config_entry)
     loxconfig = miniserver.lox_config.json
-    for control in get_all(loxconfig, types):
+    for control in get_all(loxconfig, types, recursive=recursive):
         # Yield a shallow copy: some platforms write runtime references
         # (hass/config_entry/async_add_devices) into their control dict, and
         # the structure file is shared. A shallow copy keeps those writes

@@ -29,6 +29,20 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
+- New Loxone control types (WP-6.6, PS-26):
+  `InfoOnlyText` shows up as a read-only text sensor alongside the
+  writable `TextInput` (`sensor.set_value` on it is refused locally);
+  `UpDownDigital` creates two buttons, one per rocker side ("Up" / "Down"),
+  sending the `UpOn` / `DownOn` on command on press — the control has no
+  states itself; and `Tracker` shows its `entries` JSON list as a
+  comma-joined sensor (`entries` and `count` attributes).  Control
+  discovery (`get_all`) now also scans `subControls` when asked to recurse,
+  picking up the `Tracker` a structure file nests under an `Alarm` (its
+  `sensors` state).  The `Tracker` entry-list shape and the `UpDownDigital`
+  rocker-on-press semantics are assumptions about the Miniserver protocol
+  and need a live-Miniserver check before this is assumed right (flagged
+  in the PR).  Existing entities are unchanged.
+
 - `InfoOnlyDigital` binary sensors get an inferred `device_class` (WP-6.4,
   #402): first the control's own on/off display text (`details.text`),
   then the control's category name.  Common EN/DE label phrases map to

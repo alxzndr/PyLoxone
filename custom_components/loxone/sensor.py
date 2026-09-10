@@ -388,12 +388,12 @@ async def async_setup_entry(
             # (PS-08).
             _LOGGER.exception("Skipping InfoOnlyAnalog control %s", sensor.get("name", "?"))
 
-    for sensor in iter_controls(hass, config_entry, "TextInput"):
+    for sensor in iter_controls(hass, config_entry, ["TextInput", "InfoOnlyText"]):
         try:
             sensor.update({"config_entry": config_entry})
             entities.append(LoxoneTextSensor(**sensor))
         except Exception:
-            _LOGGER.exception("Skipping TextInput control %s", sensor.get("name", "?"))
+            _LOGGER.exception("Skipping %s control %s", sensor.get("type", "TextInput"), sensor.get("name", "?"))
 
     for sensor in iter_controls(hass, config_entry, "Meter"):
         _LOGGER.debug("Found Meter: %s", sensor.get("name"))
@@ -435,6 +435,17 @@ async def async_setup_entry(
             # One bad control must not abort the whole sensor platform
             # (PS-08).
             _LOGGER.exception("Skipping PresenceDetector control %s", sensor.get("name", "?"))
+
+    # WP-6.6 / PS-26: Tracker controls report their entries as a JSON
+    # list on the ``entries`` state (pattern: LoxoneClimateController).
+    # recursive=True — real structure files also nest a Tracker under an
+    # Alarm's subControls (its ``sensors`` state), not just top level.
+    for sensor in iter_controls(hass, config_entry, "Tracker", recursive=True):
+        try:
+            sensor.update({"config_entry": config_entry})
+            entities.append(LoxoneTrackerSensor(**sensor))
+        except Exception:
+            _LOGGER.exception("Skipping Tracker control %s", sensor.get("name", "?"))
 
     # Climate controller demand sensors
     for ctrl_type in ("ClimateController", "ClimateControllerUS"):
@@ -622,7 +633,10 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.type = "TextInput"
+        # WP-6.6: writable TextInput vs read-only InfoOnlyText — both
+        # report the ``text`` state, but an InfoOnlyText must accept no
+        # write command (the control is an output).
+        self.type = "InfoOnlyText" if kwargs.get("type") == "InfoOnlyText" else "TextInput"
         self._state = None
         self._state_uuid = self.states.get("text") or self.uuidAction
         # CORE-20 / device link: a fresh device built from the control's
@@ -650,6 +664,11 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
     async def async_set_value(self, value):
         """Set new value."""
+        if self.type == "InfoOnlyText":
+            # Read-only control: a write would raise on the Miniserver;
+            # refuse it here instead.
+            _LOGGER.warning("Ignoring write to read-only InfoOnlyText '%s'", self._lox_name)
+            return
         self._send(f"{value}")
         self.async_schedule_update_ha_state()
 
@@ -658,6 +677,79 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
         """Return device specific state attributes."""
         return {
             **self._attr_extra_state_attributes,
+            "device_type": self.type,
+        }
+
+
+def tracker_entries(raw: Any) -> list[str] | None:
+    """Normalise a Tracker control's raw ``entries`` stream value (WP-6.6).
+
+    Intended semantics (VERIFY against a live Miniserver before this is
+    assumed right): the stream pushes a JSON array of names/ids — e.g.
+    the sensor names an Alarm's ``sensors`` tracker currently holds —
+    delivered as an already-parsed list or as the JSON string of it.
+    Returns the entries coerced to strings in order.  Returns ``None``
+    for a missing, empty or unparseable payload so the caller keeps its
+    last known list.  Non-scalar entries (lists/dicts) are dropped.
+    """
+    value: Any = raw
+    if isinstance(value, str):
+        text = value.strip()
+        if not text.startswith("["):
+            return None
+        try:
+            value = json.loads(text)
+        except ValueError:
+            return None
+    if not isinstance(value, (list, tuple)):
+        return None
+    return [str(item) for item in value if isinstance(item, (str, int, float, bool))]
+
+
+class LoxoneTrackerSensor(LoxoneEntity, SensorEntity):
+    """Tracker control (WP-6.6, PS-26): its ``entries`` JSON list rendered
+    as a comma-joined name summary, the entry list as extra attributes
+    (pattern: ``LoxoneClimateController``'s JSON-list handling)."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = "Tracker"
+        states = kwargs.get("states")
+        self._entries_uuid = (
+            states.get("entries") if isinstance(states, dict) and isinstance(states.get("entries"), str) else None
+        ) or self.uuidAction
+        self._entries: list[str] = []
+        self._attr_native_value: str | None = None
+        # CORE-20: a fresh device built from the control's own identity.
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, kwargs.get("room", "")
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        # CORE-27: the ``entries`` stream (falls back to uuidAction).
+        return frozenset({self._entries_uuid, self.uuidAction})
+
+    @callback
+    def event_handler(self, e):
+        if self._entries_uuid in e:
+            parsed = tracker_entries(e[self._entries_uuid])
+            if parsed is None:
+                # A malformed / absent payload keeps the last list.
+                return
+            self._entries = parsed
+            # An empty tracker reads as unknown (HA rejects an empty
+            # sensor state string).
+            self._attr_native_value = ", ".join(self._entries) if self._entries else None
+            self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {
+            **self._attr_extra_state_attributes,
+            "entries": list(self._entries),
+            "count": len(self._entries),
+            "state_uuid": self._entries_uuid,
             "device_type": self.type,
         }
 

@@ -162,6 +162,48 @@ logger:
   wrongly — add or correct the phrase/keyword in the two tables (one place
   each).
 
+### 14. `Tracker` entries payload shape (WP-6.6, PS-26)
+
+- **Helper:** `tracker_entries` in `custom_components/loxone/sensor.py`
+- **The doubt:** the `entries` stream of a Tracker control is assumed to push a
+  JSON array of names/ids of strings (e.g. the sensor names an
+  `Alarm`'s `sensors` tracker holds), delivered as a JSON string or an
+  already-parsed list. If the Miniserver instead delivers object
+  dictionaries, numeric codes, or another shape, `tracker_entries`
+  discards the non-scalar payloads and the sensor keeps showing the last
+  (possibly empty) list.
+- **Test:** on a real Miniserver, enable debug logging and watch a
+  `Tracker` control (for example the `sensors` tracker a
+  `Alarm` exposes) while its tracked items change; compare the raw
+  `entries` message with the sensor's `entries` attribute.
+- **Pass:** the sensor's comma-joined state and `entries`/`count`
+  attributes match the raw payload for the same list.
+- **Fail / adjust:** the payload is another shape (objects with names,
+  device uuids, …) — parse it in `tracker_entries` (one place) so the
+  sensor reads the intended value.
+
+### 15. `UpDownDigital` rocker on-press semantics (WP-6.6, PS-26)
+
+- **Helper:** `LoxoneUpDownDigitalButton.async_press` in
+  `custom_components/loxone/button.py` (sends `UpOn` / `DownOn`)
+- **The doubt:** the control has no state streams, so pressing an HA
+  button only emits the `<side>On` command. The openHAB binding models
+  the same control as *toggle switches* (`On` to latch, another `On` to
+  unlatch), because the rocker side latches. If the intended wiring of
+  the virtual up/down inputs wants a momentary pulse instead of a
+  latch, a single press will leave the corresponding side stuck on.
+- **Test:** with a real `UpDownDigital` control driving something
+  observable (a scene output is fine), press the `Up` button once and
+  watch the target; decide whether the LoxConfig expects a latch (the
+  second press must then send `UpOff`, so the entity grows a state) or
+  the current momentary behaviour is acceptable.
+- **Pass:** the direction the LoxConfig author wired moves for the
+  expected amount of time and returns to rest, or the latch can be
+  released from HA.
+- **Fail / adjust:** the side stays latched with no HA-visible way to
+  release it — add a state to `LoxoneUpDownDigitalButton` (one place)
+  and send the matching `<side>Off` on toggle-off.
+
 ---
 
 ## Regression sweep
