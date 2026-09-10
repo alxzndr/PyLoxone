@@ -924,6 +924,84 @@
       "defaultRating": 2,
       "isFavorite": false,
       "isSecured": false
+    },
+    "63746c3a-01e0-96d7-ffff-f656e657267796d0001a0": {
+      "name": "Energy Manager",
+      "type": "EnergyManager",
+      "uuidAction": "63746c3a-01e0-96d7-ffff-f656e657267796d0001a0",
+      "room": "726f6f6d-0106-9617-ffff-4656e726f6f6000006",
+      "cat": "6361743a-0120-9657-ffff-7796361743a4000032",
+      "details": {
+        "actualFormat": "%d W",
+        "totalFormat": "%d kWh",
+        "storageFormat": "%d kWh"
+      },
+      "states": {
+        "actual": "36333734-01e1-9336-ffff-d30313163796d0001a1",
+        "total": "36333734-01e2-9336-ffff-d30313163796d0001a2",
+        "totalNeg": "36333734-01e3-9336-ffff-d30313163796d0001a3",
+        "storage": "36333734-01e4-9336-ffff-d30313163796d0001a4"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-01e8-96d7-ffff-f656e65726779320001b0": {
+      "name": "Energy Manager 2",
+      "type": "EnergyManager2",
+      "uuidAction": "63746c3a-01e8-96d7-ffff-f656e65726779320001b0",
+      "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
+      "cat": "6361743a-0120-9657-ffff-7796361743a4000032",
+      "details": {
+        "totalFormat": "%d kWh",
+        "storageFormat": "%d kWh"
+      },
+      "states": {
+        "total": "36333734-01e9-9336-ffff-d30313163796d0001b1",
+        "totalNeg": "36333734-01ea-9336-ffff-d30313163796d0001b2",
+        "storage": "36333734-01eb-9336-ffff-d30313163796d0001b3"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-01f0-96d7-ffff-f506f776572756e69740001c0": {
+      "name": "Power Unit",
+      "type": "PowerUnit",
+      "uuidAction": "63746c3a-01f0-96d7-ffff-f506f776572756e69740001c0",
+      "room": "726f6f6d-0106-9617-ffff-4656e726f6f6000006",
+      "cat": "6361743a-0120-9657-ffff-7796361743a4000032",
+      "details": {
+        "actualFormat": "%d W",
+        "totalFormat": "%d kWh",
+        "storageFormat": "%d kWh"
+      },
+      "states": {
+        "actual": "36333734-01f1-9336-ffff-d3031316575740001c1",
+        "total": "36333734-01f2-9336-ffff-d3031316575740001c2",
+        "storage": "36333734-01f3-9336-ffff-d3031316575740001c3"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-01f8-96d7-ffff-f57616c6c626f786761720001d0": {
+      "name": "Wallbox Garage",
+      "type": "Wallbox",
+      "uuidAction": "63746c3a-01f8-96d7-ffff-f57616c6c626f786761720001d0",
+      "room": "726f6f6d-0106-9617-ffff-4656e726f6f6000006",
+      "cat": "6361743a-0120-9657-ffff-7796361743a4000032",
+      "details": {
+        "actualFormat": "%d W",
+        "totalFormat": "%d kWh"
+      },
+      "states": {
+        "actual": "36333734-01f9-9336-ffff-d3031316626f780001d1",
+        "total": "36333734-01fa-9336-ffff-d3031316626f780001d2"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
     }
   }
 }

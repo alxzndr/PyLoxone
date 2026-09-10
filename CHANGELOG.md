@@ -29,6 +29,15 @@ by the `release` GitHub Action on every tag push — no manual `1.0.x →
 
 ### Added
 
+- Meter family (WP-6.5, PS-26): `EnergyManager`, `EnergyManager2`,
+  `PowerUnit` and `Wallbox` controls now create sensor sub-entities
+  for their registers with the same names and classifications as the
+  legacy `Meter` ("Actual" → power/measurement; "Total" / "Total Neg"
+  → energy/total_increasing; "Level" → energy/measurement).  Only the
+  registers a control advertises are created, and the registers of one
+  control share one device.  The pattern is one generalised pure
+  helper (`meter_sub_sensor_kwargs`) driving all five types.
+
 - New Loxone control types (WP-6.6, PS-26):
   `InfoOnlyText` shows up as a read-only text sensor alongside the
   writable `TextInput` (`sensor.set_value` on it is refused locally);

@@ -124,6 +124,13 @@ METER_NAME_SUFFIX = {
     "storage": "Level",
 }
 
+# WP-6.5: the newer metering controls expose the same register set as the
+# legacy ``Meter`` (actual power, running totals, storage level), so they
+# run the same sub-state loop with the classification table above.  Only
+# the registers actually present in a control's ``states`` yield entities,
+# so a control with fewer registers simply yields fewer sub-sensors.
+METER_FAMILY_TYPES = ("Meter", "EnergyManager", "EnergyManager2", "PowerUnit", "Wallbox")
+
 # #461: the analog sub-readings a PresenceDetector control publishes
 # alongside its presence signal, as ``state key -> (entity name, Loxone
 # format)``.  Presence detectors without light/sound hardware advertise
@@ -451,6 +458,92 @@ def presence_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
     return kwargs_list
 
 
+def meter_device_model(control: dict) -> str:
+    """Device model string for a Meter-family control (WP-6.5).
+
+    A legacy ``Meter`` may carry a free-form ``details.type`` (e.g.
+    ``"Module Meter"``) which historically produced ``"<Type> Meter"``;
+    the other family members are modelled by their control type name.
+    """
+    control_type = control.get("type")
+    if control_type == "Meter":
+        details = control.get("details")
+        legacy = details.get("type") if isinstance(details, dict) else None
+        if isinstance(legacy, str) and legacy:
+            return legacy.capitalize() + " Meter"
+        return "Meter"
+    if isinstance(control_type, str) and control_type:
+        return control_type
+    return "Meter"
+
+
+def meter_device_info(control: dict, config_entry) -> dict | None:
+    """Shared device info for the registers of one Meter-family control
+    (WP-6.5).
+
+    All sub-registers of one control carry the parent control's own
+    ``(DOMAIN, uuidAction)`` identifier and name/model, so the device
+    registry merges them into a single device (PS-20, same house
+    pattern as the IRoomControllerV2 and presence sub-sensors).  Without
+    a usable ``uuidAction`` this returns ``None`` and the register falls
+    back to its own device.
+    """
+    uuid_action = control.get("uuidAction")
+    if not isinstance(uuid_action, str) or not uuid_action:
+        return None
+    return device_info_for(
+        config_entry,
+        uuid_action,
+        control.get("name", ""),
+        meter_device_model(control),
+        control.get("room", ""),
+    )
+
+
+def meter_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
+    """``LoxoneMeterSensor`` kwargs for the registers of a Meter-family
+    control (WP-6.5): ``Meter``, ``EnergyManager``, ``EnergyManager2``,
+    ``PowerUnit`` and ``Wallbox``.
+
+    One sub-sensor dict per *advertised* register: only the registers
+    present (as a state uuid) in the control's ``states`` yield kwargs.
+    Every ``states``/``details`` lookup is guarded with ``.get()``: a
+    truncated structure file yields fewer (or no) sub-sensors instead of
+    aborting the platform (PS-08).  The return order is the insertion
+    order of ``METER_STATE_CLASSES``.
+    """
+    states = control.get("states")
+    if not isinstance(states, dict):
+        return []
+    details = control.get("details")
+    details = details if isinstance(details, dict) else {}
+    device_info = meter_device_info(control, config_entry)
+    kwargs_list: list[dict] = []
+    for state_key, (device_class, state_class) in METER_STATE_CLASSES.items():
+        uuid = states.get(state_key)
+        if not isinstance(uuid, str) or not uuid:
+            continue
+        kwargs_list.append(
+            {
+                "device_info": device_info,
+                "parent_id": control.get("uuidAction", ""),
+                "uuidAction": uuid,
+                "type": "analog",
+                "room": control.get("room", ""),
+                "cat": control.get("cat", ""),
+                # WP-5.1: short sub-entity name — the device is named
+                # after the parent control, so no control-name prefix
+                # (CORE-26).
+                "name": METER_NAME_SUFFIX[state_key],
+                "details": {"format": details.get(METER_FORMAT_KEYS[state_key], "%.1f")},
+                "device_class": device_class,
+                "state_class": state_class,
+                "config_entry": config_entry,
+            }
+        )
+    return kwargs_list
+
+
 def match_sensor_description(
     unit: str,
     name: str = "",
@@ -540,32 +633,19 @@ async def async_setup_entry(
         except Exception:
             _LOGGER.exception("Skipping %s control %s", sensor.get("type", "TextInput"), sensor.get("name", "?"))
 
-    for sensor in iter_controls(hass, config_entry, "Meter"):
-        _LOGGER.debug("Found Meter: %s", sensor.get("name"))
+    # WP-6.5: the Meter family (Meter + EnergyManager/EnergyManager2/
+    # PowerUnit/Wallbox) all expose the same register set, so one loop
+    # over ``METER_FAMILY_TYPES`` and the pure ``meter_sub_sensor_kwargs``
+    # helper creates every register.
+    for sensor in iter_controls(hass, config_entry, list(METER_FAMILY_TYPES)):
+        _LOGGER.debug("Found Meter-family control: %s", sensor.get("name"))
         try:
-            device_info = LoxoneMeterSensor.create_device_info_from_sensor(sensor, config_entry)
-            for state_key in METER_STATE_CLASSES:
-                if state_key not in sensor.get("states", {}):
-                    continue
-                format_value = sensor.get("details", {}).get(METER_FORMAT_KEYS[state_key], "%.1f")
-                subsensor = {
-                    "device_info": device_info,
-                    "parent_id": sensor["uuidAction"],
-                    "uuidAction": sensor["states"][state_key],
-                    "type": "analog",
-                    "room": sensor.get("room", ""),
-                    "cat": sensor.get("cat", ""),
-                    # WP-5.1: short sub-entity name — the device is named
-                    # after the Meter, so no meter-name prefix (CORE-26).
-                    "name": METER_NAME_SUFFIX[state_key],
-                    "details": {"format": format_value},
-                    "device_class": METER_STATE_CLASSES[state_key][0],
-                    "state_class": METER_STATE_CLASSES[state_key][1],
-                    "config_entry": config_entry,
-                }
+            for subsensor in meter_sub_sensor_kwargs(sensor, config_entry):
                 entities.append(LoxoneMeterSensor(**subsensor))
         except Exception:
-            _LOGGER.exception("Skipping Meter control %s", sensor.get("name", "?"))
+            # One bad control must not abort the whole sensor platform
+            # (PS-08).
+            _LOGGER.exception("Skipping %s control %s", sensor.get("type", "Meter"), sensor.get("name", "?"))
 
     # #461: PresenceDetector illuminance/noise sub-sensors.  The analog
     # sub-readings live on the sensor platform (a LoxoneSensor added via
@@ -1036,17 +1116,11 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
 
 
 class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
-    @staticmethod
-    def create_device_info_from_sensor(sensor, config_entry=None) -> DeviceInfo:
-        # PS-20 device link: the meter device carries its own (DOMAIN,
-        # uuid) identifier, the control's name and model, and links to
-        # the Miniserver host device; all sub-registers share it.
-        try:
-            # For legacy Meter
-            model = sensor["details"]["type"].capitalize() + " Meter"
-        except KeyError, TypeError:
-            model = "Meter"
-        return device_info_for(config_entry, sensor["uuidAction"], sensor["name"], model, sensor.get("room", ""))
+    """A register (Actual/Total/Total Neg/Level) of a Meter-family
+    control (WP-6.5).  Register construction and the shared device link
+    live in the pure ``meter_sub_sensor_kwargs`` / ``meter_device_info``
+    helpers; this class keeps the ``LoxoneSensor`` behaviour (per-register
+    class overrides from the setup, analog state updates)."""
 
 
 class LoxoneRoomControllerTemperatureSensor(SensorEntity):
