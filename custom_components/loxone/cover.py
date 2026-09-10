@@ -74,6 +74,28 @@ def gate_stop_command():
     return "stop"
 
 
+def gate_set_position_command(position):
+    """Build the command for moving a Gate to a cover position (HA scale).
+
+    The Gate is tracked on a 0..100 position scale in HA orientation
+    (100 = open, 0 = closed — see :class:`LoxoneGate`'s event handler,
+    which reads `position` * 100 directly), so the position is clamped
+    into 0..100 and passed through without Loxone-style inversion, to
+    `manualPosition/<position>` — the same CoverControl command Jalousies
+    use for partial positioning.
+
+    **VERIFY**: confirm on a live Miniserver that a Loxone gate control
+    honours `manualPosition` and that its orientation matches the entity
+    (`position` state * 100 == HA position). If the server expects a
+    down-orientation for gates, the mapping flips in this one place only.
+    """
+    if position is None:
+        clamped = 0.0
+    else:
+        clamped = max(0.0, min(100.0, float(position)))
+    return f"manualPosition/{clamped}"
+
+
 def gate_device_class(animation):
     """Map the Loxone `animation` detail to a HA device class (PC-15/PC-41)."""
     if animation == 0:
@@ -195,8 +217,16 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
 
     @property
     def supported_features(self):
-        """Flag supported features."""
-        return CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
+        """Flag supported features.
+
+        SET_POSITION (WP-6.8) is advertised only when the structure file
+        reports a `position` stream — a gate without one cannot follow a
+        position command.
+        """
+        supported_features = CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE | CoverEntityFeature.STOP
+        if self._position_uuid is not None:
+            supported_features |= CoverEntityFeature.SET_POSITION
+        return supported_features
 
     @property
     def device_class(self):
@@ -241,6 +271,16 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         """Stop the cover (PC-07)."""
         self._send(gate_stop_command())
         self.schedule_update_ha_state()
+
+    async def async_set_cover_position(self, **kwargs):
+        """Move the gate to the requested position (WP-6.8).
+
+        Async (PC-14): HA entity services prefer the ``async_`` variant;
+        a sync-only method would run in the executor thread and hit the
+        wrong event loop in :meth:`LoxoneEntity._send`.
+        """
+        self._send(gate_set_position_command(kwargs.get(ATTR_POSITION)))
+        self.async_write_ha_state()
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: the optional position / active streams the handler reads.

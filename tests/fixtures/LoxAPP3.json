@@ -634,6 +634,32 @@
       "isFavorite": false,
       "isSecured": false
     },
+    "63746c3a-019b-9766-ffff-6a616c6f756e3000c0": {
+      "name": "Terrace Jalousie",
+      "type": "Jalousie",
+      "uuidAction": "63746c3a-019b-9766-ffff-6a616c6f756e3000c0",
+      "room": "726f6f6d-0101-9617-ffff-c6f7572726f6000001",
+      "cat": "6361743a-0171-96f7-ffff-36361743a446000113",
+      "details": {
+        "animation": 0,
+        "flap": true,
+        "quickShade": true,
+        "sunAutoma": true,
+        "isAutomatic": true
+      },
+      "states": {
+        "position": "36333734-01c8-9336-ffff-d303137282d3000c01",
+        "shadePosition": "36333734-01c8-9336-ffff-d303137282d3000c02",
+        "up": "36333734-01c8-9336-ffff-d303137282d3000c03",
+        "down": "36333734-01c8-9336-ffff-d303137282d3000c04",
+        "autoState": "36333734-01c8-9336-ffff-d303137282d3000c05",
+        "autoInfoText": "36333734-01c8-9336-ffff-d303137282d3000c06",
+        "targetPosition": "36333734-01c8-9336-ffff-d303137282d3000c07"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
     "63746c3a-0183-9766-ffff-e67204c69676000131": {
       "name": "Living Light Controller",
       "type": "LightControllerV2",
@@ -801,6 +827,32 @@
             "entries": "36333734-01ab-9336-ffff-d303161372d3000196"
           }
         }
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-019c-96d6-ffff-0416c61726d30001c1": {
+      "name": "Entrance Alarm",
+      "type": "Alarm",
+      "uuidAction": "63746c3a-019c-96d6-ffff-0416c61726d30001c1",
+      "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
+      "cat": "6361743a-01a6-9637-ffff-269747963617000166",
+      "details": {
+        "modeList": [
+          "Disarmed",
+          "Armed Home",
+          "Armed Away"
+        ]
+      },
+      "states": {
+        "armed": "36333734-01cb-9336-ffff-d303161372d3000c11",
+        "level": "36333734-01cb-9336-ffff-d303161372d3000c12",
+        "disabledMove": "36333734-01cb-9336-ffff-d303161372d3000c13",
+        "armedAt": "36333734-01cb-9336-ffff-d303161372d3000c14",
+        "nextLevelAt": "36333734-01cb-9336-ffff-d303161372d3000c15",
+        "armedDelay": "36333734-01cb-9336-ffff-d303161372d3000c16",
+        "armedDelayTotal": "36333734-01cb-9336-ffff-d303161372d3000c17"
       },
       "defaultRating": 2,
       "isFavorite": false,

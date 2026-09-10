@@ -39,6 +39,58 @@ def alarm_arm_value(arm_state: AlarmControlPanelState) -> str:
     raise ValueError(f"{arm_state} is not an arm state")
 
 
+def alarm_night_arm_value() -> str:
+    """Command value that arms an Loxone alarm in night mode (#323).
+
+    Loxone alarms have exactly two arming flavours — with delay
+    (`delayedon/1`, motion suppressed) and without (`delayedon/0`) — and no
+    distinct night or vacation command. Night arming (the Mushroom "night"
+    icon, the use case in #323) is the *delayed* arm, i.e. the same command
+    as ARMED_HOME, because night is "everyone is home". **VERIFY**: confirm
+    on a live Miniserver that a `delayedon/1` arm initiated from the night
+    service behaves as the user expects.
+    """
+    return alarm_arm_value(AlarmControlPanelState.ARMED_HOME)
+
+
+def alarm_vacation_arm_value() -> str:
+    """Command value that arms an Loxone alarm in vacation mode (#323).
+
+    Vacation means the home is empty, so it maps to the non-delayed arm —
+    the same command as ARMED_AWAY. **VERIFY**: confirm on a live Miniserver
+    that a `delayedon/0` arm initiated from the vacation service behaves as
+    the user expects.
+    """
+    return alarm_arm_value(AlarmControlPanelState.ARMED_AWAY)
+
+
+def _as_int_seconds(value):
+    """Loxone websocket values → whole seconds, or ``None`` when absent/
+    non-numeric. The surfaced arming-delay attributes keep a single, stable
+    type (int seconds) no matter what the raw stream carried."""
+    if value is None:
+        return None
+    try:
+        return int(float(value))
+    except TypeError, ValueError:
+        return None
+
+
+def alarm_arm_delay_attributes(armed_delay, armed_delay_total):
+    """The arming-delay attributes surfaced on the panel entity (#323).
+
+    Loxone reports `armedDelay` (seconds remaining until the alarm engages)
+    and `armedDelayTotal` (the configured total delay of the current arm).
+    Both are exposed as int seconds (or ``None`` before they have been
+    streamed), in addition to the raw ``level``/``armed_at``/``next_level_at``
+    attributes.
+    """
+    return {
+        "armed_delay": _as_int_seconds(armed_delay),
+        "armed_delay_total_delay": _as_int_seconds(armed_delay_total),
+    }
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -63,8 +115,10 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
         self._state = 0.0
         self._disabled_move = 0.0
         self._level = 0.0
-        self._armed_delay = 0.0
-        self._armed_delay_total_delay = 0.0
+        # None until the first stream value: 0.0 would publish "delay 0 s"
+        # for an alarm that never streamed its delay (#323).
+        self._armed_delay = None
+        self._armed_delay_total_delay = None
         self._armed_at = 0
         self._next_level_at = 0
         # Fixed at setup time from the structure file (PC-06): a secured alarm
@@ -77,7 +131,14 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
 
     @property
     def supported_features(self):
-        return AlarmControlPanelEntityFeature.ARM_HOME | AlarmControlPanelEntityFeature.ARM_AWAY
+        # ARM_NIGHT / ARM_VACATION (#323): the Mushroom card's night and
+        # vacation icons are only usable when these are advertised.
+        return (
+            AlarmControlPanelEntityFeature.ARM_HOME
+            | AlarmControlPanelEntityFeature.ARM_AWAY
+            | AlarmControlPanelEntityFeature.ARM_NIGHT
+            | AlarmControlPanelEntityFeature.ARM_VACATION
+        )
 
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: every state stream the handler mocks.
@@ -180,6 +241,24 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
             self._send(value)
         self.async_schedule_update_ha_state()
 
+    async def async_alarm_arm_night(self, code=None):
+        """Arm for the night (delayed arm, motion suppressed) (#323)."""
+        value = alarm_night_arm_value()
+        if self.isSecured:
+            self._send(value, code=code, secured=True)
+        else:
+            self._send(value)
+        self.async_schedule_update_ha_state()
+
+    async def async_alarm_arm_vacation(self, code=None):
+        """Arm for vacation (non-delayed arm) (#323)."""
+        value = alarm_vacation_arm_value()
+        if self.isSecured:
+            self._send(value, code=code, secured=True)
+        else:
+            self._send(value)
+        self.async_schedule_update_ha_state()
+
     @property
     def alarm_state(self) -> AlarmControlPanelState | None:
         """Return the state of the device."""
@@ -202,6 +281,5 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
             "level": self._level,
             "armed_at": self._armed_at,
             "next_level_at": self._next_level_at,
-            "armed_delay": self._armed_delay,
-            "armed_delay_total_delay": self._armed_delay_total_delay,
+            **alarm_arm_delay_attributes(self._armed_delay, self._armed_delay_total_delay),
         }

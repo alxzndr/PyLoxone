@@ -1,6 +1,17 @@
 [
   {
     "domain": "alarm_control_panel",
+    "entity_id": "alarm_control_panel.hall_entrance_alarm",
+    "unique_id": "63746c3a-019c-96d6-ffff-0416c61726d30001c1",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entrance Alarm",
+    "device_model": "Alarm"
+  },
+  {
+    "domain": "alarm_control_panel",
     "entity_id": "alarm_control_panel.hall_home_alarm",
     "unique_id": "63746c3a-01a7-96d6-ffff-0416c61726d3000167",
     "name": null,
@@ -154,6 +165,17 @@
     "device_model": "Jalousie"
   },
   {
+    "domain": "cover",
+    "entity_id": "cover.parlour_terrace_jalousie",
+    "unique_id": "63746c3a-019b-9766-ffff-6a616c6f756e3000c0",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Terrace Jalousie",
+    "device_model": "Jalousie"
+  },
+  {
     "domain": "fan",
     "entity_id": "fan.kitchen_kitchen_ventilation",
     "unique_id": "63746c3a-01ac-9746-ffff-8656e2056656000172",
@@ -295,6 +317,17 @@
     "disabled": false,
     "device_name": "Ventilation Radio",
     "device_model": "Radio"
+  },
+  {
+    "domain": "select",
+    "entity_id": "select.parlour_terrace_jalousie_sun_auto",
+    "unique_id": "63746c3a-019b-9766-ffff-6a616c6f756e3000c0/sun-auto",
+    "name": null,
+    "original_name": "Sun auto",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Terrace Jalousie",
+    "device_model": "Jalousie"
   },
   {
     "domain": "sensor",
