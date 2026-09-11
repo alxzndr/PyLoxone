@@ -759,7 +759,13 @@ async def _persist_token_and_close(hass, config_entry, coordinator, _event) -> N
                 )
             except UnknownEntry:
                 _LOGGER.debug("Config entry removed while persisting the Loxone token on stop")
-    await api.close()
+    # Best effort: Home Assistant is stopping, and a handler that raises here
+    # only produces an unretrievable event-bus task exception. Nothing can act
+    # on a failure to close a socket we are about to drop anyway.
+    try:
+        await api.close()
+    except Exception:  # noqa: BLE001 - shutdown path, nothing can act on it
+        _LOGGER.debug("Closing the Loxone connection on stop failed", exc_info=True)
 
 
 async def async_setup_entry(hass, config_entry):
