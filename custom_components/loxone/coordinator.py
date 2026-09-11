@@ -1,9 +1,10 @@
 import asyncio
 import logging
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, UnknownEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -139,10 +140,26 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         self.hass.async_create_task(self._persist_token_data(data))
 
     async def _persist_token_data(self, data: dict) -> None:
+        """Write a refreshed token back to the config entry.
+
+        The in-place reconnect supervisor (API-09) outlives a single
+        session by design, so it can still be mid-reconnect when the entry
+        is unloaded or removed.  Writing to an entry Home Assistant has
+        already dropped raises ``UnknownEntry`` -- a ``HomeAssistantError``,
+        not one of the OS/value errors this used to catch -- inside a
+        detached task, which surfaces only as "Task exception was never
+        retrieved".  Check the entry is still registered, and treat a
+        removal between that check and the write as normal.
+        """
+        if self.hass.config_entries.async_get_entry(self.config_entry.entry_id) is None:
+            _LOGGER.debug("Config entry is gone; not persisting the Loxone token")
+            return
         try:
             await self.config_entry.async_update_entry(data=data)
             _LOGGER.debug("Loxone token persisted")
-        except (RuntimeError, OSError, ValueError) as e:
+        except UnknownEntry:
+            _LOGGER.debug("Config entry removed while persisting the Loxone token")
+        except (HomeAssistantError, RuntimeError, OSError, ValueError) as e:
             _LOGGER.warning("Failed to persist Loxone token change: %s", e)
 
     async def _async_setup(self) -> None:

@@ -1,19 +1,23 @@
 {
   "domain": "loxone",
   "name": "PyLoxone",
-  "codeowners": ["@JoDehli"],
+  "codeowners": [
+    "@JoDehli"
+  ],
   "config_flow": true,
-  "dependencies": ["group"],
+  "dependencies": [
+    "group"
+  ],
   "documentation": "https://github.com/JoDehli/PyLoxone",
+  "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/JoDehli/PyLoxone/issues",
+  "loggers": [
+    "custom_components.loxone"
+  ],
   "requirements": [
     "websockets>=14,<16",
     "pycryptodome>=3.20"
-  ],
-  "integration_type": "hub",
-  "loggers": [
-    "custom_components.loxone"
   ],
   "version": "0.9.23"
 }

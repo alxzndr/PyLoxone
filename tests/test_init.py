@@ -397,3 +397,23 @@ async def test_failed_platform_unload_keeps_entry_resources(
 
     # Leave no FAILED_UNLOAD residue for the harness teardown.
     assert await hass.config_entries.async_remove(mock_entry.entry_id)
+
+
+async def test_token_persist_after_entry_removed_is_silent(hass, mock_connection, mock_entry) -> None:
+    """The reconnect supervisor may still be running when the entry is gone.
+
+    Writing to a removed entry raises UnknownEntry (a HomeAssistantError, not
+    an OSError), previously escaping into a detached task and surfacing only
+    as "Task exception was never retrieved" -- which is what turned CI red
+    while the same suite passed locally.
+    """
+    mock_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = mock_entry.runtime_data
+    await hass.config_entries.async_remove(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Must not raise, and must not leave an unretrieved task exception.
+    await coordinator._persist_token_data({"token": "t", "hash_alg": "SHA256", "valid_until": 1})
