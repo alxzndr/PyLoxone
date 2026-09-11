@@ -417,3 +417,25 @@ async def test_token_persist_after_entry_removed_is_silent(hass, mock_connection
 
     # Must not raise, and must not leave an unretrieved task exception.
     await coordinator._persist_token_data({"token": "t", "hash_alg": "SHA256", "valid_until": 1})
+
+
+async def test_stop_after_entry_removed_is_silent(hass, mock_connection, mock_entry) -> None:
+    """The HA-stop handler outlives a removed entry after a failed unload.
+
+    A failed platform unload deliberately keeps this handler registered so the
+    unload can be retried (CORE-13). If the entry is then removed, writing the
+    token to it raises UnknownEntry inside the event-bus task, which is what
+    turned CI red at teardown while the test itself passed.
+    """
+    from custom_components.loxone import _persist_token_and_close
+
+    mock_entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+    coordinator = mock_entry.runtime_data
+
+    await hass.config_entries.async_remove(mock_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Must not raise even though the entry is gone.
+    await _persist_token_and_close(hass, mock_entry, coordinator, None)

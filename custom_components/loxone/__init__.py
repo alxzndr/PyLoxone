@@ -14,7 +14,7 @@ from functools import partial
 
 import homeassistant.components.group as group
 import voluptuous as vol
-from homeassistant.config_entries import ConfigEntry, ConfigEntryAuthFailed, ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, UnknownEntry, ConfigEntryAuthFailed, ConfigEntryState
 from homeassistant.const import (
     CONF_HOST,
     CONF_PASSWORD,
@@ -739,15 +739,26 @@ async def _persist_token_and_close(hass, config_entry, coordinator, _event) -> N
         return
     token = api.get_token_dict()
     if token:  # CORE-10: persist a token only if we actually hold one
-        hass.config_entries.async_update_entry(
-            config_entry,
-            data={
-                **config_entry.data,  # preserve existing data
-                "token": token["token"],
-                "hash_alg": token.get("hash_alg", ""),
-                "valid_until": token.get("valid_until", 0),
-            },
-        )
+        # The entry may already be gone: a stop can race entry removal, and a
+        # failed platform unload deliberately keeps this handler alive so the
+        # unload can be retried (CORE-13). Writing to an entry Home Assistant
+        # has dropped raises UnknownEntry, which escapes into the event-bus
+        # task as "Task exception was never retrieved".
+        if hass.config_entries.async_get_entry(config_entry.entry_id) is None:
+            _LOGGER.debug("Config entry is gone; not persisting the Loxone token on stop")
+        else:
+            try:
+                hass.config_entries.async_update_entry(
+                    config_entry,
+                    data={
+                        **config_entry.data,  # preserve existing data
+                        "token": token["token"],
+                        "hash_alg": token.get("hash_alg", ""),
+                        "valid_until": token.get("valid_until", 0),
+                    },
+                )
+            except UnknownEntry:
+                _LOGGER.debug("Config entry removed while persisting the Loxone token on stop")
     await api.close()
 
 
