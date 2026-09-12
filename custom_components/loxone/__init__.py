@@ -12,7 +12,7 @@ import re
 import time
 from functools import partial
 
-import homeassistant.components.group as group
+from homeassistant.components import group
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, UnknownEntry, ConfigEntryAuthFailed, ConfigEntryState
 from homeassistant.const import (
@@ -220,7 +220,8 @@ def _loxone_coordinator_by_uuid(hass: HomeAssistant, uuid: str) -> LoxoneCoordin
 
 
 def _resolve_outbound_target(hass: HomeAssistant, data: dict) -> tuple[LoxoneCoordinator, str]:
-    """Resolve ``call.data`` to ``(owning entry coordinator, control uuid)``. (CORE-11/CORE-04)
+    """
+    Resolve ``call.data`` to ``(owning entry coordinator, control uuid)``. (CORE-11/CORE-04)
 
     Exactly one of ``uuid`` / ``device`` may be given (the schema enforces
     at most one; this enforces at least one). ``device`` must be an entity
@@ -264,7 +265,8 @@ def _resolve_outbound_target(hass: HomeAssistant, data: dict) -> tuple[LoxoneCoo
 
 
 def _async_register_domain_services(hass: HomeAssistant) -> None:
-    """Register the Loxone domain services *once* for the whole integrations. (CORE-04)
+    """
+    Register the Loxone domain services *once* for the whole integrations. (CORE-04)
 
     Previously `async_setup_entry` (re-)registered all four service names
     per config entry, overwriting each other, left the last entry's
@@ -295,7 +297,8 @@ def _async_register_domain_services(hass: HomeAssistant) -> None:
         await sync_areas_with_loxone(hass, call.data if isinstance(call.data, dict) else {})
 
     async def handle_reload(call) -> None:
-        """Handle a service call to reload the integration.
+        """
+        Handle a service call to reload the integration.
 
         One ``async_schedule_reload`` per entry — HA owns the safe
         unload-then-load ordering — replaces the old full unload-then-
@@ -351,7 +354,8 @@ YAML_CONFIG_ISSUE_ID = "yaml_config_present"
 
 
 async def async_setup(hass, config):
-    """Domain-level setup (runs once, even with pure config entries).
+    """
+    Domain-level setup (runs once, even with pure config entries).
 
     Registers the four domain services (CORE-04).  A leftover YAML
     ``loxone:`` block fires a persistent, non-fixable repair issue: the
@@ -506,7 +510,8 @@ LOXONE_GROUPS_BY_OBJECT_ID: dict[str, tuple[str, tuple[str, ...]]] = {
 
 
 async def loxone_discovered(hass, _config_entry):
-    """Collect this entry's entities for the auto-groups, keyed by group object id.
+    """
+    Collect this entry's entities for the auto-groups, keyed by group object id.
 
     Every state of *this integration* (``platform == loxone``) is matched
     against the PS-14 constants in :data:`LOXONE_GROUPS_BY_OBJECT_ID` via
@@ -527,7 +532,8 @@ async def loxone_discovered(hass, _config_entry):
 
 
 async def create_loxone_groups(hass, config_entry):
-    """Create the auto-groups once per install (CORE-15).
+    """
+    Create the auto-groups once per install (CORE-15).
 
     Gated on the entry's ``generate_groups`` option: the config flow
     stamps new installs with ``False`` (default off), while pre-option
@@ -576,7 +582,8 @@ def _hass_data(hass) -> dict:
 
 
 def _auth_failure_tracker(hass) -> dict:
-    """Return the per-entry consecutive-auth-failure store.
+    """
+    Return the per-entry consecutive-auth-failure store.
 
     HA re-creates the coordinator on every setup attempt, so the counter and
     first-failure timestamp must not live on the coordinator.  They are kept
@@ -590,7 +597,8 @@ def _auth_failure_tracker(hass) -> dict:
 
 
 def _record_auth_failure(hass, config_entry, now=None):
-    """Record one 401 during setup. Returns ``(consecutive_count, first_failure_time)``.
+    """
+    Record one 401 during setup. Returns ``(consecutive_count, first_failure_time)``.
 
     ``now`` defaults to the process monotonic clock (a persistent per-entry
     first-failure timestamp would survive HA restarts only via the entry,
@@ -608,7 +616,8 @@ def _record_auth_failure(hass, config_entry, now=None):
 
 
 def _clear_auth_failure(hass, config_entry) -> None:
-    """Reset the consecutive-auth-failure counter after a successful setup.
+    """
+    Reset the consecutive-auth-failure counter after a successful setup.
 
     Also removes the empty ``auth_failures`` dict from ``hass.data[DOMAIN]`` —
     and with the coordinator now on ``config_entry.runtime_data`` (CORE-31)
@@ -626,7 +635,8 @@ def _clear_auth_failure(hass, config_entry) -> None:
 
 
 def _should_escalate_auth_failure(consecutive_count, first_failure_time, now) -> bool:
-    """Escalate only after the bounded retry window is exhausted.
+    """
+    Escalate only after the bounded retry window is exhausted.
 
     Intent: a booting Miniserver emits 401 for a short window, so a *short* run
     of failures is retried quietly; 5+ consecutive failures spanning >= 5
@@ -657,7 +667,8 @@ def _auth_failed_issue_id(entry_id: str) -> str:
 
 
 def _async_report_auth_failure(hass: HomeAssistant, config_entry: ConfigEntry) -> None:
-    """Register this entry's ``auth_failed`` repair issue (CORE-30).
+    """
+    Register this entry's ``auth_failed`` repair issue (CORE-30).
 
     Called at both points where the Miniserver rejects the *stored*
     credentials: the bounded 401 escalation in ``async_setup_entry`` (which
@@ -694,7 +705,8 @@ def _unsupported_firmware_issue_id(entry_id: str) -> str:
 
 
 def _async_reconcile_firmware_issue(hass: HomeAssistant, config_entry: ConfigEntry, software_version: str) -> None:
-    """Create/remove the ``unsupported_firmware`` issue from the reported firmware (CORE-30).
+    """
+    Create/remove the ``unsupported_firmware`` issue from the reported firmware (CORE-30).
 
     Called on every successful setup with the Miniserver's
     ``softwareVersion`` (string form; see ``MiniServer.software_version``).
@@ -725,7 +737,8 @@ def _async_reconcile_firmware_issue(hass: HomeAssistant, config_entry: ConfigEnt
 
 
 async def _persist_token_and_close(hass, config_entry, coordinator, _event) -> None:
-    """Persist the current token and close the connection on HA stop.
+    """
+    Persist the current token and close the connection on HA stop.
 
     Module-scoped (not a nested closure): ``EventBus._async_listen_once``
     repackages the callback into its own wrapper, which poisons
@@ -834,11 +847,10 @@ async def async_setup_entry(hass, config_entry):
                 raise ConfigEntryAuthFailed(
                     f"Miniserver at {host} rejected the stored credentials {attempt} consecutive times during setup"
                 ) from err
-            else:
-                _LOGGER.warning(
-                    "Miniserver answered 401 during setup; retrying (attempt %i)",
-                    attempt,
-                )
+            _LOGGER.warning(
+                "Miniserver answered 401 during setup; retrying (attempt %i)",
+                attempt,
+            )
         elif isinstance(cause, LoxoneServiceUnAvailableError):
             _LOGGER.warning(
                 "Loxone Miniserver at %s is unavailable (service restarting?). Will retry automatically",
@@ -907,7 +919,8 @@ async def async_setup_entry(hass, config_entry):
     await hass.config_entries.async_forward_entry_setups(config_entry, LOXONE_PLATFORMS)
 
     async def run_loxone_session() -> None:
-        """API-09: run the in-place reconnect supervisor for this entry.
+        """
+        API-09: run the in-place reconnect supervisor for this entry.
 
         Wire messages are funneled through the coordinator's single
         :meth:`handle_message` (CORE-27): it fires the public
@@ -946,7 +959,8 @@ async def async_setup_entry(hass, config_entry):
             raise
 
     async def create_groups(_hass: HomeAssistant) -> None:
-        """Create the auto-groups, once per install.
+        """
+        Create the auto-groups, once per install.
 
         CORE-06: ran at HA-started via ``async_at_started`` (immediately
         when HA is already running, as after a reload) with the
@@ -957,7 +971,8 @@ async def async_setup_entry(hass, config_entry):
         await create_loxone_groups(_hass, config_entry)
 
     async def loxone_send(event):
-        """Outbound commands fired on the bus by external users.
+        """
+        Outbound commands fired on the bus by external users.
 
         ``SENDDOMAIN`` / ``SECUREDSENDDOMAIN`` are documented for user
         automations and stay — but each entry now forwards only uuids
@@ -1105,7 +1120,8 @@ class LoxoneEntity(Entity):
             self._attr_extra_state_attributes["category"] = kwargs["cat"]
 
     async def async_added_to_hass(self):
-        """Subscribe to this entry's state signals (CORE-27) and its
+        """
+        Subscribe to this entry's state signals (CORE-27) and its
         connection-liveness signal (API-09/CORE-28).  HA fires the
         ``async_on_remove`` hooks on entity removal, so an in-place
         reload leaks nothing.
@@ -1135,7 +1151,8 @@ class LoxoneEntity(Entity):
             )
 
     def _state_uuids(self) -> frozenset[str]:
-        """CORE-27 (PS-13): the stream uuids this entity reacts to.
+        """
+        CORE-27 (PS-13): the stream uuids this entity reacts to.
 
         Precomputed ``frozenset`` (no per-event set allocations); classes
         override it in ``__init__``.  Defaults to the control's
@@ -1162,7 +1179,8 @@ class LoxoneEntity(Entity):
         self.async_write_ha_state()
 
     def _send(self, value, uuid: str | None = None, secured: bool = False, code: str | None = None) -> None:
-        """CORE-27: route outbound commands through this entity's *own*
+        """
+        CORE-27: route outbound commands through this entity's *own*
         entry's coordinator.
 
         ``uuid`` defaults to ``self.uuidAction`` (sub-control commands
@@ -1189,7 +1207,8 @@ class LoxoneEntity(Entity):
         coordinator.config_entry.async_create_background_task(self.hass, coro, name=f"loxone-send-{target}")
 
     def _connection_coordinator(self) -> LoxoneCoordinator | None:
-        """The owning entry's :class:`LoxoneCoordinator`, or None if not resolvable.
+        """
+        The owning entry's :class:`LoxoneCoordinator`, or None if not resolvable.
 
         Resolution prefers ``platform.config_entry``: HA reuses entity
         objects across setup/reload cycles (the entity registry keeps the
@@ -1216,7 +1235,8 @@ class LoxoneEntity(Entity):
 
     @property
     def available(self) -> bool:
-        """Available only while the Miniserver session is live (CORE-28).
+        """
+        Available only while the Miniserver session is live (CORE-28).
 
         Combines the coordinator's live reconnect state with the per-entity
         ``_attr_available`` ("value not yet seen"), which keeps working.
@@ -1228,7 +1248,8 @@ class LoxoneEntity(Entity):
 
     @callback
     def async_write_ha_state(self) -> None:
-        """Skip the state write while HA has not attached the entity.
+        """
+        Skip the state write while HA has not attached the entity.
 
         Event-driven writes (and unit-style tests driving
         :meth:`event_handler` directly on raw instances) can happen before
@@ -1244,7 +1265,8 @@ class LoxoneEntity(Entity):
 
     @callback
     def event_handler(self, e) -> None:
-        """CORE-27: one invocation per subscribed uuid.
+        """
+        CORE-27: one invocation per subscribed uuid.
 
         ``e`` is a dict mapping the updated uuid(s) to their values —
         a single-uuid slice on the normal dispatcher path, the entry's
@@ -1257,7 +1279,7 @@ class LoxoneEntity(Entity):
 
     @staticmethod
     def _get_format(lox_format):
-        search = re.search(cfmt, lox_format, flags=re.X)
+        search = re.search(cfmt, lox_format, flags=re.VERBOSE)
         if search:
             return search.group(0).strip()
         return None

@@ -45,7 +45,8 @@ _LAMELLE_JITTER_MAX = 0.009
 
 
 def _state_uuid(states, name):
-    """The uuid the structure file registers for `states[name]`, or None.
+    """
+    The uuid the structure file registers for `states[name]`, or None.
 
     Several Loxone control types carry optional states (a Window without
     `targetPosition`, a Jalousie without `shadePosition`, ...); using `.get()`
@@ -55,15 +56,18 @@ def _state_uuid(states, name):
 
 
 def _lamelle_command(base_position):
-    """Build a `manualLamelle/<position>` command with an explicit fixed
+    """
+    Build a `manualLamelle/<position>` command with an explicit fixed
     decimal format (3 digits — the tint is coarse) plus the sub-percent
-    jitter that keeps Loxone from discarding the command (PC-19)."""
+    jitter that keeps Loxone from discarding the command (PC-19).
+    """
     position = base_position + random.uniform(_LAMELLE_JITTER_MIN, _LAMELLE_JITTER_MAX)
     return f"manualLamelle/{position:.3f}"
 
 
 def gate_stop_command():
-    """Command sent when a Gate `stop_cover` is requested (PC-07, VERIFY).
+    """
+    Command sent when a Gate `stop_cover` is requested (PC-07, VERIFY).
 
     The pre-fix code re-sent the *opposite* direction, which is certainly a
     direction reversal, not a stop. The intended semantics — and what
@@ -75,7 +79,8 @@ def gate_stop_command():
 
 
 def gate_set_position_command(position):
-    """Build the command for moving a Gate to a cover position (HA scale).
+    """
+    Build the command for moving a Gate to a cover position (HA scale).
 
     The Gate is tracked on a 0..100 position scale in HA orientation
     (100 = open, 0 = closed — see :class:`LoxoneGate`'s event handler,
@@ -127,7 +132,8 @@ async def async_setup_platform(
     _async_add_entities: AddEntitiesCallback,
     _discovery_info: DiscoveryInfoType | None = None,
 ) -> bool:
-    """Set up the Loxone covers.
+    """
+    Set up the Loxone covers.
 
     The platform is entry-only; `async_setup_entry` does the work, and `True`
     marks the YAML platform as handled.
@@ -217,7 +223,8 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
 
     @property
     def supported_features(self):
-        """Flag supported features.
+        """
+        Flag supported features.
 
         SET_POSITION (WP-6.8) is advertised only when the structure file
         reports a `position` stream — a gate without one cannot follow a
@@ -273,7 +280,8 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         self.schedule_update_ha_state()
 
     async def async_set_cover_position(self, **kwargs):
-        """Move the gate to the requested position (WP-6.8).
+        """
+        Move the gate to the requested position (WP-6.8).
 
         Async (PC-14): HA entity services prefer the ``async_`` variant;
         a sync-only method would run in the executor thread and hit the
@@ -310,7 +318,8 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return device specific state attributes.
+        """
+        Return device specific state attributes.
 
         Implemented by platform classes.
         """
@@ -369,7 +378,8 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
 
     @property
     def current_cover_position(self):
-        """Return current position of cover.
+        """
+        Return current position of cover.
 
         None is unknown, 0 is closed, 100 is fully open.
         """
@@ -422,7 +432,8 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
         self._send("fullclose")
 
     def stop_cover(self, **_kwargs):
-        """Stop the cover (PC-07): a real stop, regardless of direction.
+        """
+        Stop the cover (PC-07): a real stop, regardless of direction.
 
         Previously a closing window was sent `fullopen` and an opening one
         `fullclose` — running the window to the opposite end instead of
@@ -618,8 +629,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
     def auto(self):
         if self._is_automatic and self._auto_state:
             return STATE_ON
-        else:
-            return STATE_OFF
+        return STATE_OFF
 
     @property
     def is_sun_automation_enabled(self) -> bool | None:
@@ -631,8 +641,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         """Returns shade position as text"""
         if self.current_cover_tilt_position == 100 and self.current_cover_position < 10:
             return "shading on"
-        else:
-            return " "
+        return " "
 
     @property
     def extra_state_attributes(self):
@@ -664,7 +673,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         """Close the cover."""
         if self._position == 0:
             return
-        elif self._position is None:
+        if self._position is None:
             self._closed = True
             self.schedule_update_ha_state()
             return
@@ -676,7 +685,7 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         """Open the cover."""
         if self._position == 100.0:
             return
-        elif self._position is None:
+        if self._position is None:
             self._closed = False
             self.schedule_update_ha_state()
             return

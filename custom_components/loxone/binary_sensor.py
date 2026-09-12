@@ -83,7 +83,8 @@ _DIGITAL_CATEGORY_KEYWORDS: tuple[tuple[tuple[str, ...], BinarySensorDeviceClass
 
 
 def _normalize_label(label: object) -> str | None:
-    """A text label to the canonical lowercase-space-normalised form.
+    """
+    A text label to the canonical lowercase-space-normalised form.
 
     Returns ``None`` for anything that is not a string.
     """
@@ -105,7 +106,8 @@ def _category_device_class(category: str) -> BinarySensorDeviceClass | None:
 
 
 def infer_digital_device_class(details: Mapping[str, Any] | None, category: str) -> BinarySensorDeviceClass | None:
-    """``InfoOnlyDigital`` → HA binary sensor device class (WP-6.4, #402).
+    """
+    ``InfoOnlyDigital`` → HA binary sensor device class (WP-6.4, #402).
 
     Pure: no entity state, no HA.  The control's own on/off text
     (``details.text.{on,off}``) wins over the category name; both are user
@@ -199,9 +201,7 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
             # so a missing state cannot abort the platform.
             if self.type == "smoke":
                 self._state_uuid = self.states.get("level") or self.uuidAction
-            elif self.type == "presence":
-                self._state_uuid = self.states.get("active") or self.uuidAction
-            elif "active" in self.states:
+            elif self.type == "presence" or "active" in self.states:
                 self._state_uuid = self.states.get("active") or self.uuidAction
             else:
                 self._state_uuid = self.uuidAction
@@ -210,7 +210,7 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
 
         self._state = STATE_UNKNOWN
         self._format = self._get_format(kwargs.get("details", {}).get("format", ""))
-        self._parent_id = kwargs.get("parent_id", None)
+        self._parent_id = kwargs.get("parent_id")
         # WP-5.1: sub-sensors (the Ventilation fan's presence/humidity/
         # air-quality/temperature) keep their short name — the device is
         # named after the parent control, so the full control name must
@@ -269,7 +269,8 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
             )
 
     def _state_uuids(self) -> frozenset[str]:
-        """CORE-27: the state stream(s) this entity reacts to.
+        """
+        CORE-27: the state stream(s) this entity reacts to.
 
         (``_state_uuid`` was computed in ``__init__`` for the
         PS-04 read semantics; it doubles as the subscription set.)

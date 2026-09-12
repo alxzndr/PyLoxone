@@ -123,9 +123,11 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         return self._master_min is not None and self._master_max is not None
 
     def _hass_to_master(self, hass_level) -> float:
-        """HA brightness (1-255) → Loxone value, honouring the master
+        """
+        HA brightness (1-255) → Loxone value, honouring the master
         dimmer's min/max (PC-17) and never rounding a non-zero request to
-        0 (PC-18); shares its scaling with LoxoneDimmer."""
+        0 (PC-18); shares its scaling with LoxoneDimmer.
+        """
         if self._master_min_max_known:
             return hass_to_lox_range(hass_level, self._master_min, self._master_max)
         if not hass_level:
@@ -232,7 +234,8 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return device specific state attributes.
+        """
+        Return device specific state attributes.
 
         Implemented by platform classes.
         """

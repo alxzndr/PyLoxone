@@ -126,7 +126,6 @@ async def test_two_miniservers_are_isolated(
 
     async def _routed_send(self, entity_uuid, value, *args, **kwargs):
         per_api_sent.setdefault(id(self), []).append((entity_uuid, value, kwargs.get("code")))
-        return None
 
     with (
         patch.object(LoxoneConnection, "open", new=_open_patched),

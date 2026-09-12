@@ -19,7 +19,8 @@ _DISCOVERY_RESPONSE_RE = re.compile(r"^LoxLIVE:.* (?P<ip>(?:[0-9]{1,3}\.){3}[0-9
 
 
 def parse_discovery_response(response: str) -> tuple[str, int] | None:
-    """Parse a LoxLIVE broadcast reply into ``(ip, port)``.
+    """
+    Parse a LoxLIVE broadcast reply into ``(ip, port)``.
 
     Pure function, hand-testable: returns the announced IPv4 address and
     port, or ``None`` when the reply is not a LoxLIVE announcement or

@@ -19,7 +19,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def check_and_decode_if_needed(message):
-    """Decode a bytes frame to str: utf-8 with a latin-1 fallback.
+    """
+    Decode a bytes frame to str: utf-8 with a latin-1 fallback.
 
     latin-1 never fails (every byte maps to a code point), so it is a safe
     last resort for the single-byte frames the Miniserver occasionally sends
@@ -50,7 +51,8 @@ class MessageType(IntEnum):
 
 
 class LLResponse:
-    """A class for parsing LL Responses from the miniserver
+    """
+    A class for parsing LL Responses from the miniserver
 
     An LL Response is a json object often returned by a miniserver in response
     to a command. It begins "{"LL": {..." and has a control, code and value
@@ -224,13 +226,7 @@ class TextStatesTable(BaseMessage):
             second += offset
 
             icon_uuid_fields = event_uuid.urn.replace("urn:uuid:", "").split("-")
-            uuidstr = "{}-{}-{}-{}{}".format(
-                icon_uuid_fields[0],
-                icon_uuid_fields[1],
-                icon_uuid_fields[2],
-                icon_uuid_fields[3],
-                icon_uuid_fields[4],
-            )
+            uuidstr = f"{icon_uuid_fields[0]}-{icon_uuid_fields[1]}-{icon_uuid_fields[2]}-{icon_uuid_fields[3]}{icon_uuid_fields[4]}"
 
             icon_uuid = uuid.UUID(bytes_le=self.message[first:second])  # type: ignore
             icon_uuid_fields = icon_uuid.urn.replace("urn:uuid:", "").split("-")

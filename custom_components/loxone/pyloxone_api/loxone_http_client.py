@@ -22,7 +22,8 @@ from .exceptions import (
 
 
 def _basic_auth_header(username: str, password: str) -> str:
-    """Return a UTF-8 Basic auth header value.
+    """
+    Return a UTF-8 Basic auth header value.
 
     ``aiohttp.BasicAuth`` and the ``auth=`` request parameter are deprecated
     and are removed in aiohttp 4. ``encode_basic_auth`` is the replacement,
@@ -119,7 +120,7 @@ class LoxoneAsyncHttpClient:
             _LOGGER.exception("Connector error to %s: %s", url, err)
             raise ConnectionError(f"Cannot resolve or connect to {url}: {err}") from err
 
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             _LOGGER.exception("Timeout error for %s", url)
             raise TimeoutError(f"Request to {url} timed out after {self.timeout} seconds") from err
 
@@ -184,13 +185,13 @@ class LoxoneAsyncHttpClient:
             try:
                 content = await asyncio.wait_for(response.content.read(), timeout=5.0)
                 content = content.decode("utf-8", errors="replace")
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 _LOGGER.warning("Timeout reading error response content")
                 content = "<timeout reading response>"
             except UnicodeDecodeError as err:
                 _LOGGER.warning("Failed to decode response content: %s", err)
                 content = "<binary content>"
-            except (ValueError, OSError, TimeoutError, aiohttp.ClientError) as err:
+            except (ValueError, OSError, aiohttp.ClientError) as err:
                 _LOGGER.warning("Error reading response content: %s", err)
                 content = f"<error reading content: {err}>"
 
@@ -203,39 +204,39 @@ class LoxoneAsyncHttpClient:
             _LOGGER.error("Bad Request (400): %s", content)
             raise ValueError(f"Bad request to Loxone Miniserver: {content}")
 
-        elif response.status == 401:
+        if response.status == 401:
             _LOGGER.error("Unauthorized (401): %s", content)
             err = LoxoneUnauthorisedError(f"Unauthorized: {content}")
             err.response = response
             raise err
 
-        elif response.status == 403:
+        if response.status == 403:
             _LOGGER.error("Forbidden (403): %s", content)
             raise PermissionError(f"Access forbidden: {content}")
 
-        elif response.status == 404:
+        if response.status == 404:
             _LOGGER.error("Not Found (404): %s", content)
             err = LoxoneUnrecognizedCommandError(f"Unrecognized command: {content}")
             err.response = response
             raise err
 
-        elif response.status == 408:
+        if response.status == 408:
             _LOGGER.error("Request Timeout (408): %s", content)
             raise TimeoutError(f"Request timeout: {content}")
 
-        elif response.status == 429:
+        if response.status == 429:
             _LOGGER.error("Too Many Requests (429): %s", content)
             raise RuntimeError(f"Rate limit exceeded: {content}")
 
-        elif response.status == 500:
+        if response.status == 500:
             _LOGGER.error("Internal Server Error (500): %s", content)
             raise RuntimeError(f"Miniserver internal error: {content}")
 
-        elif response.status == 502:
+        if response.status == 502:
             _LOGGER.error("Bad Gateway (502): %s", content)
             raise ConnectionError(f"Bad gateway: {content}")
 
-        elif response.status == 503:
+        if response.status == 503:
             _LOGGER.error("Service Unavailable (503): %s", content)
             err = LoxoneServiceUnAvailableError(
                 f"Service Unavailable; The Miniserver is restarting and not ready for requests: {content}"
@@ -243,17 +244,16 @@ class LoxoneAsyncHttpClient:
             err.response = response
             raise err
 
-        elif response.status == 504:
+        if response.status == 504:
             _LOGGER.error("Gateway Timeout (504): %s", content)
             raise TimeoutError(f"Gateway timeout: {content}")
 
-        elif response.status == 901:
+        if response.status == 901:
             _LOGGER.error("Max Connections (901): %s", content)
             err = LoxoneMaxNumOfConnectionsError(f"Maximum number of allowed concurrent connections reached: {content}")
             err.response = response
             raise err
 
-        else:
-            # Generic error for any other status code
-            _LOGGER.error("HTTP Error %s: %s", response.status, content)
-            raise RuntimeError(f"HTTP error {response.status}: {content}")
+        # Generic error for any other status code
+        _LOGGER.error("HTTP Error %s: %s", response.status, content)
+        raise RuntimeError(f"HTTP error {response.status}: {content}")

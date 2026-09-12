@@ -50,7 +50,8 @@ async def async_setup_entry(
 
 
 class LoxoneButton(LoxoneEntity, ButtonEntity):
-    """Representation of a Loxone pushbutton.
+    """
+    Representation of a Loxone pushbutton.
 
     A press is an event, not state: the entity never carries a state of its
     own, so it must not override the ``ButtonEntity.state`` property (which
@@ -119,7 +120,8 @@ class LoxoneButton(LoxoneEntity, ButtonEntity):
 
 
 class LoxoneUpDownDigitalButton(LoxoneEntity, ButtonEntity):
-    """One side of an ``UpDownDigital`` rocker (WP-6.6, PS-26).
+    """
+    One side of an ``UpDownDigital`` rocker (WP-6.6, PS-26).
 
     An UpDownDigital control is a virtual up/down input: it has *no* state
     streams, only the commands ``UpOn`` / ``UpOff`` / ``DownOn`` /
@@ -151,12 +153,14 @@ class LoxoneUpDownDigitalButton(LoxoneEntity, ButtonEntity):
         return frozenset()
 
     async def async_press(self, **_kwargs) -> None:
-        """Handle a press (sends ``UpOn`` / ``DownOn``).
+        """
+        Handle a press (sends ``UpOn`` / ``DownOn``).
 
         Async on purpose: HA dispatches a *sync* ``press`` off the event
         loop, where the coordinator-provided ``_send`` path cannot create
         its send task (the pre-existing sync-``press`` platforms hit the
-        same wall — follow-up noted in the WP-6.6 PR)."""
+        same wall — follow-up noted in the WP-6.6 PR).
+        """
         self._send(self._command)
         self.async_schedule_update_ha_state()
 

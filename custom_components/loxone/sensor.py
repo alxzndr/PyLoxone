@@ -283,7 +283,8 @@ def _is_numeric_format(lox_format: Any) -> bool:
 
 
 def _analog_value(value: Any) -> Any:
-    """Normalise a raw InfoOnlyAnalog stream value for ``native_value``.
+    """
+    Normalise a raw InfoOnlyAnalog stream value for ``native_value``.
 
     ``None`` and the Miniserver's error sentinel (``ERROR_VALUE`` == -1)
     mean "no reading" and map to ``None`` (HA shows ``unknown``);
@@ -308,10 +309,12 @@ def _metering_indicated(name: str, category: str) -> bool:
 
 
 def _as_int_severity(value) -> int:
-    """Normalise a Message Center entry ``severity`` (int, integral float,
+    """
+    Normalise a Message Center entry ``severity`` (int, integral float,
     numeric string) to the int the severity classes are defined on.
     Non-numeric junk maps to 0 (reported below any real severity), so
-    a corrupt entry can never escalate the summary."""
+    a corrupt entry can never escalate the summary.
+    """
     if isinstance(value, bool):
         return 0
     if isinstance(value, int):
@@ -324,7 +327,8 @@ def _as_int_severity(value) -> int:
 
 
 def message_center_summary(entries) -> tuple[dict[str, int], int]:
-    """The (severity -> count) tallies and the maximum severity of the
+    """
+    The (severity -> count) tallies and the maximum severity of the
     *active* Message Center entries.
 
     Historic entries are already resolved — the upstream port deletes
@@ -345,8 +349,9 @@ def message_center_summary(entries) -> tuple[dict[str, int], int]:
     return counts, max_severity
 
 
-def message_center_issue_severity(severity: int) -> "ir.IssueSeverity":
-    """The HA issue severity for a Message Center severity class.
+def message_center_issue_severity(severity: int) -> ir.IssueSeverity:
+    """
+    The HA issue severity for a Message Center severity class.
 
     Exact port of the upstream mapping (#515): ``> 3`` is CRITICAL,
     ``> 2`` is ERROR, everything else (1 = warning, 0/absent) is
@@ -360,8 +365,9 @@ def message_center_issue_severity(severity: int) -> "ir.IssueSeverity":
     return ir.IssueSeverity.WARNING
 
 
-def message_center_entry_timestamp(timestamps) -> "datetime | None":
-    """The *occurred at* moment of a Message Center entry, or None.
+def message_center_entry_timestamp(timestamps) -> datetime | None:
+    """
+    The *occurred at* moment of a Message Center entry, or None.
 
     The entry ``timestamps`` field is a list of Unix epoch seconds
     (hand-derived expected values in ``tests/test_message_center.py``);
@@ -381,7 +387,8 @@ def message_center_entry_timestamp(timestamps) -> "datetime | None":
 
 
 def _is_get_entries_response(control) -> bool:
-    """True when a state message's ``control`` field acknowledges a
+    """
+    True when a state message's ``control`` field acknowledges a
     Message Center ``getEntries`` request addressed at this sensor.
 
     Tolerant of the two shapes the websocket layer can produce for a
@@ -405,7 +412,8 @@ def _is_get_entries_response(control) -> bool:
 
 
 def message_center_issue_id(config_entry_id: str, entry_uuid: str) -> str:
-    """The per-(entry, message) repair issue id (WP-6.2).
+    """
+    The per-(entry, message) repair issue id (WP-6.2).
 
     Namespaced by config entry id: two Miniservers on one HA instance
     must never share an issue (same convention as the CORE-30
@@ -416,7 +424,8 @@ def message_center_issue_id(config_entry_id: str, entry_uuid: str) -> str:
 
 
 def presence_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
-    """``LoxoneSensor`` kwargs for the illuminance/noise sub-states of a
+    """
+    ``LoxoneSensor`` kwargs for the illuminance/noise sub-states of a
     PresenceDetector control (#461).
 
     One sub-sensor dict per advertised sub-state: short entity name
@@ -462,7 +471,8 @@ def presence_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
 
 
 def meter_device_model(control: dict) -> str:
-    """Device model string for a Meter-family control (WP-6.5).
+    """
+    Device model string for a Meter-family control (WP-6.5).
 
     A legacy ``Meter`` may carry a free-form ``details.type`` (e.g.
     ``"Module Meter"``) which historically produced ``"<Type> Meter"``;
@@ -481,7 +491,8 @@ def meter_device_model(control: dict) -> str:
 
 
 def meter_device_info(control: dict, config_entry) -> dict | None:
-    """Shared device info for the registers of one Meter-family control
+    """
+    Shared device info for the registers of one Meter-family control
     (WP-6.5).
 
     All sub-registers of one control carry the parent control's own
@@ -504,7 +515,8 @@ def meter_device_info(control: dict, config_entry) -> dict | None:
 
 
 def meter_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
-    """``LoxoneMeterSensor`` kwargs for the registers of a Meter-family
+    """
+    ``LoxoneMeterSensor`` kwargs for the registers of a Meter-family
     control (WP-6.5): ``Meter``, ``EnergyManager``, ``EnergyManager2``,
     ``PowerUnit`` and ``Wallbox``.
 
@@ -564,8 +576,9 @@ def meter_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
 NFC_DEVICE_MODEL = "NfcCodeTouch"
 
 
-def nfc_code_date(value: Any) -> "datetime | None":
-    """Normalise a raw NfcCodeTouch ``codeDate`` stream value to an aware UTC datetime.
+def nfc_code_date(value: Any) -> datetime | None:
+    """
+    Normalise a raw NfcCodeTouch ``codeDate`` stream value to an aware UTC datetime.
 
     Intended semantics (**VERIFY** — live check #21 in
     ``docs/review/LIVE-MINISERVER-CHECKS.md``): ``codeDate`` carries the
@@ -601,7 +614,8 @@ def nfc_code_date(value: Any) -> "datetime | None":
 
 
 def nfc_auth_event_payload(*, control: dict, user: Any, code_date: Any, entry_id: str | None = None) -> dict:
-    """The bus-event data of one NfcCodeTouch authentication (PS-27).
+    """
+    The bus-event data of one NfcCodeTouch authentication (PS-27).
 
     The automation receives *who* (``user`` = the ``lastuser`` state)
     and *when* (``code_date``: the parsed ISO-8601 UTC instant, falling
@@ -625,7 +639,8 @@ def nfc_auth_event_payload(*, control: dict, user: Any, code_date: Any, entry_id
 
 
 class LoxoneNfcCodeTouchSensor(LoxoneEntity, SensorEntity):
-    """NfcCodeTouch (PS-27): who last authenticated, and the per-authentication
+    """
+    NfcCodeTouch (PS-27): who last authenticated, and the per-authentication
     ``loxone_nfc_auth`` bus event.
 
     The state is the ``lastuser`` value (a credential-free "who").  The
@@ -692,7 +707,8 @@ class LoxoneNfcCodeTouchSensor(LoxoneEntity, SensorEntity):
 
 
 class LoxoneNfcCodeDateSensor(LoxoneEntity, SensorEntity):
-    """NfcCodeTouch (PS-27): when the last code was entered (diagnostic).
+    """
+    NfcCodeTouch (PS-27): when the last code was entered (diagnostic).
 
     A TIMESTAMP sensor fed by the ``codeDate`` stream through
     :func:`nfc_code_date`; unparseable values keep the last known instant.
@@ -1135,7 +1151,7 @@ class LoxoneVersionSensor(LoxoneEntity, SensorEntity):
         # characters); an unusable value stays ``None`` (HA renders
         # unknown) instead of the literal string "unknown".
         parsed = software_version_string(version)
-        self._attr_native_value = parsed if parsed else None
+        self._attr_native_value = parsed or None
         if device_info is not None:
             self._attr_device_info = device_info
 
@@ -1194,7 +1210,8 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
 
 def tracker_entries(raw: Any) -> list[str] | None:
-    """Normalise a Tracker control's raw ``entries`` stream value (WP-6.6).
+    """
+    Normalise a Tracker control's raw ``entries`` stream value (WP-6.6).
 
     Intended semantics (VERIFY against a live Miniserver before this is
     assumed right): the stream pushes a JSON array of names/ids — e.g.
@@ -1219,9 +1236,11 @@ def tracker_entries(raw: Any) -> list[str] | None:
 
 
 class LoxoneTrackerSensor(LoxoneEntity, SensorEntity):
-    """Tracker control (WP-6.6, PS-26): its ``entries`` JSON list rendered
+    """
+    Tracker control (WP-6.6, PS-26): its ``entries`` JSON list rendered
     as a comma-joined name summary, the entry list as extra attributes
-    (pattern: ``LoxoneClimateController``'s JSON-list handling)."""
+    (pattern: ``LoxoneClimateController``'s JSON-list handling).
+    """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -1375,11 +1394,13 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
 
 
 class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
-    """A register (Actual/Total/Total Neg/Level) of a Meter-family
+    """
+    A register (Actual/Total/Total Neg/Level) of a Meter-family
     control (WP-6.5).  Register construction and the shared device link
     live in the pure ``meter_sub_sensor_kwargs`` / ``meter_device_info``
     helpers; this class keeps the ``LoxoneSensor`` behaviour (per-register
-    class overrides from the setup, analog state updates)."""
+    class overrides from the setup, analog state updates).
+    """
 
 
 class LoxoneRoomControllerTemperatureSensor(SensorEntity):
@@ -1418,7 +1439,8 @@ class LoxoneRoomControllerTemperatureSensor(SensorEntity):
 
 
 class LoxoneRoomControllerOverrideSensor(SensorEntity):
-    """Sensor for IRoomControllerV2 override reason.
+    """
+    Sensor for IRoomControllerV2 override reason.
 
     The values are slugs that resolve through
     ``entity.sensor.loxone.override_reason.state.<slug>`` (CORE-22).
@@ -1464,7 +1486,8 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
 
 
 class LoxoneClimateController(LoxoneEntity, SensorEntity):
-    """Climate controller sensor that fires the per-room demand signals
+    """
+    Climate controller sensor that fires the per-room demand signals
     for IRoomControllerV2 (PS-18: entry-scoped dispatcher signal replacing
     the global CLIMATE_EVENT bus event).
 
@@ -1548,7 +1571,8 @@ class LoxoneClimateController(LoxoneEntity, SensorEntity):
 
 
 class LoxoneNotificationsSensor(LoxoneEntity, SensorEntity):
-    """The Miniserver's global notification text (WP-6.2, #515).
+    """
+    The Miniserver's global notification text (WP-6.2, #515).
 
     ``globalStates.notifications`` in the structure file addresses a free
     text stream (e.g. "Maintenance mode active").  The sensor mirrors it
@@ -1584,7 +1608,8 @@ class LoxoneNotificationsSensor(LoxoneEntity, SensorEntity):
 
 
 class LoxoneMessageCenterSensor(LoxoneEntity, SensorEntity):
-    """Message Center severity summary + HA repair issues (WP-6.2, #515).
+    """
+    Message Center severity summary + HA repair issues (WP-6.2, #515).
 
     One per top-level ``messageCenter`` control of the structure file.  The
     sensor state is the max severity class (0 = no active entries) and the
@@ -1634,9 +1659,11 @@ class LoxoneMessageCenterSensor(LoxoneEntity, SensorEntity):
         return frozenset(uuids)
 
     def _owning_entry(self):
-        """The live platform config entry (prefers ``platform.config_entry``
+        """
+        The live platform config entry (prefers ``platform.config_entry``
         over the construction-time reference, same resolution as
-        ``LoxoneEntity._connection_coordinator``)."""
+        ``LoxoneEntity._connection_coordinator``).
+        """
         platform = getattr(self, "platform", None)
         entry = getattr(platform, "config_entry", None)
         if entry is None:
@@ -1648,9 +1675,11 @@ class LoxoneMessageCenterSensor(LoxoneEntity, SensorEntity):
         return message_center_issue_id(entry.entry_id, entry_uuid)
 
     async def async_added_to_hass(self):
-        """Subscribe to the entry's FULL message fan-out in addition to the
+        """
+        Subscribe to the entry's FULL message fan-out in addition to the
         per-uuid streams (only the Message Center sensor needs it — the
-        getEntries response has no stream uuid to dispatch on)."""
+        getEntries response has no stream uuid to dispatch on).
+        """
         await super().async_added_to_hass()
         config_entry = self._owning_entry()
         if config_entry is None:
@@ -1663,7 +1692,8 @@ class LoxoneMessageCenterSensor(LoxoneEntity, SensorEntity):
 
     @callback
     def event_handler(self, e):
-        """Handles per-uuid stream slices *and* full-message fanouts alike.
+        """
+        Handles per-uuid stream slices *and* full-message fanouts alike.
 
         The base ``LoxoneEntity`` callback wrapper routes the per-uuid fan-in
         to this dict; the extra full-message subscription feeds the same
@@ -1775,7 +1805,8 @@ class LoxoneMessageCenterSensor(LoxoneEntity, SensorEntity):
         )
 
     def _link_affected_entities(self, entry: dict, placeholders: dict, linked_entities: list[str]) -> bool:
-        """Attach the affected controls' HA entities to the issue.
+        """
+        Attach the affected controls' HA entities to the issue.
 
         Returns True when at least one affected uuid resolved to an entity
         of this entry (the translation switches to the {title}: {name} form

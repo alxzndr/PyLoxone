@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
@@ -13,7 +13,8 @@ _LOGGER = logging.getLogger(__name__)
 
 @callback
 def get_miniserver_from_hass(_hass, config_entry):
-    """Return the Miniserver for this specific config entry.
+    """
+    Return the Miniserver for this specific config entry.
 
     Returns ``None`` (not ``KeyError``) when the entry's coordinator or
     the structure file has not been populated yet, so callers
@@ -33,7 +34,7 @@ def get_miniserver_from_hass(_hass, config_entry):
 
 @dataclass
 class ConfigDataClass:
-    json: Optional[Dict[str, Any]] = None
+    json: dict[str, Any] | None = None
 
     def get(self, key, default=None):
         if self.json is not None:
@@ -71,7 +72,8 @@ class MiniServer:
 
     @property
     def software_version(self):
-        """The Miniserver firmware version as a string (CORE-16).
+        """
+        The Miniserver firmware version as a string (CORE-16).
 
         The structure file carries ``softwareVersion`` either as a list of
         parts (``["7", "1", "0", "28"]``) or already as a string; the old
@@ -80,7 +82,8 @@ class MiniServer:
         return software_version_string(self.lox_config.get("softwareVersion"))
 
     def miniserver_device_info(self):
-        """The device fields of this Miniserver's host device (CORE-16).
+        """
+        The device fields of this Miniserver's host device (CORE-16).
 
         Identifier is ``(DOMAIN, serial)`` — and nothing else: the old code
         additionally registered a "network connection" from the host IP
@@ -103,7 +106,8 @@ class MiniServer:
 
     @callback
     def async_update_device_registry(self) -> None:
-        """Create/update this entry's Miniserver host device (CORE-16).
+        """
+        Create/update this entry's Miniserver host device (CORE-16).
 
         Called exactly once from ``async_setup_entry`` — before the platforms
         forward — so that the per-control devices created by the entity
@@ -123,7 +127,7 @@ class MiniServer:
         host = host_options.get("host", "")
         port = host_options.get("port", 8080)
         if host:
-            fields["configuration_url"] = "http://{host}:{port}".format(host=host, port=port)
+            fields["configuration_url"] = f"http://{host}:{port}"
 
         device_registry.async_get_or_create(
             config_entry_id=self.config_entry.entry_id,

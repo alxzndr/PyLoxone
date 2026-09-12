@@ -545,9 +545,8 @@ async def test_setup_empty_radio_skipped_with_log(
     radio["details"] = {"jLockable": True}  # no outputs, no allOff
 
     mock_entry.add_to_hass(hass)
-    with caplog.at_level(logging.WARNING):
-        with _fake_open_with(config):
-            assert await hass.config_entries.async_setup(mock_entry.entry_id)
+    with caplog.at_level(logging.WARNING), _fake_open_with(config):
+        assert await hass.config_entries.async_setup(mock_entry.entry_id)
     await hass.async_block_till_done()
 
     assert not any("ventilation_radio" in i for i in hass.states.async_entity_ids("select"))
@@ -808,9 +807,8 @@ async def test_setup_intercom_sub_control_without_active_skipped(
     sub["states"] = {"on": "37333735-0168-9336-ffff-d303136372d3000104"}  # no `active`
 
     mock_entry.add_to_hass(hass)
-    with caplog.at_level(logging.WARNING):
-        with _fake_open_with(config):
-            assert await hass.config_entries.async_setup(mock_entry.entry_id)
+    with caplog.at_level(logging.WARNING), _fake_open_with(config):
+        assert await hass.config_entries.async_setup(mock_entry.entry_id)
     await hass.async_block_till_done()
 
     switch_ids = hass.states.async_entity_ids("switch")

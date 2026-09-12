@@ -11,7 +11,8 @@ import json
 import math
 import re
 from datetime import datetime
-from typing import Any, Final, Iterator
+from typing import Any, Final
+from collections.abc import Iterator
 
 from homeassistant.util import dt as dt_util
 
@@ -19,7 +20,8 @@ from .const import DOMAIN, cfmt
 
 
 def json_decoder(value):
-    """Parse a Loxone value string with ``json.loads``.
+    """
+    Parse a Loxone value string with ``json.loads``.
 
     Replaces the old ``eval(...)`` calls: it cannot execute code.  Returns
     ``None`` on a parse failure so the caller can keep its prior state instead
@@ -34,7 +36,8 @@ def json_decoder(value):
 
 
 def literal_decoder(value):
-    """Parse a Loxone value (e.g. ``"temp[0.85, 2700]"``) with
+    """
+    Parse a Loxone value (e.g. ``"temp[0.85, 2700]"``) with
     ``ast.literal_eval`` — safe for lists/tuples of numbers, no code execution.
     Returns ``None`` on a parse failure.
     """
@@ -67,7 +70,8 @@ def miniserver_via(config_entry):
 
 
 def device_info_for(config_entry, uuid, name, model, room=None, via_override=None):
-    """Build a *fresh* ``_attr_device_info`` dict for one entity (CORE-20).
+    """
+    Build a *fresh* ``_attr_device_info`` dict for one entity (CORE-20).
 
     Parameters
     ----------
@@ -84,6 +88,7 @@ def device_info_for(config_entry, uuid, name, model, room=None, via_override=Non
 
     Returns a dict — ``homeassistant`` accepts plain dicts as device info —
     freshly allocated on every call so no two entities share one object.
+
     """
     if not isinstance(uuid, str) or not uuid:
         # PC-05: a device with identifier None cannot be registered and
@@ -106,7 +111,8 @@ def device_info_for(config_entry, uuid, name, model, room=None, via_override=Non
 
 
 def get_or_create_device(device_uuid, device_name, device_type, device_room, config_entry=None):
-    """Return a fresh device-info dict (see :func:`device_info_for`).
+    """
+    Return a fresh device-info dict (see :func:`device_info_for`).
 
     Kept as the old call signature while the platform migration to
     ``device_info_for`` completes (switch/number/button/text/select and the
@@ -117,7 +123,8 @@ def get_or_create_device(device_uuid, device_name, device_type, device_room, con
 
 
 def map_range(value, in_min, in_max, out_min, out_max):
-    """Linearly map ``value`` from ``[in_min, in_max]`` onto ``[out_min, out_max]``.
+    """
+    Linearly map ``value`` from ``[in_min, in_max]`` onto ``[out_min, out_max]``.
 
     A degenerate input range (``in_min == in_max``) would divide by zero; it
     maps to ``out_min`` instead (the Miniserver knows nothing more precise
@@ -139,7 +146,8 @@ def lox_to_hass(lox_val):
 
 
 def lox_to_hass_range(lox_val, min_v, max_v):
-    """Map a Loxone value in ``[min_v, max_v]`` to an HA brightness (0-255).
+    """
+    Map a Loxone value in ``[min_v, max_v]`` to an HA brightness (0-255).
 
     The full span maps to ``0`` up to ``255`` (PC-17: the old
     ``lox2hass_mapped`` clamped at the edges but passed intermediate values
@@ -160,7 +168,8 @@ def lox_to_hass_range(lox_val, min_v, max_v):
 
 
 def hass_to_lox_range(hass_level, min_v, max_v):
-    """Map an HA brightness (1-255) to a Loxone value in ``[min_v, max_v]``
+    """
+    Map an HA brightness (1-255) to a Loxone value in ``[min_v, max_v]``
     (the inverse of :func:`lox_to_hass_range`; PC-17: the write path used to
     ignore ``min_v``/``max_v`` entirely).
 
@@ -215,19 +224,20 @@ def add_room_and_cat_to_value_values(loxconfig: dict, sensor: dict):
 def get_miniserver_type(t):
     if t == 0:
         return "Miniserver (Gen 1)"
-    elif t == 1:
+    if t == 1:
         return "Miniserver Go (Gen 1)"
-    elif t == 2:
+    if t == 2:
         return "Miniserver (Gen 2)"
-    elif t == 3:
+    if t == 3:
         return "Miniserver Go (Gen 2)"
-    elif t == 4:
+    if t == 4:
         return "Miniserver Compact"
     return "Unknown type"
 
 
 def software_version_string(version):
-    """Normalise the Loxone ``softwareVersion`` to a dot-joined string (CORE-16).
+    """
+    Normalise the Loxone ``softwareVersion`` to a dot-joined string (CORE-16).
 
     The structure file carries it either as a list of numeric parts
     (``["7", "1", "0", "28"]``) or, depending on Miniserver generation,
@@ -257,7 +267,8 @@ LOXONE_EPOCH_SECONDS: Final = 1230768000
 
 
 def loxone_timestamp(value) -> datetime | None:
-    """Convert a Loxone-epoch millisecond counter to an aware UTC datetime.
+    """
+    Convert a Loxone-epoch millisecond counter to an aware UTC datetime.
 
     Accepts the millisecond counter the Message Center's ``changed``
     state carries (ms since 2009-01-01T00:00:00Z) and returns the
@@ -290,7 +301,8 @@ MINIMUM_SUPPORTED_FIRMWARE: tuple[int, ...] = (7, 0, 0)
 
 
 def parse_firmware_version(version) -> tuple[int, ...] | None:
-    """Normalise a Loxone ``softwareVersion`` to a numeric part tuple.
+    """
+    Normalise a Loxone ``softwareVersion`` to a numeric part tuple.
 
     Accepts both structures the structure file carries — the string form
     (``"7.1.0.28"``) and the list form (``["7", "1", "0", "28"]``) — and
@@ -315,7 +327,8 @@ def parse_firmware_version(version) -> tuple[int, ...] | None:
 
 
 def meets_minimum_firmware(version) -> bool:
-    """Core criteria of the ``unsupported_firmware`` repair issue (CORE-30).
+    """
+    Core criteria of the ``unsupported_firmware`` repair issue (CORE-30).
 
     Compares against :data:`MINIMUM_SUPPORTED_FIRMWARE` with the first three
     parts (major/minor/micro); fewer parts count as zero beyond what exists,
@@ -333,7 +346,8 @@ def meets_minimum_firmware(version) -> bool:
 
 
 def get_all(json_data, name, recursive: bool = False) -> list[dict]:
-    """Return all controls of the given type (or list of types).
+    """
+    Return all controls of the given type (or list of types).
 
     Tolerates a structure file with no ``controls`` key and controls that
     lack a ``type``: those are skipped instead of raising (CORE-32, Uni Ulm
@@ -388,7 +402,8 @@ def get_all(json_data, name, recursive: bool = False) -> list[dict]:
 
 
 def iter_controls(hass, config_entry, types, recursive: bool = False) -> Iterator[dict]:
-    """Yield each control of ``types`` with its room/cat names resolved.
+    """
+    Yield each control of ``types`` with its room/cat names resolved.
 
     Shared setup boilerplate (PS-24): replaces the repeated
     ``get_miniserver_from_hass`` -> ``lox_config.json`` -> ``get_all`` ->
@@ -413,7 +428,7 @@ def iter_controls(hass, config_entry, types, recursive: bool = False) -> Iterato
 
 def clean_unit(lox_format):
     """Extract the unit string from a Loxone format specifier like '%.1f °C'."""
-    search = re.search(cfmt, lox_format, flags=re.X)
+    search = re.search(cfmt, lox_format, flags=re.VERBOSE)
     if search:
         unit = lox_format.replace(search.group(0).strip(), "").strip()
         if unit == "%%":

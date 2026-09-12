@@ -17,7 +17,7 @@ issue ids).  Every expected value below is derived by hand:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 
 from homeassistant.helpers import device_registry as dr
@@ -89,11 +89,11 @@ def _issue_or_none(hass, issue_id):
 def test_loxone_timestamp_converts_miniserver_epoch():
     """0 ms = 2009-01-01T00:00:00Z; +1 day lands on 2009-01-02T00:00:00Z;
     hand-computed large value: 2024-06-05T13:20:00Z."""
-    assert loxone_timestamp(0) == datetime(2009, 1, 1, tzinfo=timezone.utc)
-    assert loxone_timestamp(86400000) == datetime(2009, 1, 2, tzinfo=timezone.utc)
-    assert loxone_timestamp(486825600000) == datetime(2024, 6, 5, 13, 20, 0, tzinfo=timezone.utc)
+    assert loxone_timestamp(0) == datetime(2009, 1, 1, tzinfo=UTC)
+    assert loxone_timestamp(86400000) == datetime(2009, 1, 2, tzinfo=UTC)
+    assert loxone_timestamp(486825600000) == datetime(2024, 6, 5, 13, 20, 0, tzinfo=UTC)
     # Fractional milliseconds are fine: 1.5 s after the epoch.
-    assert loxone_timestamp(1500) == datetime(2009, 1, 1, 0, 0, 1, 500000, tzinfo=timezone.utc)
+    assert loxone_timestamp(1500) == datetime(2009, 1, 1, 0, 0, 1, 500000, tzinfo=UTC)
 
 
 def test_loxone_timestamp_rejects_junk():
@@ -145,7 +145,7 @@ def test_message_center_issue_severity_mapping():
 
 def test_message_center_entry_timestamp():
     """Entry timestamps are Unix epoch seconds (upstream PR contract)."""
-    assert message_center_entry_timestamp([1700000000]) == datetime(2023, 11, 14, 22, 13, 20, tzinfo=timezone.utc)
+    assert message_center_entry_timestamp([1700000000]) == datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
     assert message_center_entry_timestamp([]) is None
     assert message_center_entry_timestamp(None) is None
     assert message_center_entry_timestamp(["junk"]) is None

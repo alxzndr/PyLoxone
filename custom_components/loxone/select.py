@@ -26,7 +26,8 @@ ALL_OFF_DEFAULT_LABEL = "All off"
 
 
 def jalousie_auto_command(option: str) -> str | None:
-    """Command the Loxone Jalousie control accepts for a sun-automation mode.
+    """
+    Command the Loxone Jalousie control accepts for a sun-automation mode.
 
     Options as displayed by :class:`LoxoneJalousieAuto` → CoverControl
     command: ``"Off"`` → ``NoAuto`` (sun automation off), ``"Auto"`` →
@@ -38,7 +39,8 @@ def jalousie_auto_command(option: str) -> str | None:
 
 
 def jalousie_auto_option_from_state(value) -> str:
-    """Map the Jalousie ``autoState`` stream value to the displayed option.
+    """
+    Map the Jalousie ``autoState`` stream value to the displayed option.
 
     Loxone reports the sun-automation state as a 0/1 (or true/false) value
     on ``autoState``; non-zero means the sun automation is active. The
@@ -51,7 +53,8 @@ def jalousie_auto_option_from_state(value) -> str:
 
 
 def _dedupe_label(label: str, used: set[str]) -> str:
-    """Return a label that is unique within ``used`` and register it.
+    """
+    Return a label that is unique within ``used`` and register it.
 
     Home Assistant requires the options of a select entity to be unique. Loxone
     does not enforce unique output names, so duplicates are disambiguated with a
@@ -69,7 +72,8 @@ def _dedupe_label(label: str, used: set[str]) -> str:
 def build_option_maps(
     details: dict,
 ) -> tuple[list[str], dict[int, str], dict[str, int], int | None]:
-    """Build the option list and lookup maps for a Loxone Radio block.
+    """
+    Build the option list and lookup maps for a Loxone Radio block.
 
     Returns a tuple of:
       * the ordered list of option labels,
@@ -169,7 +173,8 @@ async def async_setup_entry(
 
 
 def lightscene_scene_lookup(details) -> tuple[list[str], list[str]]:
-    """The scene names of one LightsceneRGB `details.sceneList` as
+    """
+    The scene names of one LightsceneRGB `details.sceneList` as
     ``(options, raw_labels)`` — pre-dedupe labels kept in the same order.
 
     The real entry shape is not documented in anything we hold (VERIFY —
@@ -202,7 +207,8 @@ def lightscene_scene_lookup(details) -> tuple[list[str], list[str]]:
 
 
 def lightscene_active_scene_option(value, options: list[str], raw_labels: list[str]) -> str | None:
-    """Map the LightsceneRGB `activeScene` stream to a select option.
+    """
+    Map the LightsceneRGB `activeScene` stream to a select option.
 
     Intended semantics (VERIFY — live check #22): `activeScene` reports
     either the scene *name* (matching a `sceneList` label) or the scene's
@@ -226,7 +232,8 @@ def lightscene_active_scene_option(value, options: list[str], raw_labels: list[s
 
 
 def lightscene_scene_command(option: str) -> str:
-    """The outbound command that activates one scene (VERIFY —
+    """
+    The outbound command that activates one scene (VERIFY —
     live check #22).
 
     No wire capture documents the LightsceneRGB write path; this assumes
@@ -237,7 +244,8 @@ def lightscene_scene_command(option: str) -> str:
 
 
 class LoxoneLightsceneRGBScene(LoxoneEntity, SelectEntity):
-    """LightsceneRGB (WP-6.10, PS-27): a scene select over the control's
+    """
+    LightsceneRGB (WP-6.10, PS-27): a scene select over the control's
     `sceneList`.
 
     Only ever constructed for a *populated* `sceneList` (the setup
@@ -380,7 +388,8 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
 
 
 class LoxoneJalousieAuto(LoxoneEntity, SelectEntity):
-    """The sun-automation mode of a Loxone Jalousie as a select entity.
+    """
+    The sun-automation mode of a Loxone Jalousie as a select entity.
 
     Jalousies with ``sunAutoma``/``isAutomatic`` accept the CoverControl
     commands ``NoAuto`` (automation off), ``auto`` (automation on) and

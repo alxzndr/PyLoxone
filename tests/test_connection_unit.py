@@ -271,7 +271,7 @@ class FakeFeed:
     def __init__(self, frames: list) -> None:
         self._frames = list(frames)
 
-    def __aiter__(self) -> "FakeFeed":
+    def __aiter__(self) -> FakeFeed:
         return self
 
     async def __anext__(self):
@@ -368,7 +368,7 @@ class _FakeHttpResponse:
     def content(self) -> _FakeHttpContent:
         return self._content
 
-    async def __aenter__(self) -> "_FakeHttpResponse":
+    async def __aenter__(self) -> _FakeHttpResponse:
         return self
 
     async def __aexit__(self, *exc) -> bool:
@@ -422,7 +422,7 @@ class _FakeWebSocket:
     async def close(self) -> None:
         pass
 
-    def __aiter__(self) -> "_FakeWebSocket":
+    def __aiter__(self) -> _FakeWebSocket:
         return self
 
     async def __anext__(self) -> None:

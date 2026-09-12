@@ -93,7 +93,8 @@ class LoxoneText(LoxoneEntity, TextEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return device specific state attributes.
+        """
+        Return device specific state attributes.
 
         Implemented by platform classes.
         """

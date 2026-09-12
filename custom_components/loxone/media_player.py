@@ -45,13 +45,16 @@ SUPPORT_LOXONE_AUDIO_ZONE = (
 
 
 def _state_uuid(states: dict, name: str) -> str | None:
-    """Un-guarded ``states[name]`` indexing crashes the media player platform when a
-    structure file omits an attribute (PC-16); return ``None`` instead."""
+    """
+    Un-guarded ``states[name]`` indexing crashes the media player platform when a
+    structure file omits an attribute (PC-16); return ``None`` instead.
+    """
     return states.get(name)
 
 
 def play_state_to_media_player_state(play_state: int) -> MediaPlayerState:
-    """Map a Loxone AudioZoneV2 ``playState`` value to the matching HA state.
+    """
+    Map a Loxone AudioZoneV2 ``playState`` value to the matching HA state.
 
     Unknown values fall back to ``IDLE`` (a non-playing state): the entity
     must never be left without a state just because the server sent a new
@@ -72,7 +75,8 @@ def play_state_to_media_player_state(play_state: int) -> MediaPlayerState:
 
 
 def audio_zone_stop_value() -> str:
-    """Command value behind the ``STOP`` feature (PC-43).
+    """
+    Command value behind the ``STOP`` feature (PC-43).
 
     AudioZoneV2 has no ``stop`` sub-command; pausing makes the zone silent,
     which is the closest stop semantic the device offers.
@@ -83,7 +87,8 @@ def audio_zone_stop_value() -> str:
 
 
 def audio_zone_power_command(on: bool) -> str:
-    """Command value behind ``TURN_ON`` / ``TURN_OFF`` (WP-6.7, PC-43).
+    """
+    Command value behind ``TURN_ON`` / ``TURN_OFF`` (WP-6.7, PC-43).
 
     VERIFY — ``on`` / ``off`` mirrors the audio zone's power sub-command
     naming as observed in other LoxApp integrations; confirm against a
@@ -93,7 +98,8 @@ def audio_zone_power_command(on: bool) -> str:
 
 
 def audio_zone_mute_command(mute: bool) -> str:
-    """Command value behind ``VOLUME_MUTE`` (WP-6.7, PC-43).
+    """
+    Command value behind ``VOLUME_MUTE`` (WP-6.7, PC-43).
 
     VERIFY — the wire values ``mute`` / ``unmute`` are the intended
     semantics; confirm a live Miniserver accepts them for an AudioZoneV2.
@@ -102,7 +108,8 @@ def audio_zone_mute_command(mute: bool) -> str:
 
 
 def audio_zone_source_command(source: str) -> str:
-    """Command behind ``select_source`` (WP-6.7, PC-43).
+    """
+    Command behind ``select_source`` (WP-6.7, PC-43).
 
     VERIFY — the ``source/<name>`` sub-command shape is assumed
     (``noun/<argument>`` like ``volume/<n>`` above); confirm against a
@@ -112,7 +119,8 @@ def audio_zone_source_command(source: str) -> str:
 
 
 def audio_zone_two_state(value) -> bool | None:
-    """Coerce a ``0`` / ``1`` state stream value (``active``, ``mute``) to
+    """
+    Coerce a ``0`` / ``1`` state stream value (``active``, ``mute``) to
     a boolean, or ``None`` when nothing usable is in the payload.
 
     Structured values are recognised first (so the string ``"0"`` is
@@ -137,7 +145,8 @@ def audio_zone_two_state(value) -> bool | None:
 
 
 def audio_zone_source_options(details) -> list[str]:
-    """The selectable source names of one AudioZoneV2 (WP-6.7).
+    """
+    The selectable source names of one AudioZoneV2 (WP-6.7).
 
     Read from the control's ``details.sources`` (PC-16 discipline: nothing
     is indexed without a guard).  Accepts a list of names or a dict of
@@ -148,7 +157,8 @@ def audio_zone_source_options(details) -> list[str]:
 
 
 def audio_zone_names_in_details(details, key: str) -> list[str]:
-    """A names list under ``details[key]`` (``sources``, ``favourites``).
+    """
+    A names list under ``details[key]`` (``sources``, ``favourites``).
 
     Either a plain list of names or a ``{"id": "name"}`` dict (dict
     order is kept); anything unusable yields ``[]`` rather than an
@@ -165,7 +175,8 @@ def audio_zone_names_in_details(details, key: str) -> list[str]:
 
 
 def audio_zone_stream_names_list(raw) -> list[str] | None:
-    """Parse a pushed names list from the AudioZoneV2 state streams
+    """
+    Parse a pushed names list from the AudioZoneV2 state streams
     (``favouriteList``, ``sourceList``) the same way ``Tracker`` parses
     its ``entries`` payload: a JSON list whose scalar entries become
     strings (``["A", 2] -> ["A", "2"]``).
@@ -185,7 +196,8 @@ def audio_zone_stream_names_list(raw) -> list[str] | None:
 
 
 def audio_zone_metadata(raw) -> dict | None:
-    """Parse the ``metadata`` stream of one AudioZoneV2 (WP-6.7).
+    """
+    Parse the ``metadata`` stream of one AudioZoneV2 (WP-6.7).
 
     Intended shape: a JSON object with any of the keys ``title``,
     ``artist``, ``album``.  Only recognised non-empty string entries
@@ -382,9 +394,11 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
 
     @property
     def extra_state_attributes(self):
-        """Zone-specific state attributes (current source, favourite list)
+        """
+        Zone-specific state attributes (current source, favourite list)
         on top of the common Loxone attributes (PC-16: no unguarded
-        indexing)."""
+        indexing).
+        """
         return {
             **self._attr_extra_state_attributes,
             "source": self._current_source,
@@ -454,7 +468,8 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
         self.async_schedule_update_ha_state()
 
     async def async_select_source(self, source: str) -> None:
-        """Select a zone source by name (WP-6.7).
+        """
+        Select a zone source by name (WP-6.7).
 
         Selecting an unknown source refuses to send a command: with
         elective sources, a typo should be a no-op, not a guess.

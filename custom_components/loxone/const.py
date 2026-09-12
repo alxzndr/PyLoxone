@@ -68,7 +68,8 @@ DOMAIN_DEVICES = "devices"
 
 
 def loxone_uuid_signal(config_entry_id: str, uuid: str) -> str:
-    """CORE-27: the per-(entry, uuid) dispatcher signal for state fan-out.
+    """
+    CORE-27: the per-(entry, uuid) dispatcher signal for state fan-out.
 
     Namespaced by config entry id so state updates of one Miniserver can
     never reach entries of a *second* Miniserver on the same HA instance
@@ -79,7 +80,8 @@ def loxone_uuid_signal(config_entry_id: str, uuid: str) -> str:
 
 
 def loxone_message_signal(config_entry_id: str) -> str:
-    """WP-6.2: entry-scoped signal carrying the FULL state message.
+    """
+    WP-6.2: entry-scoped signal carrying the FULL state message.
 
     In addition to the per-uuid fan-out (``loxone_uuid_signal``), the
     coordinator dispatches the whole message once per entry.  Command
@@ -93,7 +95,8 @@ def loxone_message_signal(config_entry_id: str) -> str:
 
 
 def loxone_climate_demand_signal(config_entry_id: str, room_uuid: str) -> str:
-    """PS-18: entry-scoped control-list fan-out replacing the global
+    """
+    PS-18: entry-scoped control-list fan-out replacing the global
     ``CLIMATE_EVENT`` bus event.
 
     A ``LoxoneClimateController`` parses the room states and sends each

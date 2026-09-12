@@ -327,7 +327,6 @@ async def test_reauth_flow_does_not_probe(hass, mock_connection):
 
     async def counting_discover(wait: int = 5):
         probes.append(wait)
-        return None
 
     with patch.object(config_flow, "loxone_broadcast_discover", counting_discover):
         form = await hass.config_entries.flow.async_init(DOMAIN, context={"source": "user"})

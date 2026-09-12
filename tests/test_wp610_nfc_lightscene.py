@@ -15,7 +15,7 @@ state, as an attribute, or in the ``loxone_nfc_auth`` event payload.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from types import SimpleNamespace
 
 from homeassistant.config_entries import ConfigEntryState
@@ -97,14 +97,14 @@ def test_nfc_code_date_literals():
     # ``LOXONE_EPOCH_SECONDS``).  0 ms therefore parses to the epoch date,
     # 86400000 ms (= 24 h) one day later — hand-derived, no arithmetic
     # from the code under test.
-    assert nfc_code_date(0) == datetime(2009, 1, 1, tzinfo=timezone.utc)
-    assert nfc_code_date(86400000) == datetime(2009, 1, 2, tzinfo=timezone.utc)
+    assert nfc_code_date(0) == datetime(2009, 1, 1, tzinfo=UTC)
+    assert nfc_code_date(86400000) == datetime(2009, 1, 2, tzinfo=UTC)
     # numeric-string form of the same counter
-    assert nfc_code_date("0") == datetime(2009, 1, 1, tzinfo=timezone.utc)
+    assert nfc_code_date("0") == datetime(2009, 1, 1, tzinfo=UTC)
     # the second documented possibility: a datetime string, naive = UTC
-    assert nfc_code_date("2026-09-10 12:34:56") == datetime(2026, 9, 10, 12, 34, 56, tzinfo=timezone.utc)
+    assert nfc_code_date("2026-09-10 12:34:56") == datetime(2026, 9, 10, 12, 34, 56, tzinfo=UTC)
     # an explicit offset is honoured (01:02:03+02:00 == 23:02:03Z the day before)
-    assert nfc_code_date("2026-09-10T01:02:03+02:00") == datetime(2026, 9, 9, 23, 2, 3, tzinfo=timezone.utc)
+    assert nfc_code_date("2026-09-10T01:02:03+02:00") == datetime(2026, 9, 9, 23, 2, 3, tzinfo=UTC)
     # everything "nothing usable" maps to None
     assert nfc_code_date(None) is None
     assert nfc_code_date("") is None
@@ -210,10 +210,10 @@ def test_nfc_code_date_sensor_updates():
     _stub_write(e)
     assert e.native_value is None
     e.event_handler({NFC_CODEDATE: 86400000})
-    assert e.native_value == datetime(2009, 1, 2, tzinfo=timezone.utc)
+    assert e.native_value == datetime(2009, 1, 2, tzinfo=UTC)
     # an unparseable value keeps the last known instant
     e.event_handler({NFC_CODEDATE: "garbage"})
-    assert e.native_value == datetime(2009, 1, 2, tzinfo=timezone.utc)
+    assert e.native_value == datetime(2009, 1, 2, tzinfo=UTC)
     # the credential streams are not subscribed to at all
     assert NFC_LASTCODE not in e._state_uuids()
     assert NFC_LASTTAG not in e._state_uuids()

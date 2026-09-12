@@ -187,15 +187,12 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
 
     async def _fake_close(self, *args, **kwargs):
         self.connection = None
-        return None
 
     async def _fake_send(self, entity_uuid, value, *args, **kwargs):
         namespace.sent.append({"uuid": entity_uuid, "value": value, "code": kwargs.get("code")})
-        return None
 
     async def _fake_send_secured(self, entity_uuid, value, code, *args, **kwargs):
         namespace.sent.append({"uuid": entity_uuid, "value": value, "code": code, "secured": True})
-        return None
 
     with (
         patch.object(LoxoneConnection, "open", new=_fake_open),

@@ -1,4 +1,5 @@
-"""Diagnostics for the LoxOne Home Assistant config entry.
+"""
+Diagnostics for the LoxOne Home Assistant config entry.
 
 CORE-08: the previous implementation wrote out the raw ``LoxAPP3.json`` (no
 redaction) and returned the first entry in ``hass.data[DOMAIN]`` regardless of

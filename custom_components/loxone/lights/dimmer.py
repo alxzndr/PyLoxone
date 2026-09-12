@@ -35,8 +35,8 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
         self._min = STATE_UNKNOWN
         self._max = STATE_UNKNOWN
         self._async_add_devices = kwargs["async_add_devices"]
-        self._light_controller_id = kwargs.get("lightcontroller_id", None)
-        self._light_controller_name = kwargs.get("lightcontroller_name", None)
+        self._light_controller_id = kwargs.get("lightcontroller_id")
+        self._light_controller_name = kwargs.get("lightcontroller_name")
 
         # WP-5.1: a LightControllerV2 sub-dimmer carries only its own
         # short name — its device is the controller's device, named after
@@ -72,8 +72,10 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
         return isinstance(self._min, (int, float)) and isinstance(self._max, (int, float))
 
     def _hass_to_master(self, hass_level) -> float:
-        """HA brightness (1-255) → Loxone value, honouring the control's
-        min/max (PC-17) and never rounding a non-zero request to 0 (PC-18)."""
+        """
+        HA brightness (1-255) → Loxone value, honouring the control's
+        min/max (PC-17) and never rounding a non-zero request to 0 (PC-18).
+        """
         if self._master_min_max_known:
             return hass_to_lox_range(hass_level, self._min, self._max)
         if not hass_level:

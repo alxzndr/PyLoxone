@@ -32,7 +32,8 @@ INTERCOM_TYPES = ("Intercom", "IntercomV2")
 
 
 def intercom_sub_control_kwargs(control, config_entry=None, loxconfig=None):
-    """``LoxoneIntercomSubControl`` kwargs for the sub-controls of one
+    """
+    ``LoxoneIntercomSubControl`` kwargs for the sub-controls of one
     intercom block (``Intercom`` / ``IntercomV2``) — WP-6.3, #466.
 
     One kwargs dict per *actable* sub-control: it must advertise an
@@ -168,9 +169,11 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
         self._do_turn_on()
 
     async def async_turn_on(self, **_kwargs):
-        """HA's switch domain dispatches the service to ``async_turn_on``
+        """
+        HA's switch domain dispatches the service to ``async_turn_on``
         only; running in the event loop keeps the outbound send's
-        background task valid."""
+        background task valid.
+        """
         self._do_turn_on()
 
     def _do_turn_on(self):
@@ -227,7 +230,8 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return device specific state attributes.
+        """
+        Return device specific state attributes.
 
         Implemented by platform classes.
         """
@@ -280,9 +284,11 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
         self._do_turn_on()
 
     async def async_turn_on(self, **_kwargs):
-        """HA's switch domain dispatches the service to ``async_turn_on``
+        """
+        HA's switch domain dispatches the service to ``async_turn_on``
         only; running in the event loop keeps the outbound send's
-        background task valid."""
+        background task valid.
+        """
         self._do_turn_on()
 
     def _do_turn_on(self):
@@ -327,7 +333,8 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return device specific state attributes.
+        """
+        Return device specific state attributes.
 
         Implemented by platform classes.
         """
@@ -371,7 +378,8 @@ class LoxoneIntercomSubControl(LoxoneSwitch):
 
     @property
     def extra_state_attributes(self):
-        """Return device specific state attributes.
+        """
+        Return device specific state attributes.
 
         Implemented by platform classes.
         """

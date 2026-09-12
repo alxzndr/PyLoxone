@@ -49,7 +49,6 @@ class LoxoneToken:
 
     def seconds_to_expire(self) -> int:
         """The number of seconds until this token expires."""
-
         # current number of seconds since epoch
         current_seconds_since_epoch = (datetime.datetime.now() - LOXONE_EPOCH).total_seconds()
         # work out how many seconds are left

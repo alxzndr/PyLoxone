@@ -360,7 +360,7 @@ async def test_jalousie_set_cover_position_sends_inverted_loxone_value(hass) -> 
     e.event_handler({POS_UUID: 0.4})
     assert e.current_cover_position == 60.0  # 0.4 → 40.0 → hass 100-40.0
 
-    e.set_cover_position(**{"position": 60.0})
+    e.set_cover_position(position=60.0)
     await hass.async_block_till_done()
 
     assert fired == [

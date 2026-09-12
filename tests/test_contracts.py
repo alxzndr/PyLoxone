@@ -156,7 +156,7 @@ def test_every_manifest_requirement_is_imported():
     src_files = list(INTEGRATION_DIR.rglob("*.py"))
     for path in src_files:
         text = path.read_text()
-        for name in re.findall(r"^\s*(?:import|from)\s+([a-zA-Z_][\w.]*)", text, re.M):
+        for name in re.findall(r"^\s*(?:import|from)\s+([a-zA-Z_][\w.]*)", text, re.MULTILINE):
             imported_roots.add(name.split(".")[0])
 
     for requirement in manifest["requirements"]:

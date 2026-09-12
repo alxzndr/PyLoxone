@@ -140,7 +140,7 @@ def test_ac_hvac_action_table() -> None:
 # --------------------------------------------------------------------------- #
 # Units: alarm night/vacation
 # --------------------------------------------------------------------------- #
-def _alarm(hass, **overrides) -> "object":
+def _alarm(hass, **overrides) -> object:
     kwargs = {
         "hass": hass,
         "name": "Test Alarm",

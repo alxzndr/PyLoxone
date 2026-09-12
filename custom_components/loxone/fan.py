@@ -32,13 +32,16 @@ VENTILATION_SET_TIMER_INTERVAL = 3600
 
 
 def _state_uuid(states: dict, name: str) -> str | None:
-    """Un-guarded ``states[name]`` indexing crashes the whole platform when a
-    structure file omits an attribute (PC-16); return ``None`` instead."""
+    """
+    Un-guarded ``states[name]`` indexing crashes the whole platform when a
+    structure file omits an attribute (PC-16); return ``None`` instead.
+    """
     return states.get(name)
 
 
 def fan_speed_percentage(speed: object) -> int | None:
-    """Clamp the raw Loxone ``speed`` value to an int in 0..100 (PC-30).
+    """
+    Clamp the raw Loxone ``speed`` value to an int in 0..100 (PC-30).
 
     The Miniserver reports a plain float with no contractual bounds.
     Non-numeric or NaN values map to ``None`` (an HA *unknown* speed)
@@ -54,7 +57,8 @@ def fan_speed_percentage(speed: object) -> int | None:
 
 
 def ventilation_set_mode_command(preset_mode: str) -> str:
-    """Command value that selects a ventilation profile (PC-09).
+    """
+    Command value that selects a ventilation profile (PC-09).
 
     Intended semantics: ``setMode/<profile id>`` (2=Low … 6=Away).
     VERIFY — confirm the subcommand name (and the id-as-argument layout)
@@ -65,7 +69,8 @@ def ventilation_set_mode_command(preset_mode: str) -> str:
 
 
 def ventilation_set_timer_command(interval: int, percentage: int, mode: int) -> str:
-    """Command value that sets the ventilation speed (PC-29).
+    """
+    Command value that sets the ventilation speed (PC-29).
 
     Intended semantics: the trailing mode argument is the *raw integer*
     profile id (2..6). The previous code interpolated the profile
@@ -78,8 +83,10 @@ def ventilation_set_timer_command(interval: int, percentage: int, mode: int) -> 
 
 
 def ventilation_profile_id(mode: object) -> int | None:
-    """The raw integer profile id (2..6) for ``mode``, or ``None`` if it is
-    not a known profile (guards the ``setTimer`` mode argument, PC-29)."""
+    """
+    The raw integer profile id (2..6) for ``mode``, or ``None`` if it is
+    not a known profile (guards the ``setTimer`` mode argument, PC-29).
+    """
     try:
         value = int(mode)
     except TypeError, ValueError:
@@ -220,7 +227,8 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return device specific state attributes.
+        """
+        Return device specific state attributes.
 
         Implemented by platform classes.
         """
@@ -264,8 +272,7 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         """Return if device is on."""
         if self.percentage:
             return self.percentage > 0
-        else:
-            return False
+        return False
 
     @property
     def preset_modes(self) -> list[str]:
@@ -283,8 +290,10 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         return fan_speed_percentage(self.get_state_value("speed"))
 
     def get_state_value(self, name: str):
-        """Return the last value for *name*, or ``None`` if the control does
-        not have that state or no value has arrived yet (PC-16)."""
+        """
+        Return the last value for *name*, or ``None`` if the control does
+        not have that state or no value has arrived yet (PC-16).
+        """
         uuid = _state_uuid(self._stateAttribUuids, name)
         if uuid is None:
             return None
@@ -328,6 +337,5 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
         """Turn the fan off."""
         if not self.is_on:
             return
-        else:
-            self.set_preset_mode("Auto")
-            self.set_percentage(0)
+        self.set_preset_mode("Auto")
+        self.set_percentage(0)

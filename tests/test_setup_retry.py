@@ -86,15 +86,17 @@ async def _wait_until(hass, predicate, *, message="condition", seconds=90.0) -> 
     """
     loop = asyncio.get_running_loop()
     deadline = loop.time() + seconds
-    last = loop.time()
     while not predicate():
         now = loop.time()
         if now > deadline:
             raise AssertionError(f"timed out waiting for: {message}")
-        if now - last >= 5.0:
-            last = now
-            _fire_retry(hass)
-        await asyncio.sleep(0.2)
+        # Advance the fake clock on every poll. HA reschedules the retry
+        # timer only after the previous attempt finishes, so a single fire is
+        # not enough -- but there is no reason to wait *real* seconds between
+        # advances of a *simulated* clock. This was 5.0 s of wall time per
+        # retry step, which put four tests at 20 s each.
+        _fire_retry(hass)
+        await asyncio.sleep(0.05)
 
 
 def _seed_connection(self, loxapp3):
@@ -202,7 +204,6 @@ async def test_transient_401_retries_and_recovers(hass, loxapp3, mock_connection
 
     async def counting_close(self, *args, **kwargs):
         close_calls.append(1)
-        return None
 
     with (
         patch.object(LoxoneConnection, "open", new=scripted_open),
@@ -355,7 +356,6 @@ async def test_503_still_retries_and_closes(hass, loxapp3, mock_connection, mock
 
     async def counting_close(self, *args, **kwargs):
         close_calls.append(1)
-        return None
 
     with (
         patch.object(LoxoneConnection, "open", new=failing_open),

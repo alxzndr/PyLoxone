@@ -58,10 +58,12 @@ PICKER_TYPE_TO_CLASS = {
 
 
 def picker_class_for(picker_type):
-    """Return the light entity class for a ``details.pickerType`` value, or
+    """
+    Return the light entity class for a ``details.pickerType`` value, or
     ``None`` when the type is unknown.  Handles both the integer and string
     representations; note in particular that ``0`` (RGB) is a valid, falsy
-    value (the old truthiness check silently skipped every RGB picker)."""
+    value (the old truthiness check silently skipped every RGB picker).
+    """
     return PICKER_TYPE_TO_CLASS.get(picker_type)
 
 
@@ -78,7 +80,8 @@ LIGHTSCENE_CHANNELS = ("red", "green", "blue")
 
 
 def lightscene_channel_value(raw) -> float | None:
-    """Normalise a raw LightsceneRGB ``red``/``green``/``blue`` stream value
+    """
+    Normalise a raw LightsceneRGB ``red``/``green``/``blue`` stream value
     (a 0-100 % channel level) to a clamped ``[0.0, 100.0]`` float.
 
     Accepts numbers and numeric strings (Loxone streams do both); bools,
@@ -98,7 +101,8 @@ def lightscene_channel_value(raw) -> float | None:
 
 
 def lightscene_channel_command(channel: str, value: float) -> str:
-    """The outbound command for one LightsceneRGB channel (VERIFY —
+    """
+    The outbound command for one LightsceneRGB channel (VERIFY —
     live check #22).
 
     No structure file, upstream issue or wire capture documents the write
@@ -111,7 +115,8 @@ def lightscene_channel_command(channel: str, value: float) -> str:
 
 
 def lightscene_on_command() -> str:
-    """Turn-on command for a LightsceneRGB that was asked to come on with
+    """
+    Turn-on command for a LightsceneRGB that was asked to come on with
     no explicit colour (VERIFY — live check #22).
 
     Assumes the bare ``On`` word, the same shape :class:`TunableWhiteLight`
@@ -121,7 +126,8 @@ def lightscene_on_command() -> str:
 
 
 def lightscene_off_command() -> str:
-    """Turn-off command for a LightsceneRGB (VERIFY — live check #22).
+    """
+    Turn-off command for a LightsceneRGB (VERIFY — live check #22).
 
     Assumes the ``Off`` word, the same shape :class:`LoxoneSwitch` uses
     for its ``turn_off``.
@@ -130,7 +136,8 @@ def lightscene_off_command() -> str:
 
 
 class LoxoneLightsceneRGB(LoxoneEntity, LightEntity):
-    """LightsceneRGB control (WP-6.10, PS-27) as a RGB light.
+    """
+    LightsceneRGB control (WP-6.10, PS-27) as a RGB light.
 
     The three channel states report the colour (0-100 % each); the
     combined ``color`` stream is deliberately not consumed (the channels

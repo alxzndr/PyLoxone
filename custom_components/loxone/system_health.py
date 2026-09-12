@@ -17,7 +17,8 @@ def async_register(_hass: HomeAssistant, register: system_health.SystemHealthReg
 
 
 async def system_health_info(hass: HomeAssistant) -> dict[str, Any]:
-    """Get info for the info page.
+    """
+    Get info for the info page.
 
     CORE-31 (WP-5.2): the coordinators are read from
     ``config_entry.runtime_data`` — ``hass.data[DOMAIN]`` no longer mirrors

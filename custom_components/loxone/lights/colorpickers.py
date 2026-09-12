@@ -22,7 +22,8 @@ DEFAULT_TURN_ON_KELVIN = 4000
 
 
 def plan_turn_on(*, color_mode, hs_color, color_temp_kelvin, brightness, kwargs) -> str:
-    """Build exactly one outgoing command for an RGB colour picker `turn_on`.
+    """
+    Build exactly one outgoing command for an RGB colour picker `turn_on`.
 
     The old inline branch logic could send *nothing* when only `brightness`
     was requested while the colour mode was still unknown (PC-03, upstream PR
@@ -40,18 +41,19 @@ def plan_turn_on(*, color_mode, hs_color, color_temp_kelvin, brightness, kwargs)
     level = kwargs.get(ATTR_BRIGHTNESS, brightness) or 255
     if ATTR_HS_COLOR in kwargs:
         hue, sat = kwargs[ATTR_HS_COLOR]
-        return "hsv({}, {}, {})".format(hue, sat, hass_to_lox(level))
+        return f"hsv({hue}, {sat}, {hass_to_lox(level)})"
     if ATTR_COLOR_TEMP_KELVIN in kwargs:
-        return "temp({}, {})".format(hass_to_lox(level), kwargs[ATTR_COLOR_TEMP_KELVIN])
+        return f"temp({hass_to_lox(level)}, {kwargs[ATTR_COLOR_TEMP_KELVIN]})"
     if color_mode is ColorMode.HS and hs_color is not None:
-        return "hsv({}, {}, {})".format(hs_color[0], hs_color[1], hass_to_lox(level))
+        return f"hsv({hs_color[0]}, {hs_color[1]}, {hass_to_lox(level)})"
     if color_mode is ColorMode.COLOR_TEMP and color_temp_kelvin is not None:
-        return "temp({}, {})".format(hass_to_lox(level), color_temp_kelvin)
-    return "setBrightness/{}".format(hass_to_lox(level))
+        return f"temp({hass_to_lox(level)}, {color_temp_kelvin})"
+    return f"setBrightness/{hass_to_lox(level)}"
 
 
 def plan_temp_turn_on(*, color_temp_kelvin, brightness, kwargs) -> str:
-    """Build the outgoing command for a TunableWhite picker `turn_on`.
+    """
+    Build the outgoing command for a TunableWhite picker `turn_on`.
 
     Defaults for the unreported state (brightness 255, a kelvin in the
     documented 2700-6500 range) are applied *before* formatting, so a
@@ -61,7 +63,7 @@ def plan_temp_turn_on(*, color_temp_kelvin, brightness, kwargs) -> str:
         return "On"
     level = kwargs.get(ATTR_BRIGHTNESS, brightness) or 255
     kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN, color_temp_kelvin) or DEFAULT_TURN_ON_KELVIN
-    return "temp({}, {})".format(hass_to_lox(level), kelvin)
+    return f"temp({hass_to_lox(level)}, {kelvin})"
 
 
 class TunableWhiteLight(LoxoneEntity, LightEntity):
@@ -80,8 +82,8 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
         self._color_uuid = kwargs.get("states", {}).get("color", None)
 
         self._async_add_devices = kwargs["async_add_devices"]
-        self._light_controller_id = kwargs.get("lightcontroller_id", None)
-        self._light_controller_name = kwargs.get("lightcontroller_name", None)
+        self._light_controller_id = kwargs.get("lightcontroller_id")
+        self._light_controller_name = kwargs.get("lightcontroller_name")
 
         # WP-5.1: LCV2 sub-lights keep their own (short) names; the
         # device is the controller's, named after the controller (CORE-26).
@@ -184,8 +186,8 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
         self._sequence_uuid = kwargs.get("states", {}).get("sequence", None)
 
         self._async_add_devices = kwargs["async_add_devices"]
-        self._light_controller_id = kwargs.get("lightcontroller_id", None)
-        self._light_controller_name = kwargs.get("lightcontroller_name", None)
+        self._light_controller_id = kwargs.get("lightcontroller_id")
+        self._light_controller_name = kwargs.get("lightcontroller_name")
 
         # WP-5.1: LCV2 sub-lights keep their own (short) names; the
         # device is the controller's, named after the controller (CORE-26).

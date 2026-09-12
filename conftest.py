@@ -1,4 +1,5 @@
-"""Pytest root configuration (TOOL-16).
+"""
+Pytest root configuration (TOOL-16).
 
 This file is intentionally minimal: the real test options live in ``pytest.ini``
 (testpaths, ``-m "not online"``, ``asyncio_mode = auto``, the ``online`` marker,

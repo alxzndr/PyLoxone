@@ -8,7 +8,8 @@ https://github.com/JoDehli/pyloxone-api
 from __future__ import annotations
 
 import logging
-from typing import AsyncIterable, Iterable, Union
+from typing import Union
+from collections.abc import AsyncIterable, Iterable
 
 from websockets import ClientConnection
 

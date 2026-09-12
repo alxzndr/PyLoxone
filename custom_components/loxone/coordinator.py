@@ -26,7 +26,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def loxone_connected_signal(config_entry_id: str) -> str:
-    """API-09/CORE-28: per-entry dispatcher signal for connection liveness.
+    """
+    API-09/CORE-28: per-entry dispatcher signal for connection liveness.
 
     Per entry (not global) so two Miniservers on one HA instance do not
     cross-flip each other's entities when one of them reconnects.
@@ -35,7 +36,8 @@ def loxone_connected_signal(config_entry_id: str) -> str:
 
 
 def _collect_structure_uuids(lox_config: dict | None) -> frozenset[str]:
-    """CORE-27: every command-addressable uuid of a structure file.
+    """
+    CORE-27: every command-addressable uuid of a structure file.
 
     ``uuidAction`` of every control (recursively, incl. sub-controls) plus
     every ``states`` value the Miniserver can stream.  The set is the
@@ -119,7 +121,8 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         self.listening_task: asyncio.Task | None = None
 
     def _on_token_changed(self, token: dict) -> None:
-        """API-17: the Miniserver issued a new token - persist it now.
+        """
+        API-17: the Miniserver issued a new token - persist it now.
 
         The token (incl. the ``unsecurePass`` flag) used to be written only
         at HA shutdown, and ``unsecure_password`` was dropped entirely. The
@@ -140,7 +143,8 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         self.hass.async_create_task(self._persist_token_data(data))
 
     async def _persist_token_data(self, data: dict) -> None:
-        """Write a refreshed token back to the config entry.
+        """
+        Write a refreshed token back to the config entry.
 
         The in-place reconnect supervisor (API-09) outlives a single
         session by design, so it can still be mid-reconnect when the entry
@@ -163,7 +167,8 @@ class LoxoneCoordinator(DataUpdateCoordinator):
             _LOGGER.warning("Failed to persist Loxone token change: %s", e)
 
     async def _async_setup(self) -> None:
-        """Open the websocket connection (runs once, on the first refresh).
+        """
+        Open the websocket connection (runs once, on the first refresh).
 
         CORE-12: this is the coordinator's setup hook inside the stock
         ``async_config_entry_first_refresh`` — so HA sets ``data`` and
@@ -201,15 +206,15 @@ class LoxoneCoordinator(DataUpdateCoordinator):
             raise
         self.miniserver = MiniServer(self.hass, self.api.structure_file, self.config_entry)
         self.known_uuids = _collect_structure_uuids(self.api.structure_file)
-        return None
 
     def _references_token(self) -> str | None:
         """Return the persisted token, or ``None`` if it is absent/empty."""
         token = self.config_entry.data.get("token")
-        return token if token else None
+        return token or None
 
     def set_connected_state(self, connected: bool) -> None:
-        """``on_state`` callback of ``LoxoneConnection.run`` (API-09).
+        """
+        ``on_state`` callback of ``LoxoneConnection.run`` (API-09).
 
         Invoked from the connection's session task: True after
         ``enablebinstatusupdate`` (the Miniserver accepted us), False when
@@ -229,7 +234,8 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         async_dispatcher_send(self.hass, loxone_connected_signal(self.config_entry.entry_id), connected)
 
     def handle_message(self, message) -> None:
-        """CORE-27: the entry's single message entry point from the wire.
+        """
+        CORE-27: the entry's single message entry point from the wire.
 
         Invoked by the connection session (the ``callback`` of
         ``LoxoneConnection.run``) with one state message — a dict of
@@ -265,12 +271,13 @@ class LoxoneCoordinator(DataUpdateCoordinator):
             async_dispatcher_send(self.hass, loxone_uuid_signal(entry_id, uuid), value)
 
     async def _async_update_data(self) -> None:
-        """No polling: state changes flow over the websocket session.
+        """
+        No polling: state changes flow over the websocket session.
 
         ``async_config_entry_first_refresh`` calls this once to seed
         ``data``/``last_update_success``; anything else is an event.
         """
-        return None
+        return
 
     async def async_cleanup(self) -> None:
         """Clean up resources."""

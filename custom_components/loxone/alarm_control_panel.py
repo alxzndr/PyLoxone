@@ -16,13 +16,16 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _state_uuid(states: dict, name: str) -> str | None:
-    """Un-guarded ``states[name]`` indexing crashes the alarm platform when a
-    structure file omits an attribute (PC-16); return ``None`` instead."""
+    """
+    Un-guarded ``states[name]`` indexing crashes the alarm platform when a
+    structure file omits an attribute (PC-16); return ``None`` instead.
+    """
     return states.get(name)
 
 
 def alarm_arm_value(arm_state: AlarmControlPanelState) -> str:
-    """Command value that arms an Loxone alarm (PC-31, **VERIFY**).
+    """
+    Command value that arms an Loxone alarm (PC-31, **VERIFY**).
 
     Intended semantics: the argument of ``delayedon/<x>`` is Loxone's
     movement-disabled flag, and it must agree with the state mapping below (``armed and disabled_move`` →
@@ -40,7 +43,8 @@ def alarm_arm_value(arm_state: AlarmControlPanelState) -> str:
 
 
 def alarm_night_arm_value() -> str:
-    """Command value that arms an Loxone alarm in night mode (#323).
+    """
+    Command value that arms an Loxone alarm in night mode (#323).
 
     Loxone alarms have exactly two arming flavours — with delay
     (`delayedon/1`, motion suppressed) and without (`delayedon/0`) — and no
@@ -54,7 +58,8 @@ def alarm_night_arm_value() -> str:
 
 
 def alarm_vacation_arm_value() -> str:
-    """Command value that arms an Loxone alarm in vacation mode (#323).
+    """
+    Command value that arms an Loxone alarm in vacation mode (#323).
 
     Vacation means the home is empty, so it maps to the non-delayed arm —
     the same command as ARMED_AWAY. **VERIFY**: confirm on a live Miniserver
@@ -65,9 +70,11 @@ def alarm_vacation_arm_value() -> str:
 
 
 def _as_int_seconds(value):
-    """Loxone websocket values → whole seconds, or ``None`` when absent/
+    """
+    Loxone websocket values → whole seconds, or ``None`` when absent/
     non-numeric. The surfaced arming-delay attributes keep a single, stable
-    type (int seconds) no matter what the raw stream carried."""
+    type (int seconds) no matter what the raw stream carried.
+    """
     if value is None:
         return None
     try:
@@ -77,7 +84,8 @@ def _as_int_seconds(value):
 
 
 def alarm_arm_delay_attributes(armed_delay, armed_delay_total):
-    """The arming-delay attributes surfaced on the panel entity (#323).
+    """
+    The arming-delay attributes surfaced on the panel entity (#323).
 
     Loxone reports `armedDelay` (seconds remaining until the alarm engages)
     and `armedDelayTotal` (the configured total delay of the current arm).

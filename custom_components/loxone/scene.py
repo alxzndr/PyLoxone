@@ -20,7 +20,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def parse_mood_list(raw):
-    """Return the moods from a LCV2 ``moodList`` value, or ``None``.
+    """
+    Return the moods from a LCV2 ``moodList`` value, or ``None``.
 
     Accepts the streamed JSON string
     (``[{"id": "107", "name": "Cozy"}, ...]``) or an already-parsed list;
@@ -43,7 +44,8 @@ async def async_setup_entry(
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Prepare scenes for every LightControllerV2 in the structure file.
+    """
+    Prepare scenes for every LightControllerV2 in the structure file.
 
     No artificial delay: the old ``hass.loop.call_later`` ran even after the
     entry was unloaded, and the generated scenes scraped
@@ -55,7 +57,7 @@ async def async_setup_entry(
     stored on the Miniserver, so entry unload cancels it.
     """
     if not config_entry.options.get(CONF_SCENE_GEN, False):
-        return
+        return None
 
     @callback
     def add_scene_entities(entities):
@@ -128,7 +130,8 @@ async def async_setup_entry(
 
 
 class Loxonelightscene(Scene):
-    """Representation of a Loxone light scene.
+    """
+    Representation of a Loxone light scene.
 
     One scene per LCV2 mood. The controller it belongs to is the LCV2's
     action uuid (scenes are addressed with ``changeTo/<moodId>`` at that

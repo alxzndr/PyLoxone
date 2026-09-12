@@ -40,7 +40,8 @@ class LoxoneTokenError(LoxoneRequestError):
 
 
 class LoxoneReconnectRequested(LoxoneTokenError):
-    """Control flow: the connection layer requests a reconnect.
+    """
+    Control flow: the connection layer requests a reconnect.
 
     Raised for events the code *recovers* from (stale token, server-initiated
     close of an idle session) and must be logged at DEBUG, never ERROR

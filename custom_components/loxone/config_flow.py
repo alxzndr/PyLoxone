@@ -1,4 +1,5 @@
-"""Config flow for PyLoxone.
+"""
+Config flow for PyLoxone.
 
 CORE-19: hand-written ``ConfigFlow`` replacing ``SchemaConfigFlowHandler``:
 
@@ -86,7 +87,8 @@ def _connection_fields(host: str = "", port: int = DEFAULT_PORT, username: str =
 
 
 def _user_form_schema(host: str = "", port: int = DEFAULT_PORT) -> vol.Schema:
-    """The user form schema, with prefillable host/port defaults.
+    """
+    The user form schema, with prefillable host/port defaults.
 
     The defaults come from the LoxLIVE broadcast probe (see
     :func:`_discover_miniserver`) when it found a Miniserver on the LAN;
@@ -102,7 +104,8 @@ def _user_form_schema(host: str = "", port: int = DEFAULT_PORT) -> vol.Schema:
 
 
 def _discovered_prefill(found) -> tuple[str, int] | None:
-    """WP-6.9: reduce a raw ``discover()`` answer to a usable form prefill.
+    """
+    WP-6.9: reduce a raw ``discover()`` answer to a usable form prefill.
 
     The single place that decides what a LoxLIVE broadcast reply may
     contribute to the setup form before anything is shown: a 2-tuple of a
@@ -124,7 +127,8 @@ def _discovered_prefill(found) -> tuple[str, int] | None:
 
 
 async def _discover_miniserver() -> tuple[str, int] | None:
-    """Best-effort LoxLIVE broadcast probe (pyloxone_api ``discover.py``).
+    """
+    Best-effort LoxLIVE broadcast probe (pyloxone_api ``discover.py``).
 
     Runs ONCE per flow, only while the first form is being rendered, and
     may never block manual entry: a timeout, a blocked/bound-collision UDP
@@ -151,11 +155,13 @@ async def _discover_miniserver() -> tuple[str, int] | None:
 
 
 def _reauth_confirm_schema(current: Mapping[str, Any]) -> vol.Schema:
-    """The reauth confirm form, pre-filled with the stored values (the
+    """
+    The reauth confirm form, pre-filled with the stored values (the
     password itself is deliberately not pre-filled).  Reauth re-takes the
     whole connection description: since version 5 the options page only
     carries *preferences*, so this is the one place a user can point an
-    existing entry at a new address again."""
+    existing entry at a new address again.
+    """
     return vol.Schema(
         _connection_fields(
             host=str(current.get(CONF_HOST, "")),
@@ -171,7 +177,8 @@ def _entry_title(host: str) -> str:
 
 
 def _normalise(creds: Mapping[str, Any], current: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """The connection keys in canonical types (``str`` host, ``int`` port).
+    """
+    The connection keys in canonical types (``str`` host, ``int`` port).
 
     ``current`` supplies the defaults for fields the form does not ask for
     (reauth pre-fills from the stored entry data); ``creds`` wins wherever it
@@ -226,7 +233,8 @@ async def test_loxone_connection(
     password: str,
     verify_ssl: bool,
 ) -> str:
-    """Connect to the configured Miniserver and return its serial.
+    """
+    Connect to the configured Miniserver and return its serial.
 
     The single connection oracle of the flow: constructs a
     ``LoxoneConnection``, runs its full bootstrap (API key -> structure
@@ -302,8 +310,10 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     def async_get_options_flow(_config_entry):
-        """Options flows carry preferences only (CORE-19); the default
-        ``ConfigFlow`` implementation aborts with ``UnknownHandler``."""
+        """
+        Options flows carry preferences only (CORE-19); the default
+        ``ConfigFlow`` implementation aborts with ``UnknownHandler``.
+        """
         return LoxoneOptionsFlow()
 
     async def _validate_and_connect(
@@ -393,17 +403,21 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
     # reauth (CORE-19 / CORE-09)
     # ------------------------------------------------------------------ #
     async def async_step_reauth(self, entry_data: Mapping[str, Any] | None) -> ConfigFlowResult:
-        """Called by HA when setup raises ``ConfigEntryAuthFailed`` or the
+        """
+        Called by HA when setup raises ``ConfigEntryAuthFailed`` or the
         reconnect supervisor is rejected by the Miniserver.  ``entry_data``
         is the entry's data as it was replaced (incl. the connected
-        connection keys)."""
+        connection keys).
+        """
         self._reauth_data = dict(entry_data or {})
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Re-take the connection description and verify it *before* the
+        """
+        Re-take the connection description and verify it *before* the
         entry is touched; the entry is updated and reloaded on success
-        (the standard ``reauth_successful`` abort)."""
+        (the standard ``reauth_successful`` abort).
+        """
         if user_input is None:
             return self.async_show_form(step_id="reauth_confirm", data_schema=_reauth_confirm_schema(self._reauth_data))
         data = self._reauth_data
@@ -422,7 +436,8 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class LoxoneOptionsFlow(OptionsFlow):
-    """Preferences only (CORE-19): no credentials survive here.
+    """
+    Preferences only (CORE-19): no credentials survive here.
 
     CORE-15: ``generate_groups`` is always collected with the *stored* value
     (or the pre-option default ``True``) as its default, so saving an

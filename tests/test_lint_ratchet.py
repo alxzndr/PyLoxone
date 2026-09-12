@@ -30,13 +30,13 @@ BLOCKING_SELECT = "F,E9,PLE,B,T20,S307,ASYNC,RUF006,F401,G004,ERA001,B006,BLE001
 REPO_ROOT = Path(__file__).parent.parent
 
 
-def _ruff(*args: str) -> "CompletedProcess[str]":
+def _ruff(*args: str) -> CompletedProcess[str]:
     # Prefer the interpreter's ruff module; no console script required.
     cmd = [sys.executable, "-m", "ruff", *args]
     return subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
 
 
-def _assert_zero(result: "CompletedProcess[str]", args: str) -> None:
+def _assert_zero(result: CompletedProcess[str], args: str) -> None:
     assert result.returncode == 0, f"`ruff check {args}` reported violations:\n{result.stdout}"
     assert "Found 0 errors" in result.stdout or "All checks passed" in result.stdout
 
