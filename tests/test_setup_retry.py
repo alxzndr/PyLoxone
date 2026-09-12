@@ -230,7 +230,12 @@ async def test_transient_401_retries_and_recovers(hass, loxapp3, mock_connection
     assert close_calls == [1, 1], "api.close awaited exactly once per FAILED attempt"
     # One retry WARNING per failed attempt (attempts 1 and 2) and no
     # escalation ERROR after just two failures.
-    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "401" in r.getMessage()]
+    # Match the retry message itself, not any WARNING containing "401": on a
+    # slow CI runner asyncio logs "Executing <Task ...> took N seconds" at
+    # WARNING, and that task's name is this test's name, which contains "401".
+    warnings = [
+        r for r in caplog.records if r.levelno == logging.WARNING and "answered 401 during setup" in r.getMessage()
+    ]
     assert len(warnings) == 2, f"expected two retry WARNINGs, got: {[r.getMessage() for r in warnings]}"
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR and "credentials" in r.getMessage()]
 
