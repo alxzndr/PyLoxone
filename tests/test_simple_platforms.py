@@ -737,7 +737,9 @@ async def test_scenes_created_from_mood_list_event(hass, mock_connection, mock_e
 
     # The scenes carry the LCV2 device (device link): the device holds the
     # (DOMAIN, uuidAction) identifier used by get_or_create_device.
-    reg_device = dr.async_get(hass).async_get_device(identifiers={("loxone", LCV2_ACTION_UUID)})
+    # HA 2026.9 deprecates async_get_device: identifiers are no longer unique
+    # across config entries, so the lookup must be scoped to an entry.
+    reg_device = dr.async_get(hass).async_get_device_by_identifier(("loxone", LCV2_ACTION_UUID), mock_entry.entry_id)
     assert reg_device is not None
     entity_reg = er.async_get(hass)
     scene_entry = entity_reg.async_get("scene.parlour_living_light_controller_relax")

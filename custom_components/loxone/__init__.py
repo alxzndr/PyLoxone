@@ -6,6 +6,7 @@ https://github.com/JoDehli/PyLoxone
 """
 
 import asyncio
+import inspect
 import contextlib
 import logging
 import re
@@ -436,6 +437,19 @@ async def async_migrate_entry(hass, config_entry):
     return True
 
 
+# Home Assistant 2026.9 added a required keyword-only ``context`` parameter
+# to Group.async_create_group; 2026.7 and 2026.8 reject it. The HACS floor
+# is 2026.7, so detect the signature once rather than pin either side.
+_GROUP_ACCEPTS_CONTEXT = "context" in inspect.signature(group.Group.async_create_group).parameters
+
+
+async def _create_group(hass, name, **kwargs):
+    """Group.async_create_group across the 2026.8 -> 2026.9 signature change."""
+    if _GROUP_ACCEPTS_CONTEXT:
+        kwargs.setdefault("context", None)
+    return await group.Group.async_create_group(hass, name, **kwargs)
+
+
 async def create_group_for_loxone_entities(hass, entities, name, object_id):
     entity_id = f"group.{object_id}"
     # CORE-15: the auto-groups must *converge* on this entry's current
@@ -460,7 +474,7 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
         entity.async_write_ha_state()
         return
     try:
-        await group.Group.async_create_group(
+        await _create_group(
             hass,
             name,
             created_by_service=False,
@@ -471,7 +485,7 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
             order=None,
         )
     except HomeAssistantError as err:
-        await group.Group.async_create_group(
+        await _create_group(
             hass,
             name,
             created_by_service=True,

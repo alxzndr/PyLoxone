@@ -100,8 +100,20 @@ async def _setup_entry(hass, mock_entry) -> None:
     assert mock_entry.state is ConfigEntryState.LOADED
 
 
+def _all_devices(device_registry):
+    """Every DeviceEntry, on both 2026.8 and 2026.9.
+
+    Iterating ``registry.devices`` yields ids on 2026.8 and entries on 2026.9,
+    and ``.values()`` is deprecated on 2026.9 -- so detect which one we got.
+    """
+    items = list(device_registry.devices)
+    if items and isinstance(items[0], str):
+        return [device_registry.devices[k] for k in items]  # 2026.8: ids
+    return items  # 2026.9: entries
+
+
 def _find_device(device_registry, identifier: tuple[str, str]):
-    for device in device_registry.devices.values():
+    for device in _all_devices(device_registry):
         if identifier in device.identifiers:
             return device
     return None
@@ -381,7 +393,7 @@ async def test_device_registry_snapshot_after_setup(hass, mock_connection, mock_
 
     # the pre-fix symptom: the first sub-sensor written seeded the shared
     # dict with its own name — that device must no longer exist.
-    for device in device_registry.devices.values():
+    for device in _all_devices(device_registry):
         assert device.name != f"{FAN_NAME} - Presence"
 
 
