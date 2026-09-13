@@ -629,6 +629,7 @@ Upstream issue numbers refer to https://github.com/JoDehli/PyLoxone/issues.
 - Effort: S
 
 ### PC-31 [medium] Alarm arm-home/arm-away parameter appears inverted relative to the state mapping — **VERIFY**
+> **RESOLVED (live 2026-09-13):** the direction assumed here was backwards. On real hardware `/0` suppresses movement, so ARMED_HOME = `delayedon/0` (= upstream). The WP-4.4 swap was wrong and has been reverted. See LIVE-MINISERVER-CHECKS.md.
 - Where: `alarm_control_panel.py:189-213` (`arm_home` → `delayedon/0`, `arm_away` → `delayedon/1`) vs `222-225` (`armed and disabled_move` → `ARMED_HOME`). Loxone's parameter is the disable-movement flag.
 - Fix: swap after confirming round-trip on a live Miniserver.
 - Effort: S

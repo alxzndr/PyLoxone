@@ -292,11 +292,11 @@ def test_alarm_arm_value_table() -> None:
 
     from custom_components.loxone.alarm_control_panel import alarm_arm_value
 
-    assert alarm_arm_value(AlarmControlPanelState.ARMED_HOME) == "delayedon/1"
-    assert alarm_arm_value(AlarmControlPanelState.ARMED_AWAY) == "delayedon/0"
+    assert alarm_arm_value(AlarmControlPanelState.ARMED_HOME) == "delayedon/0"
+    assert alarm_arm_value(AlarmControlPanelState.ARMED_AWAY) == "delayedon/1"
 
 
-async def test_alarm_arm_away_sends_delayedon_0_via_send_domain(hass) -> None:
+async def test_alarm_arm_away_sends_delayedon_1_via_send_domain(hass) -> None:
     e = _alarm(hass, isSecured=False)
     _hass_write_stub(e)
     fired = []
@@ -306,11 +306,11 @@ async def test_alarm_arm_away_sends_delayedon_0_via_send_domain(hass) -> None:
     await hass.async_block_till_done()
 
     assert fired == [
-        {"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/0"},
+        {"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/1"},
     ]
 
 
-async def test_alarm_arm_home_sends_delayedon_1_secured_with_code(hass) -> None:
+async def test_alarm_arm_home_sends_delayedon_0_secured_with_code(hass) -> None:
     """PC-06/PC-31: a secured arm goes out on the secured channel with the code."""
     e = _alarm(hass, isSecured=True)
     _hass_write_stub(e)
@@ -321,7 +321,7 @@ async def test_alarm_arm_home_sends_delayedon_1_secured_with_code(hass) -> None:
     await hass.async_block_till_done()
 
     assert fired == [
-        {"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/1", "code": "1234"},
+        {"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/0", "code": "1234"},
     ]
 
 

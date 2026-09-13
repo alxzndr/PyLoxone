@@ -106,11 +106,11 @@ def test_gate_set_position_command_table() -> None:
 
 
 def test_alarm_night_vacation_arm_values() -> None:
-    """Night arming is the delayed (home) arm, vacation is the non-delayed
-    (away) arm — the two arming commands a Loxone alarm knows (#323,
-    VERIFY: confirm on a live Miniserver)."""
-    assert alarm_night_arm_value() == "delayedon/1"
-    assert alarm_vacation_arm_value() == "delayedon/0"
+    """Night = home (motion suppressed, ``delayedon/0``); vacation = away
+    (motion on, ``delayedon/1``). Verified on a live Miniserver 2026-09-13:
+    the ``/N`` argument is the movement flag and ``/0`` suppresses motion."""
+    assert alarm_night_arm_value() == "delayedon/0"
+    assert alarm_vacation_arm_value() == "delayedon/1"
 
 
 def test_alarm_arm_delay_attributes_table() -> None:
@@ -176,7 +176,7 @@ async def test_alarm_advertises_night_and_vacation_features(hass) -> None:
     assert e.supported_features & AlarmControlPanelEntityFeature.ARM_AWAY
 
 
-async def test_alarm_arm_night_sends_delayedon_1(hass) -> None:
+async def test_alarm_arm_night_sends_delayedon_0(hass) -> None:
     """#323: the night icon must arm the way `arm_home` does."""
     e = _alarm(hass, isSecured=False)
     _stub_write(e)
@@ -186,10 +186,10 @@ async def test_alarm_arm_night_sends_delayedon_1(hass) -> None:
     await e.async_alarm_arm_night()
     await hass.async_block_till_done()
 
-    assert fired == [{"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/1"}]
+    assert fired == [{"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/0"}]
 
 
-async def test_alarm_arm_vacation_sends_delayedon_0(hass) -> None:
+async def test_alarm_arm_vacation_sends_delayedon_1(hass) -> None:
     e = _alarm(hass, isSecured=False)
     _stub_write(e)
     fired = []
@@ -198,7 +198,7 @@ async def test_alarm_arm_vacation_sends_delayedon_0(hass) -> None:
     await e.async_alarm_arm_vacation()
     await hass.async_block_till_done()
 
-    assert fired == [{"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/0"}]
+    assert fired == [{"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/1"}]
 
 
 async def test_alarm_arm_vacation_secured_goes_out_on_secured_channel(hass) -> None:
@@ -212,7 +212,7 @@ async def test_alarm_arm_vacation_secured_goes_out_on_secured_channel(hass) -> N
     await e.async_alarm_arm_vacation(code="0000")
     await hass.async_block_till_done()
 
-    assert fired == [{"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/0", "code": "0000"}]
+    assert fired == [{"uuid": "U68KEE6-ALA-0001-0000-000000000002", "value": "delayedon/1", "code": "0000"}]
 
 
 async def test_alarm_extras_surface_arming_delay_as_int_seconds(hass) -> None:
@@ -431,8 +431,8 @@ async def test_wp68_controls_appear_and_update(hass, mock_connection, mock_entry
     await hass.services.async_call("alarm_control_panel", "alarm_arm_vacation", {"entity_id": alarm}, blocking=True)
     await hass.async_block_till_done()
     assert mock_connection.sent[sent_before:] == [
-        {"uuid": ENTRANCE_ALARM_ACTION, "value": "delayedon/1", "code": None},
         {"uuid": ENTRANCE_ALARM_ACTION, "value": "delayedon/0", "code": None},
+        {"uuid": ENTRANCE_ALARM_ACTION, "value": "delayedon/1", "code": None},
     ]
 
     # -- Gate: SET_POSITION advertised, service reaches the wire --------

@@ -486,3 +486,32 @@ and the read path (channels authoritative) is equally unconfirmed.
 Note for anyone driving RGB strips through a Shelly: Home Assistant talks to Shelly
 devices natively. Going via a Loxone `LightsceneRGB` is only worthwhile if the Loxone
 *scenes* need to be visible in Home Assistant.
+
+---
+
+## RESOLVED 2026-09-13: alarm arm-home/away was inverted — and the earlier "fix" made it worse
+
+Tested against a real, unwired `Alarm` block ("Burglar Alarm", unsecured) with the
+raw `armed`/`disabledMove` states read straight off the websocket:
+
+    on/1  ->  armed=1, disabledMove=0   (movement left ON)
+    on/0  ->  armed=1, disabledMove=1   (movement suppressed)
+
+So the `delayedon/<x>` / `on/<x>` argument is the movement flag, and **`/0`
+suppresses movement, `/1` leaves it on** — the *opposite* of what PC-31 assumed.
+Consequences:
+
+- Correct: ARMED_HOME (inside, interior motion off) = `delayedon/0`;
+  ARMED_AWAY = `delayedon/1`. This is what **upstream 0.9.23 already did**.
+- The WP-4.4 change for PC-31 swapped the values on an unverified guess, so on the
+  fork `alarm_arm_home` sent `delayedon/1` -> movement on -> read back as ARMED_AWAY.
+  Asking for home armed away.
+- Reverted in `alarm_arm_value`; night (=home) and vacation (=away) follow. The read
+  mapping (`armed and disabledMove -> ARMED_HOME`) was correct and is unchanged.
+
+Lesson recorded honestly: the 707-test suite was green throughout because the tests
+encoded the same wrong assumption as the code. Only the live Miniserver settled it.
+
+Separately observed: `delayedon` starts a ~594 s (~10 min) exit-delay countdown on
+this block before `armed` flips; `on` arms immediately. The delay and the movement
+flag are independent axes. `off` disarms cleanly from either.

@@ -25,20 +25,29 @@ def _state_uuid(states: dict, name: str) -> str | None:
 
 def alarm_arm_value(arm_state: AlarmControlPanelState) -> str:
     """
-    Command value that arms an Loxone alarm (PC-31, **VERIFY**).
+    Command value that arms a Loxone alarm (PC-31).
 
-    Intended semantics: the argument of ``delayedon/<x>`` is Loxone's
-    movement-disabled flag, and it must agree with the state mapping below (``armed and disabled_move`` →
-    ``ARMED_HOME``): armed-home disables movement ⇒ ``delayedon/1``,
-    armed-away ⇒ ``delayedon/0``. The previous code sent ``delayedon/0`` for
-    home and ``delayedon/1`` for away, which round-trips home to *away*.
-    VERIFY — confirm the round-trip on a live Miniserver before relying on the
-    swapped mapping.
+    Verified on a live Miniserver (2026-09-13): the ``delayedon/<x>``
+    argument is the movement flag, and ``/0`` *suppresses* movement while
+    ``/1`` leaves it on -- the inverse of what an earlier revision of this
+    file assumed. Sending ``on/0`` set ``disabledMove`` to 1; ``on/1`` set it
+    to 0. (The ``delayedon`` vs ``on`` prefix is a separate axis: it controls
+    the exit delay, not movement.)
+
+    So, to agree with the read mapping (``armed and disabled_move`` ->
+    ARMED_HOME):
+
+    * ARMED_HOME  = you are inside, interior motion suppressed = disabledMove 1
+      = ``delayedon/0``
+    * ARMED_AWAY  = everything armed, motion on = disabledMove 0 = ``delayedon/1``
+
+    This matches upstream 0.9.23. The intermediate WP-4.4 swap was based on an
+    unverified guess about the argument and is reverted here.
     """
     if arm_state == AlarmControlPanelState.ARMED_HOME:
-        return "delayedon/1"
-    if arm_state == AlarmControlPanelState.ARMED_AWAY:
         return "delayedon/0"
+    if arm_state == AlarmControlPanelState.ARMED_AWAY:
+        return "delayedon/1"
     raise ValueError(f"{arm_state} is not an arm state")
 
 
@@ -46,13 +55,9 @@ def alarm_night_arm_value() -> str:
     """
     Command value that arms an Loxone alarm in night mode (#323).
 
-    Loxone alarms have exactly two arming flavours — with delay
-    (`delayedon/1`, motion suppressed) and without (`delayedon/0`) — and no
-    distinct night or vacation command. Night arming (the Mushroom "night"
-    icon, the use case in #323) is the *delayed* arm, i.e. the same command
-    as ARMED_HOME, because night is "everyone is home". **VERIFY**: confirm
-    on a live Miniserver that a `delayedon/1` arm initiated from the night
-    service behaves as the user expects.
+    Loxone has no distinct night command. Night = everyone home and asleep,
+    so interior motion must be suppressed -- the same as ARMED_HOME
+    (``delayedon/0``, verified to set ``disabledMove`` = 1 on 2026-09-13).
     """
     return alarm_arm_value(AlarmControlPanelState.ARMED_HOME)
 
@@ -61,10 +66,9 @@ def alarm_vacation_arm_value() -> str:
     """
     Command value that arms an Loxone alarm in vacation mode (#323).
 
-    Vacation means the home is empty, so it maps to the non-delayed arm —
-    the same command as ARMED_AWAY. **VERIFY**: confirm on a live Miniserver
-    that a `delayedon/0` arm initiated from the vacation service behaves as
-    the user expects.
+    Vacation = the home is empty, so all motion stays armed -- the same as
+    ARMED_AWAY (``delayedon/1``, verified to set ``disabledMove`` = 0 on
+    2026-09-13).
     """
     return alarm_arm_value(AlarmControlPanelState.ARMED_AWAY)
 
