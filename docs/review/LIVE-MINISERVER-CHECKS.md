@@ -515,3 +515,41 @@ encoded the same wrong assumption as the code. Only the live Miniserver settled 
 Separately observed: `delayedon` starts a ~594 s (~10 min) exit-delay countdown on
 this block before `armed` flips; `on` arms immediately. The delay and the movement
 flag are independent axes. `off` disarms cleanly from either.
+
+---
+
+## CONFIRMED 2026-09-13: ventilation preset/speed model (PC-09, PC-29) is wrong on hardware
+
+Tested against a real, unwired `Room Ventilation Controller` (`type: Ventilation`),
+reading every state off the websocket while sending commands and while the user drove
+the Loxone app.
+
+The block's real modes come from `details.modes`:
+`0=Exhaust air, 1=Supply air, 2=Heat Exchanger Activated, 3=Heat exchanger deactivated`.
+
+Findings:
+
+- **PC-09 — `setMode/<id>` does nothing.** `setMode/1` left `mode` (and `activeMode`)
+  unchanged. The airflow "modes" above are not user-settable presets, and `setMode` is
+  not the command. `fan.py`'s `set_preset_mode` is non-functional on this block.
+- **`fan.py` reads the wrong state for the current mode.** It reads `mode` (a static
+  config value, 2 here). The live status is `activeMode`, and that is an **override
+  enum** (0 = automatic, 6 = manual override), *not* the airflow mode. So neither the
+  read source nor the label map (`{2:Low,3:Medium,4:High,5:Auto,6:Away}`) is correct.
+- **PC-29 — speed is settable, but only as a self-reverting override.** `setTimer/3600/
+  50/2/-1` set `speed`=50 and started an override (`activeTimerProfile` -2→-1,
+  `overwriteUntil` = Unix end-time, `ventReason`=7). Manual speed on this block is
+  *always* a timed override that expires back to automatic; there is no persistent
+  "set speed". The `speed` state itself is the right thing to read for `percentage`.
+- The real user-facing presets are the **`timerProfiles`** (Resting, …), which `fan.py`
+  ignores entirely.
+- Incidental: the app's percentage slider the user moved was bound to `absenceMin` (a
+  config parameter), which is why an app "52%" did not appear as `speed`.
+
+Not fixed in code. The fan entity needs a redesign grounded in this data (see the
+remediation plan, "Ventilation fan model rework"): percentage as an explicit temporary
+override, presets from `timerProfiles`, `activeMode`/`ventReason` as diagnostics, modes
+read from `details.modes` rather than hardcoded. The exact command verbs to select a
+timer profile / set a mode are still unknown and must be determined (Loxone docs or an
+app-side capture) before implementing — guessing them is how PC-31 went wrong the first
+time.

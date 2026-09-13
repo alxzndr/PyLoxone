@@ -522,6 +522,7 @@ Upstream issue numbers refer to https://github.com/JoDehli/PyLoxone/issues.
 - Effort: S
 
 ### PC-09 [high] `LoxoneVentilation.set_preset_mode` is an empty no-op
+> **CONFIRMED broken (live 2026-09-13):** `setMode/<id>` does not change the mode; the airflow modes are not settable presets and `activeMode` is an override enum, not the mode. Needs the ventilation redesign, not a one-liner. See LIVE-MINISERVER-CHECKS.md.
 - Where: `fan.py:242-243`; `PRESET_MODE` is advertised, `async_turn_off` (279-285) relies on it, `STR_TO_VENTILATION_PROFILE_SETTABLE` (31-33) is unused.
 - Fix: implement (`setMode/<id>` — **VERIFY** command name); validate the mode.
 - Effort: S
@@ -619,6 +620,7 @@ Upstream issue numbers refer to https://github.com/JoDehli/PyLoxone/issues.
 - Effort: M
 
 ### PC-29 [medium] Ventilation `set_percentage` interpolates a mode *name* (or `None`) into `setTimer`
+> **CONFIRMED (live 2026-09-13):** `setTimer` sets `speed` but only as a self-reverting 1-hour override; there is no persistent speed set. See LIVE-MINISERVER-CHECKS.md.
 - Where: `fan.py:245-254` (`VENTELATION_INT_TO_STR.get(mode)` → `"Low"`/`None`; one-hour timer for a plain speed change).
 - Fix: raw integer mode; guard `None`; **VERIFY** whether a non-timed speed command exists.
 - Effort: S

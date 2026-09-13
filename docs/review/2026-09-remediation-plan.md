@@ -277,3 +277,22 @@ Each is an independent WP following the platform pattern established in Phase 4.
 - **0.9.24** after Phase 0 + Phase 1: no behavioural redesign, only crash/security/initial-state fixes. Safe patch release; note the HA floor change.
 - **0.10.0** after Phases 2–3: reconnect and multi-instance rewrite, credentials moved to `data`, config-flow rewrite. Minor bump; migration notes.
 - **0.11.0** after Phases 4–5: platform fixes, `has_entity_name` rename. Release note must list entity-id changes.
+
+---
+
+## Follow-up (post-live-verification): Ventilation fan model rework
+
+Grounded in the 2026-09-13 live test (see LIVE-MINISERVER-CHECKS.md). The current
+`fan.py` ventilation model is wrong on hardware and cannot be patched piecemeal:
+
+- Drop the hardcoded `VENTELATION_INT_TO_STR = {2:Low,...}`. Read airflow modes from
+  `details.modes` if they are ever surfaced at all.
+- `preset_mode` / `preset_modes` should map to `details.timerProfiles` (Resting, …), the
+  real named presets — not the airflow modes.
+- `percentage` reads `speed` (correct today), but `set_percentage` must be documented/
+  modelled as a *temporary override* (it reverts); consider surfacing `overwriteUntil`.
+- Current status belongs on `activeMode` (override enum) + `ventReason`, exposed as
+  diagnostic attributes/sensors, not conflated with the mode.
+- BLOCKER: the command verbs to select a timer profile and to set a mode are unknown.
+  `setMode/<id>` is confirmed non-functional. Determine the correct commands (Loxone
+  docs or an app-side websocket capture) before implementing. Do not guess.
