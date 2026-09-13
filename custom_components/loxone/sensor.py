@@ -9,7 +9,7 @@ import json
 import logging
 import re
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 from typing import Any
 
@@ -45,6 +45,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
@@ -878,6 +879,12 @@ async def async_setup_entry(
     if "softwareVersion" in loxconfig:
         entities.append(LoxoneVersionSensor(miniserver.serial, loxconfig["softwareVersion"], ms_device_info))
 
+    # Diagnostic in/out traffic-rate sensors (msg/min) on the host device.
+    # A serial is required for a stable unique id and the host-device link.
+    if miniserver.serial:
+        entities.append(LoxoneTrafficRateSensor(miniserver.serial, "in", ms_device_info))
+        entities.append(LoxoneTrafficRateSensor(miniserver.serial, "out", ms_device_info))
+
     for sensor in iter_controls(hass, config_entry, "InfoOnlyAnalog"):
         try:
             sensor.update({"type": "analog", "config_entry": config_entry})
@@ -1154,6 +1161,92 @@ class LoxoneVersionSensor(LoxoneEntity, SensorEntity):
         self._attr_native_value = parsed or None
         if device_info is not None:
             self._attr_device_info = device_info
+
+
+# How often the traffic-rate sensors resample the connection's counters.
+TRAFFIC_SAMPLE_INTERVAL = timedelta(seconds=30)
+
+
+class LoxoneTrafficRateSensor(LoxoneEntity, SensorEntity):
+    """
+    Diagnostic messages-per-minute rate to/from the Miniserver.
+
+    The connection object keeps two monotonic counters — inbound state/
+    keepalive messages received, outbound commands queued. This sensor
+    samples one of them on a fixed interval and reports the average rate
+    over the elapsed window (so the dashboard can graph in/out traffic);
+    the running cumulative total is exposed as the ``total`` attribute.
+
+    Timer-driven rather than message-driven: it subscribes to no uuid
+    stream and re-reads the counter every ``TRAFFIC_SAMPLE_INTERVAL`` so
+    an idle link decays to 0 instead of freezing at the last value.
+    """
+
+    _attr_native_unit_of_measurement = "msg/min"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, miniserver_serial, direction: str, device_info: DeviceInfo | None = None, **kwargs):
+        super().__init__(**kwargs)
+        if direction not in ("in", "out"):
+            raise ValueError(f"direction must be 'in' or 'out', got {direction!r}")
+        self._direction = direction
+        self._miniserver_serial = miniserver_serial
+        suffix = "inbound" if direction == "in" else "outbound"
+        self._attr_name = "Loxone Traffic In" if direction == "in" else "Loxone Traffic Out"
+        self._attr_icon = "mdi:tray-arrow-down" if direction == "in" else "mdi:tray-arrow-up"
+        self._attr_unique_id = f"{miniserver_serial}-loxone_traffic_{suffix}"
+        if device_info is not None:
+            self._attr_device_info = device_info
+        self._attr_native_value = None
+        self._last_total: int | None = None
+        self._last_sample: datetime | None = None
+        self._attr_extra_state_attributes = {**self._attr_extra_state_attributes, "total": None}
+
+    def _state_uuids(self) -> frozenset[str]:
+        # Timer-driven, not message-driven: subscribe to no uuid stream.
+        return frozenset()
+
+    def _current_total(self) -> int | None:
+        coordinator = self._connection_coordinator()
+        api = getattr(coordinator, "api", None)
+        if api is None:
+            return None
+        return api.messages_received if self._direction == "in" else api.messages_sent
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Baseline immediately so the first tick reports a real rate rather
+        # than the whole cumulative count as one giant spike.
+        self._last_total = self._current_total()
+        self._last_sample = dt_util.utcnow()
+        self.async_on_remove(async_track_time_interval(self.hass, self._sample, TRAFFIC_SAMPLE_INTERVAL))
+
+    @callback
+    def _sample(self, now: datetime) -> None:
+        total = self._current_total()
+        if total is None:
+            # No live connection (disconnected / reloading): the entity is
+            # unavailable anyway; drop the baseline so the next live tick
+            # re-anchors instead of computing across the gap.
+            self._last_total = None
+            self._last_sample = now
+            return
+        prev, prev_time = self._last_total, self._last_sample
+        self._last_total, self._last_sample = total, now
+        if prev is None or prev_time is None:
+            return
+        elapsed = (now - prev_time).total_seconds()
+        delta = total - prev
+        if delta < 0 or elapsed <= 0:
+            # Counter reset (fresh connection object after a full reload) or
+            # a clock anomaly: report 0 for this window and re-baseline.
+            self._attr_native_value = 0.0
+        else:
+            self._attr_native_value = round(delta / elapsed * 60.0, 1)
+        self._attr_extra_state_attributes = {**self._attr_extra_state_attributes, "total": total}
+        self.async_write_ha_state()
 
 
 class LoxoneTextSensor(LoxoneEntity, SensorEntity):

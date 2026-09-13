@@ -321,6 +321,14 @@ class LoxoneBaseConnection:
         self._token_change_callback = token_change_callback
         self._pending_task = []
         self._closed = False
+        # Lightweight traffic counters feeding the diagnostic rate sensors.
+        # ``_rx_messages`` counts inbound state/keepalive messages handed up
+        # from the wire; ``_tx_messages`` counts outbound commands queued for
+        # the Miniserver. Both are monotonic for the life of this connection
+        # object, so they survive in-place reconnects (CORE-05); a full entry
+        # reload builds a fresh object and the sensor re-baselines.
+        self._rx_messages = 0
+        self._tx_messages = 0
         self._key_update_event: asyncio.Event | None = None
         self._shutdown_event = asyncio.Event()
         self._reconnect_event: asyncio.Event = asyncio.Event()
@@ -1388,6 +1396,9 @@ class LoxoneConnection(LoxoneBaseConnection):
         last_header: MessageHeader | None = None
 
         async def _run_callback(msg) -> None:
+            # Count every inbound message regardless of whether a callback is
+            # wired (traffic is traffic — see ``messages_received``).
+            self._rx_messages += 1
             if callback is None:
                 return
             try:
@@ -1810,6 +1821,16 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         _LOGGER.debug("Connection closed successfully.")
 
+    @property
+    def messages_received(self) -> int:
+        """Inbound state/keepalive messages handed up since this connection opened."""
+        return self._rx_messages
+
+    @property
+    def messages_sent(self) -> int:
+        """Outbound commands queued for the Miniserver since this connection opened."""
+        return self._tx_messages
+
     async def send_websocket_command(self, device_uuid: str, value: str | float):
         """
         Send a websocket command to the Miniserver.
@@ -1826,6 +1847,7 @@ class LoxoneConnection(LoxoneBaseConnection):
             try:
                 # Use put_nowait with QueueFull exception handling for backpressure
                 self._message_queue.put_nowait(MessageForQueue(command=command, flag=True))
+                self._tx_messages += 1
             except asyncio.QueueFull as e:
                 _LOGGER.exception(
                     "Message queue full (size: %d), dropping command for %s",
@@ -1861,6 +1883,7 @@ class LoxoneConnection(LoxoneBaseConnection):
             # the salt request goes through the bounded single-writer queue.
             self._secured_queue.append(SecuredCommand(device_uuid=device_uuid, value=value, code=code))
             self._message_queue.put_nowait(MessageForQueue(command=command, flag=True))
+            self._tx_messages += 1
         except asyncio.QueueFull as e:
             _LOGGER.exception("Message queue is full, dropping secured command")
             raise RuntimeError("Message queue is full, cannot send secured command") from e

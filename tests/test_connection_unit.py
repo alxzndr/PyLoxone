@@ -373,6 +373,35 @@ async def test_sync_callback_is_not_awaited(caplog) -> None:
     assert "Callback error" not in caplog.text
 
 
+async def test_rx_counter_counts_inbound_messages() -> None:
+    # The traffic sensors read ``messages_received``: one per inbound message
+    # handed to the (always-wired, in HA) callback — keepalives and value/text
+    # states alike.
+    u = uuid.UUID("12345678-9abc-def0-1234-56789abcdef0")
+    record = _value_state_record(u, 1.0)
+    conn = make_connection()
+    assert conn.messages_received == 0
+
+    def cb(_data) -> None:  # sync, like the coordinator's handle_message
+        pass
+
+    try:
+        await conn._do_start_listening(cb, FakeFeed([_header(6, 0), _header(2, 24), record]))
+    except LoxoneConnectionClosedOk:
+        pass
+    assert conn.messages_received == 2  # one keepalive + one value-state
+
+
+async def test_tx_counter_counts_sent_commands() -> None:
+    # ``messages_sent`` increments once per successfully queued command.
+    conn = make_connection()
+    assert conn.messages_sent == 0
+    await conn.send_websocket_command("abcd-uuid", 1)
+    await conn.send_websocket_command("efgh-uuid", 0)
+    assert conn.messages_sent == 2
+    assert conn.messages_received == 0
+
+
 # --------------------------------------------------------------------------- #
 # API-01 (HA harness): exactly one wslib.connect per setup
 # --------------------------------------------------------------------------- #

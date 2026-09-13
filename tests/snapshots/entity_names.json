@@ -705,6 +705,28 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.pyloxone_test_miniserver_loxone_traffic_in",
+    "unique_id": "TEST-SERIAL-0001-loxone_traffic_inbound",
+    "name": null,
+    "original_name": "Loxone Traffic In",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "PyLoxone Test Miniserver",
+    "device_model": "Miniserver (Gen 2)"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.pyloxone_test_miniserver_loxone_traffic_out",
+    "unique_id": "TEST-SERIAL-0001-loxone_traffic_outbound",
+    "name": null,
+    "original_name": "Loxone Traffic Out",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "PyLoxone Test Miniserver",
+    "device_model": "Miniserver (Gen 2)"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.pyloxone_test_miniserver_notifications",
     "unique_id": "4d53676c-616c-6c4e-ffff-4e4f474c31303041",
     "name": null,
