@@ -10,6 +10,7 @@ import asyncio
 from base64 import b64decode
 import hashlib
 import json
+import logging
 import struct
 import types
 import uuid
@@ -345,6 +346,31 @@ async def test_keepalive_header_is_handled_inline() -> None:
 
 async def test_listening_without_callback_does_not_crash_on_keepalive() -> None:
     await _run_listening([_header(6, 0)], callback=None)
+
+
+async def test_sync_callback_is_not_awaited(caplog) -> None:
+    # Regression: HA wires the coordinator's *sync* ``handle_message`` as the
+    # message callback (its type is ``Awaitable[None] | None``). The listen
+    # loop must run it and NOT await its ``None`` return — blindly awaiting a
+    # sync callback raised "'NoneType' object can't be awaited" as a logged
+    # "Callback error" on every state message in production, while the whole
+    # test suite passed because every test wrapped its callback in ``async def``.
+    u = uuid.UUID("12345678-9abc-def0-1234-56789abcdef0")
+    record = _value_state_record(u, 4.25)
+    conn = make_connection()
+    seen: list = []
+
+    def sync_cb(data) -> None:  # sync, returns None — like handle_message
+        seen.append(data)
+
+    with caplog.at_level(logging.ERROR):
+        try:
+            await conn._do_start_listening(sync_cb, FakeFeed([_header(2, 24), record]))
+        except LoxoneConnectionClosedOk:
+            pass
+
+    assert seen == [{"12345678-9abc-def0-123456789abcdef0": 4.25}]
+    assert "Callback error" not in caplog.text
 
 
 # --------------------------------------------------------------------------- #

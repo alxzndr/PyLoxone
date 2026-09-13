@@ -1391,7 +1391,16 @@ class LoxoneConnection(LoxoneBaseConnection):
             if callback is None:
                 return
             try:
-                await callback(msg.as_dict())
+                # The message callback may be sync or async (its type is
+                # ``Awaitable[None] | None``): HA wires the coordinator's
+                # sync ``handle_message`` here. Only await a real awaitable,
+                # mirroring ``_notify_state`` — blindly awaiting a sync
+                # callback's ``None`` return raised "'NoneType' object can't
+                # be awaited" on every state message in production (tests
+                # only ever passed async callbacks, so it slipped through).
+                result = callback(msg.as_dict())
+                if inspect.isawaitable(result):
+                    await result
             except Exception as e:
                 _LOGGER.error("Callback error: %s", e, exc_info=True)
 
