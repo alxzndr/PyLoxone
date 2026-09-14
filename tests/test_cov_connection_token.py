@@ -498,10 +498,10 @@ async def test_refresh_token_command_legacy_firmware() -> None:
     """Pre-10.2 firmware gets the legacy refreshtoken command, HMAC'd with the
     current key.
 
-    VERIFY: the legacy form has no separator between ``jdev/sys/refreshtoken``
-    and the hash (the constant carries no trailing ``/``, unlike the JSON-web
-    one); Loxone's docs show ``jdev/sys/refreshtoken/{hash}/{user}``. Pinned
-    as-is here -- changing it is a source fix, not a test fix.
+    The command is ``jdev/sys/refreshtoken/{hash}/{user}`` as in Loxone's docs.
+    The constant used to lack the trailing ``/`` (unlike the JSON-web one), so
+    the hash was glued straight onto ``refreshtoken`` -- caught when this test
+    was first written against the old constant.
     """
     conn = make_connection()
     conn._hash_alg = "SHA1"
@@ -515,7 +515,7 @@ async def test_refresh_token_command_legacy_firmware() -> None:
     assert expected == "b1ad4f235515e65a9f93b77f51cd299ffbe484a1"  # hand-derived literal
     item = conn._message_queue.get_nowait()
     assert item.flag is True  # the command must go out encrypted
-    assert item.command == f"jdev/sys/refreshtoken{expected}/admin"
+    assert item.command == f"jdev/sys/refreshtoken/{expected}/admin"
 
 
 async def test_refresh_token_command_json_web_firmware_encodes_the_username() -> None:

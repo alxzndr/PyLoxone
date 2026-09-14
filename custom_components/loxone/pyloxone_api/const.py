@@ -61,7 +61,10 @@ CMD_GET_KEY_AND_SALT: Final = "jdev/sys/getkey2"
 CMD_REQUEST_TOKEN: Final = "jdev/sys/gettoken"
 CMD_REQUEST_TOKEN_JSON_WEB: Final = "jdev/sys/getjwt"
 CMD_AUTH_WITH_TOKEN: Final = "authwithtoken/"
-CMD_REFRESH_TOKEN: Final = "jdev/sys/refreshtoken"
+# Trailing "/" like the JSON-web variant: the command is
+# jdev/sys/refreshtoken/{hash}/{user}; without it the hash was glued onto the
+# path ("...refreshtoken<hash>/<user>") for pre-10.2 firmware.
+CMD_REFRESH_TOKEN: Final = "jdev/sys/refreshtoken/"
 CMD_REFRESH_TOKEN_JSON_WEB: Final = "jdev/sys/refreshjwt/"
 CMD_ENABLE_UPDATES: Final = "jdev/sps/enablebinstatusupdate"
 CMD_GET_VISUAL_PASSWD: Final = "jdev/sys/getvisusalt/"
