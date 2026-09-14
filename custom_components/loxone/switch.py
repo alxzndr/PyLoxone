@@ -45,7 +45,9 @@ async def async_setup_entry(
     loxconfig = miniserver.lox_config.json
     entities = []
 
-    for switch_entity in get_all(loxconfig, ["Switch", "TimedSwitch", "Intercom", "IRoomControllerV2", "LightControllerV2"]):
+    # "IntercomV2" is the newer intercom block; it exposes the same
+    # subControls as "Intercom" and was silently skipped before (#466).
+    for switch_entity in get_all(loxconfig, ["Switch", "TimedSwitch", "Intercom", "IntercomV2", "IRoomControllerV2", "LightControllerV2"]):
         switch_entity = add_room_and_cat_to_value_values(loxconfig, switch_entity)
 
         if switch_entity["type"] in ["Switch"]:
@@ -56,7 +58,7 @@ async def async_setup_entry(
             new_switch = LoxoneTimedSwitch(**switch_entity)
             entities.append(new_switch)
 
-        elif switch_entity["type"] == "Intercom":
+        elif switch_entity["type"] in ("Intercom", "IntercomV2"):
             if "subControls" in switch_entity:
                 for sub_name in switch_entity["subControls"]:
                     subcontol = switch_entity["subControls"][sub_name]
