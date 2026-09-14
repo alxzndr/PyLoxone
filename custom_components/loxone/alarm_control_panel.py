@@ -90,12 +90,13 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
 
     @property
     def code_arm_required(self):
-        """Whether the code is required for arm actions."""
-        self._code = "required"
-        if self.isSecured:
-            self._code = "required"
-        else:
-            self._code = None
+        """Whether a code is required for arm actions (the block is secured).
+
+        Must not have side effects: this used to overwrite ``self._code``
+        with the sentinel "required" (or None), which discarded a code
+        configured for the alarm and made ``code_format`` run its digit
+        check on the word "required" -- so it always answered TEXT (#413).
+        """
         return self.isSecured
 
     async def event_handler(self, e):
@@ -247,9 +248,16 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
 
     @property
     def code_format(self):
-        """Return one or more digits/characters."""
-        if self._code is None:
+        """Return the code format the frontend should prompt for (#413).
+
+        Only a secured block needs a code. The Miniserver validates the
+        visualization password itself and never reveals its format, so the
+        code configured for this alarm is the only hint: NUMBER when it is
+        all digits, otherwise TEXT (a text prompt also accepts a numeric PIN,
+        whereas a numeric keypad would reject an alphanumeric password).
+        """
+        if not self.isSecured:
             return None
-        if isinstance(self._code, str) and re.search("^\\d+$", self._code):
+        if self._code is not None and re.search(r"^\d+$", self._code):
             return CodeFormat.NUMBER
         return CodeFormat.TEXT
