@@ -778,7 +778,21 @@ class LoxoneConnection(LoxoneBaseConnection):
                     if msg_type == MessageType.TEXT:
                         message = check_and_decode_if_needed(message)
 
-                    parsed_message = parse_message(message, msg_type)
+                    try:
+                        parsed_message = parse_message(message, msg_type)
+                    except ValueError as parse_error:
+                        # One malformed payload must not end the session (#517).
+                        # LLResponse re-raises every JSON parse failure as
+                        # ValueError, and the generic handler below re-raises
+                        # it out of the listening loop -- which killed the
+                        # websocket until the integration was reloaded. A bad
+                        # frame is data, not a connection problem: log it and
+                        # carry on with the next header.
+                        _LOGGER.warning(
+                            f"Skipping unparseable {msg_type.name} frame "
+                            f"({message_length} bytes): {parse_error} -- {repr(message)[:200]}"
+                        )
+                        continue
 
                     # Fire internal event processing
                     asyncio.create_task(self._websocket_event(parsed_message))
