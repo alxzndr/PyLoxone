@@ -26,6 +26,7 @@ from custom_components.loxone.pyloxone_api.message import (
     LLResponse,
     MessageHeader,
     MessageType,
+    TextMessage,
     TextStatesTable,
     ValueStatesTable,
     parse_message,
@@ -133,6 +134,28 @@ def test_llresponse_scalar_and_nested_value() -> None:
 def test_llresponse_missing_control_raises() -> None:
     with pytest.raises(ValueError):
         LLResponse('{"LL": {"code": 0, "value": 5}}')  # no 'control' key
+
+
+# --------------------------------------------------------------------------- #
+# Raw control characters in LL payloads
+# (JoDehli/PyLoxone#517, fixed upstream by PR #519)
+#
+# The Miniserver sends text payloads (notification texts, for example) whose
+# JSON string values contain literal newlines and tabs. json.loads is strict
+# by default and raised "Invalid control character"; LLResponse re-raised that
+# as ValueError, which escaped the listen loop and killed the session.
+# --------------------------------------------------------------------------- #
+def test_ll_response_accepts_raw_control_characters() -> None:
+    r = LLResponse('{"LL": {"control": "dev/sps/io/abc/notify", "value": "line 1\nline 2\tend", "Code": "200"}}')
+    assert r.code == 200
+    assert r.control == "dev/sps/io/abc/notify"
+    assert r.value == "line 1\nline 2\tend"
+
+
+def test_text_message_with_raw_control_characters_is_parsed() -> None:
+    m = parse_message('{"LL": {"control": "jdev/sps/io/abc", "value": "a\nb", "code": "200"}}', MessageType.TEXT)
+    assert isinstance(m, TextMessage)
+    assert m.as_dict() == {"control": "jdev/sps/io/abc", "value": "a\nb", "Code": 200}
 
 
 # --------------------------------------------------------------------------- #

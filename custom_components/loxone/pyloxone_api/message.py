@@ -68,7 +68,13 @@ class LLResponse:
 
     def __init__(self, response: str | bytes):
         try:
-            self._parsed: dict = json.loads(response)
+            # strict=False so that raw control characters (newlines, tabs)
+            # inside JSON string values are accepted. The Miniserver embeds
+            # them in LL text payloads such as notification texts; the strict
+            # default raised "Invalid control character" and the resulting
+            # ValueError killed the websocket session
+            # (JoDehli/PyLoxone#517, fixed upstream by PR #519).
+            self._parsed: dict = json.loads(response, strict=False)
             # Sometimes, Loxone uses "Code", and sometimes "code"
             self.code: int = int(
                 self._parsed.get("LL", {}).get("code", "") or self._parsed.get("LL", {}).get("Code", "")

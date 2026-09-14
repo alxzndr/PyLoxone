@@ -1490,7 +1490,29 @@ class LoxoneConnection(LoxoneBaseConnection):
                 last_header = None
                 if msg_type == MessageType.TEXT:
                     frame = check_and_decode_if_needed(frame)
-                parsed_message = parse_message(frame, msg_type)
+                try:
+                    parsed_message = parse_message(frame, msg_type)
+                except ValueError as parse_error:
+                    # API-28 / JoDehli/PyLoxone#517: a single malformed
+                    # payload must not end the session. LLResponse re-raises
+                    # every parse failure (json.JSONDecodeError included -- it
+                    # is a ValueError subclass) as ValueError, and run() does
+                    # NOT retry non-transport errors (the "programming errors
+                    # propagate" contract), so before this guard one bad text
+                    # frame killed the websocket until a manual reload.
+                    # A bad frame is *data*, so it is dropped and the stream
+                    # resyncs on the next header (body/last_header were
+                    # already reset above, exactly as on the success path).
+                    # Deliberately narrow: only ValueError. Transport errors
+                    # still reconnect, real programming errors still propagate.
+                    _LOGGER.warning(
+                        "Skipping unparseable %s frame (%d bytes): %s -- %s",
+                        msg_type.name,
+                        expected,
+                        parse_error,
+                        repr(frame)[:200],
+                    )
+                    continue
                 _LOGGER.debug("Parsing message type %s (%d bytes)", msg_type, expected)
 
                 # API-26: handle the message inline instead of spawning one

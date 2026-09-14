@@ -339,6 +339,27 @@ async def test_unknown_header_is_bodyless_and_resyncs() -> None:
     assert seen == [{"12345678-9abc-def0-123456789abcdef0": 0.5}]
 
 
+async def test_unparseable_text_frame_is_skipped_not_fatal(caplog) -> None:
+    # JoDehli/PyLoxone#517: a text payload the JSON parser rejects used to
+    # raise ValueError out of the listen loop, and run() propagates
+    # non-transport errors without retry (see
+    # test_run_propagates_programming_errors_without_retry) -- so one bad
+    # frame killed the websocket session until a manual reload. A bad frame
+    # is data: it must be logged and skipped, and the stream must resync on
+    # the next header.
+    bad_body = b'{"LL": not json'
+    assert len(bad_body) == 15  # hand-counted, matches the header below
+    u = uuid.UUID("12345678-9abc-def0-1234-56789abcdef0")
+    record = _value_state_record(u, 2.75)
+
+    with caplog.at_level(logging.WARNING):
+        seen = await _run_listening([_header(0, 15), bad_body, _header(2, 24), record])
+
+    # The valid value-state frame that followed still arrived.
+    assert seen == [{"12345678-9abc-def0-123456789abcdef0": 2.75}]
+    assert "Skipping unparseable TEXT frame (15 bytes)" in caplog.text
+
+
 async def test_keepalive_header_is_handled_inline() -> None:
     seen = await _run_listening([_header(6, 0)])
     assert seen == [{"keep_alive": "received"}]
