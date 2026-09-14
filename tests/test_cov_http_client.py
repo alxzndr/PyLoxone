@@ -332,12 +332,12 @@ async def test_get_translates_transport_errors(raised, expected_type, expected_m
     assert excinfo.value.__cause__ is raised
 
 
-async def test_get_maps_server_disconnect_to_connection_error() -> None:
-    """ServerDisconnectedError is claimed by the ClientConnectionError handler.
+async def test_get_maps_server_disconnect_to_its_own_message() -> None:
+    """ServerDisconnectedError reaches its dedicated handler.
 
-    It subclasses ClientConnectionError, so the *first* handler wins and the
-    message is the generic connect one; the dedicated "Server disconnected
-    unexpectedly" branch further down is unreachable.
+    It subclasses ClientConnectionError; with the base class listed first the
+    dedicated branch was unreachable and the generic connect message came out.
+    The chain is most-specific-first now.
     """
     raised = aiohttp.ServerDisconnectedError("bye")
     session = _FakeSession(error=raised)
@@ -346,7 +346,36 @@ async def test_get_maps_server_disconnect_to_connection_error() -> None:
     with pytest.raises(ConnectionError) as excinfo:
         await client.get("/jdev/cfg/api")
 
-    assert str(excinfo.value) == f"Failed to connect to Loxone Miniserver at {_URL}: bye"
+    assert str(excinfo.value) == "Server disconnected unexpectedly: bye"
+    assert excinfo.value.__cause__ is raised
+
+
+_STATUS_THROUGH_GET = [
+    (400, ValueError, "Bad request to Loxone Miniserver: boom"),
+    (403, PermissionError, "Access forbidden: boom"),
+    (408, TimeoutError, "Request timeout: boom"),
+    (429, RuntimeError, "Rate limit exceeded: boom"),
+    (502, ConnectionError, "Bad gateway: boom"),
+]
+
+
+@pytest.mark.parametrize(("status", "expected_type", "expected_message"), _STATUS_THROUGH_GET)
+async def test_get_surfaces_the_status_map_unwrapped(status, expected_type, expected_message) -> None:
+    """The status -> exception map must not be re-wrapped by get()'s transport handling.
+
+    It used to be: _handle_error ran inside get()'s try, and only the four
+    Loxone-typed errors were re-raised as-is, so a 400/403/429/502 came out as
+    RuntimeError("Unexpected error during HTTP request: ...") and a 408 as a
+    TimeoutError carrying the *transport* timeout text.
+    """
+    session = _FakeSession(response=_response(status))
+    client = _client(session)
+
+    with pytest.raises(expected_type) as excinfo:
+        await client.get("/jdev/cfg/api")
+
+    assert type(excinfo.value) is expected_type
+    assert str(excinfo.value) == expected_message
 
 
 # --------------------------------------------------------------------------- #

@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 from types import SimpleNamespace
 
-import pytest
 
 from custom_components.loxone.const import SENDDOMAIN
 from custom_components.loxone.lights.colorpickers import (
@@ -84,8 +83,8 @@ class TestRgbColorPickerEventHandler:
         light.event_handler({COLOR_UUID: "hsv(210,85,40)"})
         assert light.color_mode is ColorMode.HS
         assert light.hs_color == (210, 85)
-        # 40 / 100 * 255 = 102.0 (hand-derived from lox_to_hass)
-        assert light.brightness == pytest.approx(102.0)
+        # 40 / 100 * 255 = 102.0, rounded to the int 102 HA expects
+        assert light.brightness == 102
         assert light.is_on is True
         assert light.available is True
 
@@ -121,7 +120,7 @@ class TestRgbColorPickerEventHandler:
         light.event_handler({COLOR_UUID: "hsv(210,85,40)"})
         light.event_handler({COLOR_UUID: "hsv(oops"})  # literal_decoder -> None
         assert light.hs_color == (210, 85)
-        assert light.brightness == pytest.approx(102.0)
+        assert light.brightness == 102
 
     def test_unknown_command_is_logged_and_changes_nothing(self, caplog):
         light = self.picker()
@@ -151,8 +150,8 @@ class TestLumiTechEventHandler:
         light.event_handler({COLOR_UUID: "hsv(120,50,20)"})
         assert light.color_mode is ColorMode.HS
         assert light.hs_color == (120, 50)
-        # 20 / 100 * 255 = 51.0
-        assert light.brightness == pytest.approx(51.0)
+        # 20 / 100 * 255 = 51.0, rounded to 51
+        assert light.brightness == 51
 
     def test_sub_light_of_a_controller_uses_the_controller_device(self):
         light = _stub(
@@ -191,15 +190,16 @@ class TestTunableWhiteEventHandler:
         assert light.is_on is True
         assert light.available is True
 
-    def test_hsv_zero_turns_it_off_without_publishing(self):
-        """Pins today's behaviour: ``hsv(0,0,0)`` zeroes brightness but does
-        *not* set ``request_update``, so availability is never flipped (see
-        the PR body -- reported, not fixed here)."""
+    def test_hsv_zero_turns_it_off_and_publishes(self):
+        """``hsv(0,0,0)`` is the Miniserver's "switched off" report for a
+        tunable-white picker: brightness 0, off, and published like any other
+        report (it used to zero the brightness silently, leaving the entity
+        stale -- or unavailable forever when it was the first report)."""
         light = self.light()
         light.event_handler({COLOR_UUID: "hsv(0,0,0)"})
         assert light.brightness == 0
         assert light.is_on is False
-        assert light.available is False
+        assert light.available is True
 
     def test_non_zero_hsv_is_rejected_with_a_warning(self, caplog):
         light = self.light()

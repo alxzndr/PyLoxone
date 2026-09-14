@@ -382,9 +382,7 @@ class TestLightPresenceSwitch:
         await s.async_turn_off()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-lcv2-cmd/presence", "value": "off"})
 
-    def test_turn_on_targets_the_presence_sub_address(self):
-        # NOTE: `async_turn_on` is declared as a plain `def` here (not a
-        # coroutine) -- pinned as-is and reported, not fixed.
+    async def test_turn_on_targets_the_presence_sub_address(self):
         s = self.presence(uuidAction="ctl-lcv2-cmd-on")
-        s.async_turn_on()
+        await s.async_turn_on()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-lcv2-cmd-on/presence", "value": "on"})

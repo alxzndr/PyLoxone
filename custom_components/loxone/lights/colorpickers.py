@@ -150,7 +150,13 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
                     request_update = True
             elif _color.startswith("hsv"):
                 if _color == "hsv(0,0,0)":
+                    # "hsv(0,0,0)" is how the Miniserver reports a tunable-white
+                    # picker that was switched off: it must publish like any other
+                    # state report. It used to zero the brightness silently, so the
+                    # entity went stale in HA (or stayed unavailable forever when
+                    # this was its first report).
                     self._attr_brightness = 0
+                    request_update = True
                 else:
                     _LOGGER.warning("hsv not supported for TunableWhiteLight")
             else:
@@ -258,7 +264,8 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
                 if _color is not None:
                     self._attr_color_mode = ColorMode.HS
                     self._attr_hs_color = (_color[0], _color[1])
-                    self._attr_brightness = lox_to_hass(_color[2])
+                    # HA brightness is an int 0-255 (the temp branch rounds too).
+                    self._attr_brightness = round(lox_to_hass(_color[2]))
                     request_update = True
             elif _color.startswith("temp"):
                 _color = _color.replace("temp", "")

@@ -485,7 +485,10 @@ class LoxoneLightPresenceSwitch(LoxoneSwitch):
         self._attr_name = "Presence Detection"
         self._attr_unique_id = self._presence_id
 
-    def async_turn_on(self, **_kwargs: Any) -> None:
+    async def async_turn_on(self, **_kwargs: Any) -> None:
+        # Must be a coroutine like its sibling: HA does not await a plain
+        # ``def``, it dispatches it to the executor, which would fire the bus
+        # event off the event loop.
         self._send("on", uuid=self.uuidAction + "/presence")
         self.async_schedule_update_ha_state()
 

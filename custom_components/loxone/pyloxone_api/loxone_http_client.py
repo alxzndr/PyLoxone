@@ -107,23 +107,10 @@ class LoxoneAsyncHttpClient:
 
             response = await self.session.get(url, **request_kwargs)
 
-            if response.status != 200:
-                await self._handle_error(response)
-
-            return response
-
-        except aiohttp.ClientConnectionError as err:
-            _LOGGER.exception("Connection error to %s: %s", url, err)
-            raise ConnectionError(f"Failed to connect to Loxone Miniserver at {url}: {err}") from err
-
-        except aiohttp.ClientConnectorError as err:
-            _LOGGER.exception("Connector error to %s: %s", url, err)
-            raise ConnectionError(f"Cannot resolve or connect to {url}: {err}") from err
-
-        except TimeoutError as err:
-            _LOGGER.exception("Timeout error for %s", url)
-            raise TimeoutError(f"Request to {url} timed out after {self.timeout} seconds") from err
-
+        # Most specific first: ClientSSLError and ClientProxyConnectionError are
+        # ClientConnectorError subclasses, ClientConnectorError and
+        # ServerDisconnectedError are ClientConnectionError subclasses -- with the
+        # base class listed first, the dedicated handlers below were unreachable.
         except aiohttp.ClientSSLError as err:
             _LOGGER.exception("SSL error for %s: %s", url, err)
             raise ConnectionError(f"SSL/TLS error connecting to {url}: {err}") from err
@@ -132,9 +119,21 @@ class LoxoneAsyncHttpClient:
             _LOGGER.exception("Proxy connection error for %s: %s", url, err)
             raise ConnectionError(f"Proxy connection error: {err}") from err
 
+        except aiohttp.ClientConnectorError as err:
+            _LOGGER.exception("Connector error to %s: %s", url, err)
+            raise ConnectionError(f"Cannot resolve or connect to {url}: {err}") from err
+
         except aiohttp.ServerDisconnectedError as err:
             _LOGGER.exception("Server disconnected for %s: %s", url, err)
             raise ConnectionError(f"Server disconnected unexpectedly: {err}") from err
+
+        except aiohttp.ClientConnectionError as err:
+            _LOGGER.exception("Connection error to %s: %s", url, err)
+            raise ConnectionError(f"Failed to connect to Loxone Miniserver at {url}: {err}") from err
+
+        except TimeoutError as err:
+            _LOGGER.exception("Timeout error for %s", url)
+            raise TimeoutError(f"Request to {url} timed out after {self.timeout} seconds") from err
 
         except aiohttp.ClientPayloadError as err:
             _LOGGER.exception("Payload error for %s: %s", url, err)
@@ -148,18 +147,19 @@ class LoxoneAsyncHttpClient:
             _LOGGER.exception("Client error for %s: %s", url, err)
             raise RuntimeError(f"HTTP client error: {err}") from err
 
-        except (
-            LoxoneUnauthorisedError,
-            LoxoneUnrecognizedCommandError,
-            LoxoneServiceUnAvailableError,
-            LoxoneMaxNumOfConnectionsError,
-        ):
-            # Re-raise Loxone-specific errors without wrapping
-            raise
-
         except Exception as err:
             _LOGGER.exception("Unexpected error during GET request to %s", url)
             raise RuntimeError(f"Unexpected error during HTTP request: {err}") from err
+
+        if response.status != 200:
+            # Deliberately outside the transport try/except: _handle_error raises
+            # the status-specific exception (ValueError, PermissionError,
+            # LoxoneUnauthorisedError, ...) and it must surface unwrapped. Inside
+            # the try, everything but the four Loxone types was swallowed into
+            # "Unexpected error during HTTP request".
+            await self._handle_error(response)
+
+        return response
 
     async def close(self):
         if self._closed:
