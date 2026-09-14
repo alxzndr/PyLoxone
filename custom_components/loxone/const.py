@@ -66,6 +66,18 @@ ATTR_AREA_CREATE = "create_areas"
 ATTR_ENTRY_ID = "entry_id"
 DOMAIN_DEVICES = "devices"
 
+# API-17 / CORE-05: the ``ConfigEntry.data`` keys that carry the Miniserver
+# session token.  They are written by the integration itself (every token
+# refresh, plus the HA-stop handler), never by a user through a flow, so a
+# write that touches *only* these keys is a token refresh and not a
+# configuration change.  The entry-update listener in ``__init__.py`` must
+# therefore not reload the entry for it: a reload reconnects, the reconnect
+# makes the Miniserver hand out a new token, the new token is persisted, and
+# the persist -> reload -> reconnect -> persist loop never terminates.
+# Everything else in ``data`` (since entry version 5 that includes
+# host/port/username/password — CORE-19) still reloads.
+TOKEN_DATA_KEYS: Final[frozenset[str]] = frozenset({"token", "hash_alg", "valid_until", "unsecure_password"})
+
 
 def loxone_uuid_signal(config_entry_id: str, uuid: str) -> str:
     """
