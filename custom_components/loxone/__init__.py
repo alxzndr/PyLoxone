@@ -72,6 +72,7 @@ from .const import (
     LOXONE_PLATFORMS,
     SECUREDSENDDOMAIN,
     SENDDOMAIN,
+    TOKEN_DATA_KEYS,
     cfmt,
     loxone_uuid_signal,
 )
@@ -795,6 +796,22 @@ async def _persist_token_and_close(hass, config_entry, coordinator, _event) -> N
         _LOGGER.debug("Closing the Loxone connection on stop failed", exc_info=True)
 
 
+def _entry_config_snapshot(config_entry: ConfigEntry) -> tuple[dict, dict]:
+    """
+    CORE-05: the part of a config entry a change of which must reload it.
+
+    All of ``entry.options``, plus ``entry.data`` *minus* the token keys
+    (API-17, ``TOKEN_DATA_KEYS``).  Since the entry-version-5 migration the
+    credentials (host/port/username/password) live in ``entry.data``
+    (CORE-19), so a reauth or reconfigure still changes this snapshot and
+    still reloads — only the four integration-written token keys are exempt.
+    """
+    return (
+        dict(config_entry.options),
+        {key: value for key, value in config_entry.data.items() if key not in TOKEN_DATA_KEYS},
+    )
+
+
 async def async_setup_entry(hass, config_entry):
     """Set up Loxone from a config entry."""
     coordinator = LoxoneCoordinator(hass, config_entry)
@@ -815,7 +832,21 @@ async def async_setup_entry(hass, config_entry):
     # HA fires update listeners as tasks (`listener(hass, entry)`), so
     # this must be a coroutine function.  Signatures beyond the entry
     # vary by HA version; only the entry id matters (CORE-29).
+    #
+    # CORE-05 / API-17: NOT every entry update is a configuration change.
+    # The integration writes the refreshed Miniserver token back into
+    # ``entry.data`` itself (``LoxoneCoordinator._on_token_changed``, and
+    # the HA-stop handler above).  Reloading for that reconnects, the
+    # reconnect makes the Miniserver issue a new token, the new token is
+    # persisted -- an endless reload loop.  So compare the *non-token*
+    # part of the entry against the snapshot taken when this listener was
+    # registered and skip the reload when only token keys moved.
     async def _entry_updated(_updated_entry: ConfigEntry, *_args, **_kwargs) -> None:
+        snapshot = _entry_config_snapshot(config_entry)
+        if snapshot == coordinator.entry_config_snapshot:
+            _LOGGER.debug("Config entry update carries only a refreshed token; not reloading")
+            return
+        coordinator.entry_config_snapshot = snapshot
         hass.config_entries.async_schedule_reload(config_entry.entry_id)
 
     # The coordinator opens the websocket connection inside
@@ -916,6 +947,10 @@ async def async_setup_entry(hass, config_entry):
     # silent accident; at or above it removes a stray issue (no-op).
     _async_reconcile_firmware_issue(hass, config_entry, coordinator.miniserver.software_version)
 
+    # CORE-05: the baseline ``_entry_updated`` compares against.  Taken here,
+    # after the unique-id stamp above and immediately before the listener is
+    # registered, so it describes exactly the entry the listener starts from.
+    coordinator.entry_config_snapshot = _entry_config_snapshot(config_entry)
     config_entry.async_on_unload(config_entry.add_update_listener(_entry_updated))
 
     # CORE-31 (WP-5.2): the coordinator is owned by the config entry itself

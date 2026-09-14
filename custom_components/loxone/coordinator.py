@@ -15,6 +15,7 @@ from .const import (
     DEFAULT_PORT,
     DEFAULT_VERIFY_SSL,
     EVENT,
+    TOKEN_DATA_KEYS,
     loxone_message_signal,
     loxone_uuid_signal,
 )
@@ -119,6 +120,11 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         # ``config_entry.async_create_background_task`` so unload can cancel
         # it and so it can never be garbage-collected (CORE-03).
         self.listening_task: asyncio.Task | None = None
+        # CORE-05 (API-17): the non-token part of the entry, as it stood
+        # when the entry-update listener was registered.  ``__init__.py``
+        # fills it in and compares against it to tell a token refresh
+        # (never reload) from a real configuration change (always reload).
+        self.entry_config_snapshot: tuple[dict, dict] | None = None
 
     def _on_token_changed(self, token: dict) -> None:
         """
@@ -127,18 +133,24 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         The token (incl. the ``unsecurePass`` flag) used to be written only
         at HA shutdown, and ``unsecure_password`` was dropped entirely. The
         merged dict preserves all other ``ConfigEntry.data`` keys.
+
+        CORE-05: the merge writes *only* ``TOKEN_DATA_KEYS``, which is what
+        makes the entry-update listener in ``__init__.py`` able to tell a
+        token refresh from a real configuration change and skip the reload
+        (reload -> reconnect -> new token -> persist -> reload ... never
+        terminates).  The filter below keeps that invariant true by
+        construction, whatever the API layer puts in ``token``.
         """
         if not token or not token.get("token"):
             return
+        token_data = {
+            "token": token["token"],
+            "hash_alg": token.get("hash_alg", ""),
+            "valid_until": token.get("valid_until", 0),
+            "unsecure_password": token.get("unsecure_password", False),
+        }
         data = {**self.config_entry.data}
-        data.update(
-            {
-                "token": token["token"],
-                "hash_alg": token.get("hash_alg", ""),
-                "valid_until": token.get("valid_until", 0),
-                "unsecure_password": token.get("unsecure_password", False),
-            }
-        )
+        data.update({key: value for key, value in token_data.items() if key in TOKEN_DATA_KEYS})
         _LOGGER.debug("Persisting Loxone token change (valid_until=%s)", data["valid_until"])
         self.hass.async_create_task(self._persist_token_data(data))
 
@@ -146,20 +158,29 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         """
         Write a refreshed token back to the config entry.
 
+        API-17: the write goes through the *manager*,
+        ``hass.config_entries.async_update_entry(entry, data=...)`` -- a
+        synchronous ``@callback``.  ``ConfigEntry`` itself has no
+        ``async_update_entry``, so the old ``await
+        self.config_entry.async_update_entry(data=data)`` raised
+        ``AttributeError`` on every single token refresh; being outside the
+        caught exceptions it escaped this detached task as "Task exception
+        was never retrieved", and the token was in fact never persisted --
+        every restart re-authenticated with the password.
+
         The in-place reconnect supervisor (API-09) outlives a single
         session by design, so it can still be mid-reconnect when the entry
         is unloaded or removed.  Writing to an entry Home Assistant has
         already dropped raises ``UnknownEntry`` -- a ``HomeAssistantError``,
-        not one of the OS/value errors this used to catch -- inside a
-        detached task, which surfaces only as "Task exception was never
-        retrieved".  Check the entry is still registered, and treat a
-        removal between that check and the write as normal.
+        not one of the OS/value errors this used to catch -- inside that
+        same detached task.  Check the entry is still registered, and treat
+        a removal between that check and the write as normal.
         """
         if self.hass.config_entries.async_get_entry(self.config_entry.entry_id) is None:
             _LOGGER.debug("Config entry is gone; not persisting the Loxone token")
             return
         try:
-            await self.config_entry.async_update_entry(data=data)
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
             _LOGGER.debug("Loxone token persisted")
         except UnknownEntry:
             _LOGGER.debug("Config entry removed while persisting the Loxone token")

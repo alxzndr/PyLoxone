@@ -419,6 +419,138 @@ async def test_token_persist_after_entry_removed_is_silent(hass, mock_connection
     await coordinator._persist_token_data({"token": "t", "hash_alg": "SHA256", "valid_until": 1})
 
 
+# --------------------------------------------------------------------------- #
+# H. a refreshed token reaches the entry (API-17) without reloading (CORE-05)
+# --------------------------------------------------------------------------- #
+async def test_token_change_is_persisted_through_the_manager(
+    hass, mock_connection, mock_entry, enable_custom_integrations
+) -> None:
+    """API-17: ``_on_token_changed`` must actually write the config entry.
+
+    Before the fix it awaited ``self.config_entry.async_update_entry(data=...)``.
+    ``ConfigEntry`` has no such method -- it lives on the *manager*
+    (``hass.config_entries``) and is a synchronous ``@callback`` -- so every
+    token refresh raised ``AttributeError`` inside a detached task, which
+    surfaced only as "Task exception was never retrieved", and the token was
+    in fact never stored: every restart re-authenticated with the password.
+    The single existing test of this path removes the entry first, so the
+    entry-gone guard returned before the broken line ever ran; this one goes
+    through the real config-entries manager.
+    """
+    await _setup_entry(hass, mock_entry)
+    coordinator = mock_entry.runtime_data
+
+    entry = hass.config_entries.async_get_entry(mock_entry.entry_id)
+    assert entry is not None
+    # hand-written: what the v5 migration (CORE-19) puts in ``data`` for the
+    # fixture entry, and which a token write must leave untouched.
+    assert entry.data["host"] == "loxberry.local"
+    assert entry.data["port"] == 8080
+    assert entry.data["username"] == "admin"
+    assert entry.data["password"] == "secret"
+    assert entry.data["verify_ssl"] is True
+    assert "token" not in entry.data
+
+    coordinator._on_token_changed(
+        {
+            "token": "new-tok",
+            "hash_alg": "SHA256",
+            "valid_until": 123,
+            "unsecure_password": False,
+        }
+    )
+    await hass.async_block_till_done()
+
+    stored = hass.config_entries.async_get_entry(mock_entry.entry_id)
+    assert stored is not None
+    # the four token keys are now on the entry the *manager* holds ...
+    assert stored.data["token"] == "new-tok"
+    assert stored.data["hash_alg"] == "SHA256"
+    assert stored.data["valid_until"] == 123
+    assert stored.data["unsecure_password"] is False
+    # ... and nothing else in ``data`` was lost or rewritten.
+    assert stored.data["host"] == "loxberry.local"
+    assert stored.data["port"] == 8080
+    assert stored.data["username"] == "admin"
+    assert stored.data["password"] == "secret"
+    assert stored.data["verify_ssl"] is True
+
+
+async def test_token_only_change_does_not_reload_the_entry(
+    hass, mock_connection, mock_entry, enable_custom_integrations
+) -> None:
+    """CORE-05: persisting a token must not reload the entry.
+
+    The entry-update listener used to reload on *every* update.  With the
+    token write fixed, that reload would reconnect, the reconnect would make
+    the Miniserver issue a new token, the new token would be persisted -- a
+    reload loop that never terminates.  Only the four token keys are exempt.
+    """
+    await _setup_entry(hass, mock_entry)
+    coordinator = mock_entry.runtime_data
+    setup_state = mock_entry.state
+
+    scheduled: list[str] = []
+    with patch.object(
+        hass.config_entries,
+        "async_schedule_reload",
+        side_effect=lambda entry_id: scheduled.append(entry_id),
+    ):
+        coordinator._on_token_changed(
+            {
+                "token": "loop-guard-tok",
+                "hash_alg": "SHA256",
+                "valid_until": 456,
+                "unsecure_password": False,
+            }
+        )
+        # HA runs update listeners as tasks, so let them settle first.
+        await hass.async_block_till_done()
+
+    # hand-derived: a token-only write schedules no reload at all, and the
+    # write itself still happened (it is not the entry-gone guard that
+    # skipped it).
+    assert scheduled == []
+    assert hass.config_entries.async_get_entry(mock_entry.entry_id).data["token"] == "loop-guard-tok"
+    assert mock_entry.state is setup_state
+
+
+async def test_non_token_data_change_still_schedules_reload(
+    hass, mock_connection, mock_entry, enable_custom_integrations
+) -> None:
+    """CORE-19 + CORE-05: credentials live in ``data``, so they must reload.
+
+    Only ``token`` / ``hash_alg`` / ``valid_until`` / ``unsecure_password``
+    are exempt: a reauth or reconfigure writes ``data`` too and must still
+    bring the entry back up with the new values -- even when the same write
+    also carries a token key.
+    """
+    await _setup_entry(hass, mock_entry)
+    entry = hass.config_entries.async_get_entry(mock_entry.entry_id)
+    assert entry is not None
+
+    scheduled: list[str] = []
+    with patch.object(
+        hass.config_entries,
+        "async_schedule_reload",
+        side_effect=lambda entry_id: scheduled.append(entry_id),
+    ):
+        # a host change riding along with a token key is still a real change
+        changed = hass.config_entries.async_update_entry(
+            entry, data={**entry.data, "host": "10.0.0.9", "token": "tok-a"}
+        )
+        assert changed, "host actually changed"
+        await hass.async_block_till_done()
+
+        # ... and so is a password change (reauth)
+        changed = hass.config_entries.async_update_entry(entry, data={**entry.data, "password": "new-secret"})
+        assert changed, "password actually changed"
+        await hass.async_block_till_done()
+
+    # hand-derived: one reload per real change, both for the owning entry.
+    assert scheduled == [mock_entry.entry_id, mock_entry.entry_id]
+
+
 async def test_stop_after_entry_removed_is_silent(hass, mock_connection, mock_entry) -> None:
     """The HA-stop handler outlives a removed entry after a failed unload.
 
