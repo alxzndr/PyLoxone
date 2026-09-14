@@ -86,6 +86,7 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
         return (
             AlarmControlPanelEntityFeature.ARM_HOME
             | AlarmControlPanelEntityFeature.ARM_AWAY
+            | AlarmControlPanelEntityFeature.ARM_NIGHT
         )
 
     @property
@@ -174,6 +175,9 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
     def alarm_arm_away(self, code=None):
         pass
 
+    def alarm_arm_night(self, code=None):
+        pass
+
     async def async_alarm_disarm(self, code=None):
         """Send disarm command."""
         if self.isSecured:
@@ -188,6 +192,25 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
 
     async def async_alarm_arm_home(self, code=None):
         """Send arm home command."""
+        if self.isSecured:
+            self.hass.bus.async_fire(
+                SECUREDSENDDOMAIN,
+                dict(uuid=self.uuidAction, value="delayedon/0", code=code),
+            )
+        else:
+            self.hass.bus.async_fire(
+                SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/0")
+            )
+        self.async_schedule_update_ha_state()
+
+    async def async_alarm_arm_night(self, code=None):
+        """Send arm night command (#323).
+
+        The Loxone Burglar Alarm has no separate night mode. "Night" in HA
+        means armed with the movement sensors suppressed, which is exactly
+        what arm-home sends (``delayedon/0``), so night maps onto the same
+        block command. The Miniserver reports the result back as armed-home.
+        """
         if self.isSecured:
             self.hass.bus.async_fire(
                 SECUREDSENDDOMAIN,
