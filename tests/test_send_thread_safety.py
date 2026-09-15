@@ -65,3 +65,18 @@ async def test_async_handler_still_sends_directly(hass, mock_connection, mock_en
     await hass.async_block_till_done()
 
     assert any(s["uuid"] == GARDEN_GATE for s in mock_connection.sent)
+
+
+async def test_room_controller_v2_set_temperature_from_the_executor(hass, mock_connection, mock_entry) -> None:
+    """The sync climate handler ends with a state write; from HA's executor
+    that must be the thread-safe scheduler. ``async_write_ha_state`` there is
+    an error for custom integrations (HA raises), which is what this pins."""
+    import functools
+
+    await _setup(hass, mock_entry)
+    entity = hass.data["entity_components"]["climate"].get_entity("climate.bedroom_bedroom_controller")
+    assert entity is not None
+
+    # Exactly what HA's default async_set_temperature does with a plain def.
+    await hass.async_add_executor_job(functools.partial(entity.set_temperature, temperature=21))
+    await hass.async_block_till_done()

@@ -442,7 +442,9 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         if temp_idx is not None:
             # Command format: setTemp/<index>/<value>
             self._send(f"setTemp/{int(temp_idx)}/{temp}")
-            self.async_write_ha_state()
+            # Sync handler -> HA runs it in the executor: the thread-safe
+            # scheduler, not async_write_ha_state (loop-thread only).
+            self.schedule_update_ha_state()
 
     @property
     def hvac_action(self) -> HVACAction | None:
@@ -704,7 +706,9 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         for value in plan_set_temperature(self.operating_mode.value[0], self.active_mode.value, kwargs, state):
             self._send(value)
 
-        self.async_write_ha_state()
+        # Sync handler -> HA runs it in the executor: the thread-safe
+        # scheduler, not async_write_ha_state (loop-thread only).
+        self.schedule_update_ha_state()
 
     @property
     def target_temperature(self) -> float | None:
