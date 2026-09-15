@@ -31,7 +31,7 @@ async def _setup(hass, mock_entry) -> None:
     await hass.async_block_till_done()
 
 
-async def test_jalousie_stop_from_a_sync_handler_reaches_the_miniserver(hass, mock_connection, mock_entry) -> None:
+async def test_jalousie_stop_service_reaches_the_miniserver(hass, mock_connection, mock_entry) -> None:
     await _setup(hass, mock_entry)
 
     await hass.services.async_call("cover", "stop_cover", {"entity_id": "cover.parlour_living_jalousie"}, blocking=True)
@@ -40,7 +40,7 @@ async def test_jalousie_stop_from_a_sync_handler_reaches_the_miniserver(hass, mo
     assert {"uuid": LIVING_JALOUSIE, "value": "stop", "code": None} in mock_connection.sent
 
 
-async def test_gate_open_and_close_from_sync_handlers(hass, mock_connection, mock_entry) -> None:
+async def test_gate_open_and_close_services_reach_the_miniserver(hass, mock_connection, mock_entry) -> None:
     await _setup(hass, mock_entry)
 
     await hass.services.async_call("cover", "open_cover", {"entity_id": "cover.garden_garden_gate"}, blocking=True)
@@ -51,7 +51,7 @@ async def test_gate_open_and_close_from_sync_handlers(hass, mock_connection, moc
     assert values == ["open", "close"]
 
 
-async def test_button_press_from_a_sync_handler(hass, mock_connection, mock_entry) -> None:
+async def test_button_press_service_reaches_the_miniserver(hass, mock_connection, mock_entry) -> None:
     await _setup(hass, mock_entry)
 
     await hass.services.async_call("button", "press", {"entity_id": "button.hall_introduce_pushbutton"}, blocking=True)
