@@ -170,7 +170,7 @@ async def test_fan_set_preset_mode_auto_sends_command(hass) -> None:
     fired = []
     hass.bus.async_listen(SENDDOMAIN, lambda ev: fired.append(ev.data))
 
-    e.set_preset_mode("Auto")
+    await e.async_set_preset_mode("Auto")
     await hass.async_block_till_done()
 
     assert fired == [
@@ -185,7 +185,7 @@ async def test_fan_set_preset_mode_rejects_unknown_mode(hass) -> None:
     fired = []
     hass.bus.async_listen(SENDDOMAIN, lambda ev: fired.append(ev.data))
 
-    e.set_preset_mode("Turbo")
+    await e.async_set_preset_mode("Turbo")
     await hass.async_block_till_done()
 
     assert fired == []
@@ -219,7 +219,7 @@ async def test_fan_set_percentage_with_known_mode(hass) -> None:
     hass.bus.async_listen(SENDDOMAIN, lambda ev: fired.append(ev.data))
 
     e.event_handler({e.states["mode"]: 2})
-    e.set_percentage(50)
+    await e.async_set_percentage(50)
     await hass.async_block_till_done()
 
     assert fired == [
@@ -235,7 +235,7 @@ async def test_fan_set_percentage_without_known_mode_sends_nothing(hass) -> None
     fired = []
     hass.bus.async_listen(SENDDOMAIN, lambda ev: fired.append(ev.data))
 
-    e.set_percentage(50)
+    await e.async_set_percentage(50)
     await hass.async_block_till_done()
 
     assert fired == []

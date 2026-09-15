@@ -692,7 +692,7 @@ async def test_button_press_sends_pulse(hass):
     e.hass = SimpleNamespace(
         bus=SimpleNamespace(async_fire=lambda et, event_data=None, **kw: fired.append((et, event_data)))
     )
-    e.press()
+    await e.async_press()
     assert (SENDDOMAIN, {"uuid": "push-0001", "value": "pulse"}) in fired
 
 

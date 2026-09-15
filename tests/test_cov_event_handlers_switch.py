@@ -157,11 +157,11 @@ class TestTimedSwitch:
         await s.async_turn_off()
         assert len(s.hass.bus.fired) == 2
 
-    def test_sync_service_entrypoints_delegate(self):
+    async def test_service_entrypoints_send_commands(self):
         s = self.switch(uuidAction="ctl-timed-sync")
-        s.turn_on()
+        await s.async_turn_on()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-timed-sync", "value": "pulse"})
-        s.turn_off()
+        await s.async_turn_off()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-timed-sync", "value": "off"})
 
 
@@ -197,11 +197,11 @@ class TestPlainSwitchCommands:
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-switch-off", "value": "Off"})
         assert s._attr_is_on is False
 
-    def test_sync_service_entrypoints_delegate(self):
+    async def test_service_entrypoints_send_commands(self):
         s = self.switch(uuidAction="ctl-switch-sync")
-        s.turn_on()
+        await s.async_turn_on()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-switch-sync", "value": "On"})
-        s.turn_off()
+        await s.async_turn_off()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-switch-sync", "value": "Off"})
 
 
@@ -224,9 +224,9 @@ class TestIntercomSubControl:
         await s.async_turn_on()
         assert len(s.hass.bus.fired) == 1
 
-    def test_sync_turn_on_delegates(self):
+    async def test_turn_on_service_entrypoint_sends_command(self):
         s = self.sub(uuidAction="ctl-intercom-sync")
-        s.turn_on()
+        await s.async_turn_on()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-intercom-sync", "value": "on"})
 
     def test_type_and_attributes(self):
@@ -308,11 +308,11 @@ class TestRoomControllerOverride:
         assert _last(e) == (SENDDOMAIN, {"uuid": "ctl-irc-cmd", "value": "stopOverride"})
         assert e.is_on is False
 
-    def test_sync_service_entrypoints_delegate(self):
+    async def test_service_entrypoints_send_commands(self):
         e = self.override(uuidAction="ctl-irc-sync")
-        e.turn_on()
+        await e.async_turn_on()
         assert _last(e) == (SENDDOMAIN, {"uuid": "ctl-irc-sync", "value": "override/1"})
-        e.turn_off()
+        await e.async_turn_off()
         assert _last(e) == (SENDDOMAIN, {"uuid": "ctl-irc-sync", "value": "stopOverride"})
 
 

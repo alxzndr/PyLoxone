@@ -225,7 +225,7 @@ def test_legacy_mode_table_roundtrip():
     assert legacy_mode_to_hvac(4) == HVACMode.OFF
 
 
-def test_legacy_set_hvac_mode_read_write_agreement():
+async def test_legacy_set_hvac_mode_read_write_agreement():
     """Every hvac mode the legacy controller exposes must round-trip through
     the single table: what it sends is what its own `hvac_mode` reads back."""
     from custom_components.loxone.climate import LoxoneRoomController
@@ -250,14 +250,14 @@ def test_legacy_set_hvac_mode_read_write_agreement():
 
     for hvac in e.hvac_modes:
         out.clear()
-        e.set_hvac_mode(hvac)
+        await e.async_set_hvac_mode(hvac)
         assert len(out) == 1
         code = int(out[0].rsplit("/", 1)[1])
         assert legacy_mode_to_hvac(code) == hvac
 
     # Explicit OFF regression: sends the table's OFF code, never manual heat.
     out.clear()
-    e.set_hvac_mode(HVACMode.OFF)
+    await e.async_set_hvac_mode(HVACMode.OFF)
     assert out == ["setMode/4"]
     assert legacy_mode_to_hvac(1) == HVACMode.HEAT  # code 1 stays "heat", not off
 
@@ -547,7 +547,7 @@ def test_v2_demand_event_still_wins_when_it_arrives():
     assert e.hvac_action == HVACAction.IDLE
 
 
-def test_v2_preset_mode_fixed_literals_and_commands():
+async def test_v2_preset_mode_fixed_literals_and_commands():
     """PC-32: FIXED (14) / FIXED_DYNAMIC (112) read back as stable presets;
     the schedule preset is always offered; `stop` sends `setOperatingMode/0`
     (PC-20), never `setOperationMode/0`."""
@@ -570,16 +570,16 @@ def test_v2_preset_mode_fixed_literals_and_commands():
     assert PRESET_PAUSED_WINDOW in pm
     feed(e, {"st_ow": 0})
     # fixed presets are informational: selecting one sends nothing
-    e.set_preset_mode(PRESET_FIXED)
+    await e.async_set_preset_mode(PRESET_FIXED)
     assert out == []
-    e.set_preset_mode(PRESET_FIXED_DYNAMIC)
+    await e.async_set_preset_mode(PRESET_FIXED_DYNAMIC)
     assert out == []
     # schedule preset -> correctly spelled command
-    e.set_preset_mode(PRESET_SCHEDULE)
+    await e.async_set_preset_mode(PRESET_SCHEDULE)
     assert out == ["setOperatingMode/0"]
-    e.set_preset_mode("Here")
+    await e.async_set_preset_mode("Here")
     assert out[-1] == "override/1"
-    e.set_preset_mode("Bogus")
+    await e.async_set_preset_mode("Bogus")
     assert out[-1] == "override/1"  # unchanged
 
 
@@ -595,26 +595,26 @@ def test_v2_mode_list_does_not_mutate_shared_details():
     assert [m["name"] for m in e2._modeList] == ["Here", PRESET_SCHEDULE]
 
 
-def test_v2_missing_timer_modes_in_details_does_not_crash():
+async def test_v2_missing_timer_modes_in_details_does_not_crash():
     """PC-16: `details["timerModes"]` used to be directly wired; a structure
     entry without it must not attach like the platform."""
     e, _ = _v2_make({"activeMode": "s", "operatingMode": "o"}, details={"possibleCapabilities": 3})
     assert [m["name"] for m in e._modeList] == [PRESET_SCHEDULE]
     assert PRESET_SCHEDULE in e.preset_modes
     # every preset the entity lists stays selectable
-    e.set_preset_mode(PRESET_SCHEDULE)
+    await e.async_set_preset_mode(PRESET_SCHEDULE)
 
 
-def test_v2_set_temperature_end_to_end():
+async def test_v2_set_temperature_end_to_end():
     """The planner's commands reach the bus through the entity (PC-02 etc.)."""
     e, out = _v2_make(_full_v2_states(), details={"timerModes": [], "possibleCapabilities": 3})
     # comfort states must be known for the range branch to fire
     feed(e, {"st_op": 3, "st_active": 2, "st_c": 21.0, "st_cc": 24.0, "st_fp": 7.5, "st_hp": 28.0})
-    e.set_temperature(target_temp_high=27.0)
+    await e.async_set_temperature(target_temp_high=27.0)
     assert out == ["setecoplusmaxtemperature/27.0"]
-    e.set_temperature(target_temp_low=7.5)
+    await e.async_set_temperature(target_temp_low=7.5)
     assert out == ["setecoplusmaxtemperature/27.0"]  # equal frost -> no-op
-    e.set_temperature(target_temp_low=8.0)
+    await e.async_set_temperature(target_temp_low=8.0)
     assert out[-1] == "setecoplusmintemperature/8.0"
 
 
@@ -698,35 +698,35 @@ def test_accontrol_features_from_present_states():
     assert e2.swing_mode == "Up"
 
 
-def test_accontrol_set_fan_and_swing_no_none_commands():
-    """set_fan_mode/set_swing_mode never send `setFan/None`/`setAirDir/None`
+async def test_accontrol_set_fan_and_swing_no_none_commands():
+    """async_set_fan_mode/async_set_swing_mode never send `setFan/None`/`setAirDir/None`
     for unknown names (old: json.loads on a missing state raised or None)."""
     e, out = _ac_make({"fan": "st_fan", "fanspeeds": FANSPEEDS_JSON, "ventMode": "st_v", "airflows": AIRFLOWS_JSON})
-    e.set_fan_mode("Low")
+    await e.async_set_fan_mode("Low")
     assert out == ["setFan/1"]
-    e.set_fan_mode("Turbo")
+    await e.async_set_fan_mode("Turbo")
     assert out == ["setFan/1"]  # unchanged
-    e.set_swing_mode("Down")
+    await e.async_set_swing_mode("Down")
     assert out == ["setFan/1", "setAirDir/1"]
-    e.set_swing_mode("Sideways")
+    await e.async_set_swing_mode("Sideways")
     assert out == ["setFan/1", "setAirDir/1"]  # unchanged
     # no fanspeeds state at all: no-op, no exception
     e0, out0 = _ac_make({})
-    e0.set_fan_mode("Low")
-    e0.set_swing_mode("Down")
+    await e0.async_set_fan_mode("Low")
+    await e0.async_set_swing_mode("Down")
     assert out0 == []
 
 
-def test_accontrol_set_hvac_off_single_off_command():
+async def test_accontrol_set_hvac_off_single_off_command():
     """PC-25: OFF sends just `off` (old: `off` followed by `setMode/1`)."""
     e, out = _ac_make({"status": "st_status"})
-    e.set_hvac_mode(HVACMode.OFF)
+    await e.async_set_hvac_mode(HVACMode.OFF)
     assert out == ["off"]
-    e.set_hvac_mode(HVACMode.HEAT)
+    await e.async_set_hvac_mode(HVACMode.HEAT)
     assert out == ["off", "on", "setMode/2"]
-    e.set_hvac_mode(HVACMode.DRY)
+    await e.async_set_hvac_mode(HVACMode.DRY)
     assert out == ["off", "on", "setMode/2", "on", "setMode/4"]
-    e.set_hvac_mode(HVACMode.AUTO)
+    await e.async_set_hvac_mode(HVACMode.AUTO)
     assert out[-1] == "setMode/1"
 
 
@@ -744,11 +744,11 @@ def test_accontrol_hvac_mode_from_status_and_mode():
     assert e.hvac_mode == HVACMode.FAN_ONLY
 
 
-def test_accontrol_set_temperature_sends_target():
+async def test_accontrol_set_temperature_sends_target():
     e, out = _ac_make({"setTemperature": "st_set"})
-    e.set_temperature(temperature=23.5)
+    await e.async_set_temperature(temperature=23.5)
     assert out == ["setTarget/23.5"]
-    e.set_temperature()  # no key -> no command
+    await e.async_set_temperature()  # no key -> no command
     assert out == ["setTarget/23.5"]
 
 

@@ -219,13 +219,13 @@ def _jalousie() -> tuple[LoxoneJalousie, list]:
     return entity, fired
 
 
-def test_gate_open_and_close_put_the_documented_commands_on_the_bus() -> None:
+async def test_gate_open_and_close_put_the_documented_commands_on_the_bus() -> None:
     """A gate at an unknown position sends the plain ``open`` / ``close`` commands."""
     entity, fired = _gate()
     assert entity.current_cover_position is None
 
-    entity.close_cover()
-    entity.open_cover()
+    await entity.async_close_cover()
+    await entity.async_open_cover()
 
     assert fired == [
         (SENDDOMAIN, {"uuid": GATE_UUID, "value": "close"}),
@@ -233,22 +233,22 @@ def test_gate_open_and_close_put_the_documented_commands_on_the_bus() -> None:
     ]
 
 
-def test_gate_does_not_resend_at_its_end_stops() -> None:
+async def test_gate_does_not_resend_at_its_end_stops() -> None:
     """Closing a closed gate (0) or opening an open one (100.0) sends nothing."""
     entity, fired = _gate()
 
     entity._position = 0
-    entity.close_cover()
+    await entity.async_close_cover()
     entity._position = 100.0
-    entity.open_cover()
+    await entity.async_open_cover()
 
     assert fired == []
 
     # ... and the opposite command is still sent from those positions.
     entity._position = 0
-    entity.open_cover()
+    await entity.async_open_cover()
     entity._position = 100.0
-    entity.close_cover()
+    await entity.async_close_cover()
 
     assert fired == [
         (SENDDOMAIN, {"uuid": GATE_UUID, "value": "open"}),
@@ -256,14 +256,14 @@ def test_gate_does_not_resend_at_its_end_stops() -> None:
     ]
 
 
-def test_jalousie_open_and_close_send_fullup_and_fulldown() -> None:
+async def test_jalousie_open_and_close_send_fullup_and_fulldown() -> None:
     """A jalousie at a partial position sends the Loxone FullDown / FullUp commands."""
     entity, fired = _jalousie()
 
     entity._position = 50.0
-    entity.close_cover()
+    await entity.async_close_cover()
     entity._position = 50.0
-    entity.open_cover()
+    await entity.async_open_cover()
 
     assert fired == [
         (SENDDOMAIN, {"uuid": JALOUSIE_UUID, "value": "FullDown"}),
@@ -271,28 +271,28 @@ def test_jalousie_open_and_close_send_fullup_and_fulldown() -> None:
     ]
 
 
-def test_jalousie_does_not_resend_at_its_end_stops() -> None:
+async def test_jalousie_does_not_resend_at_its_end_stops() -> None:
     """A jalousie already fully down (0, its construction default) or fully up (100.0) sends nothing."""
     entity, fired = _jalousie()
     assert entity.current_cover_position == 0
 
-    entity.close_cover()
+    await entity.async_close_cover()
     entity._position = 100.0
-    entity.open_cover()
+    await entity.async_open_cover()
 
     assert fired == []
 
 
-def test_jalousie_without_a_known_position_only_flips_its_closed_flag() -> None:
+async def test_jalousie_without_a_known_position_only_flips_its_closed_flag() -> None:
     """No position stream value yet: the entity records the end stop locally and sends nothing."""
     entity, fired = _jalousie()
 
     entity._position = None
-    entity.close_cover()
+    await entity.async_close_cover()
     assert entity.is_closed is True
     assert fired == []
 
     entity._position = None
-    entity.open_cover()
+    await entity.async_open_cover()
     assert entity.is_closed is False
     assert fired == []

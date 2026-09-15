@@ -164,10 +164,6 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
         """Return the icon to use for device if any."""
         return self._icon
 
-    def turn_on(self, **_kwargs):
-        """Turn the switch on."""
-        self._do_turn_on()
-
     async def async_turn_on(self, **_kwargs):
         """
         HA's switch domain dispatches the service to ``async_turn_on``
@@ -181,10 +177,6 @@ class LoxoneTimedSwitch(LoxoneEntity, SwitchEntity):
             self._send("pulse")
             self._attr_is_on = True
             self.schedule_update_ha_state()
-
-    def turn_off(self, **_kwargs):
-        """Turn the device off."""
-        self._do_turn_off()
 
     async def async_turn_off(self, **_kwargs):
         self._do_turn_off()
@@ -279,10 +271,6 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
         """Return the icon to use for device if any."""
         return self._icon
 
-    def turn_on(self, **_kwargs):
-        """Turn the switch on."""
-        self._do_turn_on()
-
     async def async_turn_on(self, **_kwargs):
         """
         HA's switch domain dispatches the service to ``async_turn_on``
@@ -296,10 +284,6 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
             self._send("On")
             self._attr_is_on = True
             self.schedule_update_ha_state()
-
-    def turn_off(self, **_kwargs):
-        """Turn the device off."""
-        self._do_turn_off()
 
     async def async_turn_off(self, **_kwargs):
         self._do_turn_off()
@@ -362,10 +346,6 @@ class LoxoneIntercomSubControl(LoxoneSwitch):
             self.unique_id, self._lox_name, self.type, self.room
         )
 
-    def turn_on(self, **_kwargs):
-        """Turn the switch on."""
-        self._do_turn_on()
-
     async def async_turn_on(self, **_kwargs):
         """Switch-domain service dispatch (event loop)."""
         self._do_turn_on()
@@ -412,10 +392,6 @@ class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
         self._attr_device_info = get_or_create_device(self.uuidAction, self._lox_name, "RoomControllerV2", self.room)
         self._attr_unique_id = f"{self.uuidAction}_override"
 
-    def turn_on(self, **_kwargs):
-        """Trigger comfort override (mode 1)."""
-        self._do_turn_on()
-
     async def async_turn_on(self, **_kwargs):
         """Switch-domain service dispatch (event loop)."""
         self._do_turn_on()
@@ -424,10 +400,6 @@ class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
         self._send("override/1")
         self._attr_is_on = True
         self.schedule_update_ha_state()
-
-    def turn_off(self, **_kwargs):
-        """Stop the active override."""
-        self._do_turn_off()
 
     async def async_turn_off(self, **_kwargs):
         """Switch-domain service dispatch (event loop)."""

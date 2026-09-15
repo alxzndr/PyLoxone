@@ -101,10 +101,10 @@ class LoxoneButton(LoxoneEntity, ButtonEntity):
                 self._last_pressed = dt_util.utcnow().isoformat()
             self.async_write_ha_state()
 
-    def press(self, **_kwargs):
+    async def async_press(self, **_kwargs) -> None:
         """Press the button."""
         self._send("pulse")
-        self.schedule_update_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def extra_state_attributes(self):
@@ -153,14 +153,7 @@ class LoxoneUpDownDigitalButton(LoxoneEntity, ButtonEntity):
         return frozenset()
 
     async def async_press(self, **_kwargs) -> None:
-        """
-        Handle a press (sends ``UpOn`` / ``DownOn``).
-
-        Async on purpose: HA dispatches a *sync* ``press`` off the event
-        loop, where the coordinator-provided ``_send`` path cannot create
-        its send task (the pre-existing sync-``press`` platforms hit the
-        same wall — follow-up noted in the WP-6.6 PR).
-        """
+        """Handle a press (sends ``UpOn`` / ``DownOn``)."""
         self._send(self._command)
         self.async_schedule_update_ha_state()
 

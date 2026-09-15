@@ -301,14 +301,14 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
             return self._stateAttribValues[uuid]
         return None
 
-    def set_preset_mode(self, preset_mode: str) -> None:
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set the preset mode of the fan (PC-09)."""
         if preset_mode not in STR_TO_VENTILATION_PROFILE_SETTABLE:
             _LOGGER.warning("Setting unsupported ventilation profile %r", preset_mode)
             return
         self._send(ventilation_set_mode_command(preset_mode))
 
-    def set_percentage(self, percentage: int) -> None:
+    async def async_set_percentage(self, percentage: int) -> None:
         """Set the speed percentage of the fan (PC-29)."""
         mode = ventilation_profile_id(self.get_state_value("mode"))
         if mode is None:
@@ -328,14 +328,14 @@ class LoxoneVentilation(LoxoneEntity, FanEntity):
     ) -> None:
         """Turn the fan on."""
         if preset_mode:
-            self.set_preset_mode(preset_mode)
+            await self.async_set_preset_mode(preset_mode)
         if percentage:
-            self.set_percentage(percentage)
+            await self.async_set_percentage(percentage)
         _LOGGER.debug("Turn on")
 
     async def async_turn_off(self, **_kwargs: Any) -> None:
         """Turn the fan off."""
         if not self.is_on:
             return
-        self.set_preset_mode("Auto")
-        self.set_percentage(0)
+        await self.async_set_preset_mode("Auto")
+        await self.async_set_percentage(0)

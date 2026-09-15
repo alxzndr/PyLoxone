@@ -260,33 +260,27 @@ class LoxoneGate(LoxoneEntity, CoverEntity):
         """Return if the cover is opening."""
         return self._is_opening
 
-    def open_cover(self, **_kwargs):
+    async def async_open_cover(self, **_kwargs):
         """Open the cover."""
         if self._position == 100.0:
             return
         self._send("open")
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
-    def close_cover(self, **_kwargs):
+    async def async_close_cover(self, **_kwargs):
         """Close the cover."""
         if self._position == 0:
             return
         self._send("close")
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
-    def stop_cover(self, **_kwargs):
+    async def async_stop_cover(self, **_kwargs):
         """Stop the cover (PC-07)."""
         self._send(gate_stop_command())
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     async def async_set_cover_position(self, **kwargs):
-        """
-        Move the gate to the requested position (WP-6.8).
-
-        Async (PC-14): HA entity services prefer the ``async_`` variant;
-        a sync-only method would run in the executor thread and hit the
-        wrong event loop in :meth:`LoxoneEntity._send`.
-        """
+        """Move the gate to the requested position (WP-6.8)."""
         self._send(gate_set_position_command(kwargs.get(ATTR_POSITION)))
         self.async_write_ha_state()
 
@@ -425,13 +419,15 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
     def is_closed(self):
         return self._closed
 
-    def open_cover(self, **_kwargs: Any) -> None:
+    async def async_open_cover(self, **_kwargs: Any) -> None:
+        """Open the window fully."""
         self._send("fullopen")
 
-    def close_cover(self, **_kwargs: Any) -> None:
+    async def async_close_cover(self, **_kwargs: Any) -> None:
+        """Close the window fully."""
         self._send("fullclose")
 
-    def stop_cover(self, **_kwargs):
+    async def async_stop_cover(self, **_kwargs):
         """
         Stop the cover (PC-07): a real stop, regardless of direction.
 
@@ -441,8 +437,8 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
         """
         self._send("stop")
 
-    def set_cover_position(self, **kwargs):
-        """Return the current tilt position of the cover."""
+    async def async_set_cover_position(self, **kwargs):
+        """Move the window to a specific position."""
         position = kwargs.get(ATTR_POSITION)
         self._send(f"moveToPosition/{position}")
 
@@ -669,52 +665,52 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
 
         return device_att
 
-    def close_cover(self, **_kwargs):
+    async def async_close_cover(self, **_kwargs):
         """Close the cover."""
         if self._position == 0:
             return
         if self._position is None:
             self._closed = True
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
             return
 
         self._send("FullDown")
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
-    def open_cover(self, **_kwargs):
+    async def async_open_cover(self, **_kwargs):
         """Open the cover."""
         if self._position == 100.0:
             return
         if self._position is None:
             self._closed = False
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
             return
         self._send("FullUp")
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
-    def stop_cover(self, **_kwargs):
+    async def async_stop_cover(self, **_kwargs):
         """Stop the cover."""
         self._send("stop")
 
-    def set_cover_position(self, **kwargs):
-        """Return the current tilt position of the cover."""
+    async def async_set_cover_position(self, **kwargs):
+        """Move the cover to a specific position."""
         position = kwargs.get(ATTR_POSITION)
         mapped_pos = map_range(position, 0, 100, 100, 0)
         self._send(f"manualPosition/{mapped_pos}")
 
-    def open_cover_tilt(self, **_kwargs):
+    async def async_open_cover_tilt(self, **_kwargs):
         """Open the cover slats (shade open)."""
         self._send(_lamelle_command(0.0))
 
-    def stop_cover_tilt(self, **_kwargs):
+    async def async_stop_cover_tilt(self, **_kwargs):
         """Stop the cover."""
         self._send("stop")
 
-    def close_cover_tilt(self, **_kwargs):
+    async def async_close_cover_tilt(self, **_kwargs):
         """Close the cover slats (shade closed)."""
         self._send(_lamelle_command(100.0))
 
-    def set_cover_tilt_position(self, **kwargs):
+    async def async_set_cover_tilt_position(self, **kwargs):
         """Move the cover tilt to a specific position."""
         tilt_position = kwargs.get(ATTR_TILT_POSITION)
         mapped_pos = map_range(tilt_position, 0, 100, 100, 0)

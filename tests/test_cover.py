@@ -131,9 +131,9 @@ async def test_window_stop_sends_stop_regardless_of_direction(hass) -> None:
     fired = await _fan_bus(hass)
 
     e.event_handler({DIR_UUID: -1})  # closing
-    e.stop_cover()
+    await e.async_stop_cover()
     e.event_handler({DIR_UUID: 1})  # opening
-    e.stop_cover()
+    await e.async_stop_cover()
     await hass.async_block_till_done()
 
     assert fired == [
@@ -150,9 +150,9 @@ async def test_gate_stop_sends_stop_regardless_of_direction(hass) -> None:
     fired = await _fan_bus(hass)
 
     e.event_handler({ACTIVE_UUID: -1})  # closing
-    e.stop_cover()
+    await e.async_stop_cover()
     e.event_handler({ACTIVE_UUID: 1})  # opening
-    e.stop_cover()
+    await e.async_stop_cover()
     await hass.async_block_till_done()
 
     assert fired == [
@@ -360,7 +360,7 @@ async def test_jalousie_set_cover_position_sends_inverted_loxone_value(hass) -> 
     e.event_handler({POS_UUID: 0.4})
     assert e.current_cover_position == 60.0  # 0.4 → 40.0 → hass 100-40.0
 
-    e.set_cover_position(position=60.0)
+    await e.async_set_cover_position(position=60.0)
     await hass.async_block_till_done()
 
     assert fired == [
@@ -380,8 +380,8 @@ async def test_open_close_tilt_send_fixed_format_lamelle_commands(hass) -> None:
     _hass_write_stub(e)
     fired = await _fan_bus(hass)
 
-    e.open_cover_tilt()
-    e.close_cover_tilt()
+    await e.async_open_cover_tilt()
+    await e.async_close_cover_tilt()
     await hass.async_block_till_done()
 
     assert len(fired) == 2

@@ -422,7 +422,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         """Return the temperature we try to reach."""
         return self.get_state_value("tempTarget")
 
-    def set_temperature(self, **kwargs):
+    async def async_set_temperature(self, **kwargs):
         """Set new target temperature"""
         temp = kwargs.get("temperature")
         if temp is None:
@@ -442,9 +442,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         if temp_idx is not None:
             # Command format: setTemp/<index>/<value>
             self._send(f"setTemp/{int(temp_idx)}/{temp}")
-            # Sync handler -> HA runs it in the executor: the thread-safe
-            # scheduler, not async_write_ha_state (loop-thread only).
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
 
     @property
     def hvac_action(self) -> HVACAction | None:
@@ -498,7 +496,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         """Return the maximum temperature."""
         return 35.0
 
-    def set_hvac_mode(self, hvac_mode: str):
+    async def async_set_hvac_mode(self, hvac_mode: str):
         """Set new target hvac mode (PC-26: dispatch through the shared table)."""
         target_mode = hvac_to_loxone(hvac_mode, table="legacy")
         if target_mode is None:
@@ -507,7 +505,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
 
         self._send(f"setMode/{target_mode}")
 
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
 
 class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
@@ -692,7 +690,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         """Return the current temperature."""
         return self.get_state_value("tempActual")
 
-    def set_temperature(self, **kwargs):
+    async def async_set_temperature(self, **kwargs):
         """Set new target temperature (routes through :func:`plan_set_temperature`)."""
         state = {
             _COMFORT_C: self.get_state_value("comfortTemperature"),
@@ -706,9 +704,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         for value in plan_set_temperature(self.operating_mode.value[0], self.active_mode.value, kwargs, state):
             self._send(value)
 
-        # Sync handler -> HA runs it in the executor: the thread-safe
-        # scheduler, not async_write_ha_state (loop-thread only).
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @property
     def target_temperature(self) -> float | None:
@@ -815,7 +811,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             range_allowed=self._range_possible,
         )
 
-    def set_hvac_mode(self, hvac_mode: HVACMode):
+    async def async_set_hvac_mode(self, hvac_mode: HVACMode):
         """Set new target hvac mode (PC-26: dispatch through the shared V2 table)."""
         target_mode = self._autoMode if hvac_mode == HVACMode.AUTO else hvac_to_loxone(hvac_mode, table="v2")
         if target_mode is None:
@@ -833,7 +829,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
 
         self._send(f"setOperatingMode/{target_mode}")
 
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     @property
     def preset_mode(self):
@@ -868,7 +864,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             modes.append(PRESET_PAUSED_WINDOW)
         return modes
 
-    def set_preset_mode(self, preset_mode: str):
+    async def async_set_preset_mode(self, preset_mode: str):
         """Set new preset mode."""
         if preset_mode in (PRESET_PAUSED_WINDOW, PRESET_FIXED, PRESET_FIXED_DYNAMIC):
             return  # informational only — controlled by timer / fix-frozen value
@@ -881,7 +877,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
             self._send("setOperatingMode/0")
         else:
             self._send(f"override/{mode_id}")
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
 
 # ------------------ AC CONTROL --------------------------------------------------------
@@ -987,20 +983,12 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         """Return the current temperature."""
         return self.get_state_value("temperature")
 
-    def set_temperature(self, **kwargs):
-        """Set new target temperature"""
+    async def async_set_temperature(self, **kwargs):
+        """Set new target temperature."""
         temp = kwargs.get("temperature")
         if temp is None:
             return
         self._send(f"setTarget/{temp}")
-
-    async def async_set_temperature(self, **kwargs):
-        """
-        Event-loop entry point (PC-14): HA's generic `async_set_temperature`
-        runs the sync version in the executor, which would send from the
-        wrong loop.  #398 polish: make the service actually work.
-        """
-        self.set_temperature(**kwargs)
 
     @property
     def hvac_mode(self) -> HVACMode | None:
@@ -1028,7 +1016,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         """What the unit is doing right now (WP-6.8, #398 polish)."""
         return ac_hvac_action(self.get_state_value("status"), self.get_state_value("mode"))
 
-    def set_hvac_mode(self, hvac_mode):
+    async def async_set_hvac_mode(self, hvac_mode):
         """Set new target hvac mode (PC-25: OFF sends only ``off``)."""
         if hvac_mode == HVACMode.OFF:
             self._send("off")
@@ -1047,13 +1035,6 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
 
         self._send("on")
         self._send(f"setMode/{mode}")
-
-    async def async_set_hvac_mode(self, hvac_mode):
-        """
-        Event-loop entry point (PC-14): HA would otherwise run the sync
-        version in the executor.  #398 polish.
-        """
-        self.set_hvac_mode(hvac_mode)
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
@@ -1096,17 +1077,13 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
                 return mode["name"]
         return None
 
-    def set_fan_mode(self, fan_mode):
+    async def async_set_fan_mode(self, fan_mode):
         """Set new target fan mode (PC-24: never sends ``setFan/None``)."""
         fan_id = next((o["id"] for o in self._fan_modes if o["name"] == fan_mode), None)
         if fan_id is None:
             _LOGGER.debug("Unknown fan mode %r for %s (%s)", fan_mode, self._lox_name, self.type)
             return
         self._send(f"setFan/{fan_id}")
-
-    async def async_set_fan_mode(self, fan_mode):
-        """Event-loop entry point (PC-14).  #398 polish."""
-        self.set_fan_mode(fan_mode)
 
     @property
     def fan_modes(self) -> list[str]:
@@ -1123,17 +1100,13 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
                 return mode["name"]
         return None
 
-    def set_swing_mode(self, swing_mode):
+    async def async_set_swing_mode(self, swing_mode):
         """Set new target swing mode (PC-24: never sends ``setAirDir/None``)."""
         airflow_id = next((o["id"] for o in self._airflow_modes if o["name"] == swing_mode), None)
         if airflow_id is None:
             _LOGGER.debug("Unknown swing mode %r for %s (%s)", swing_mode, self._lox_name, self.type)
             return
         self._send(f"setAirDir/{airflow_id}")
-
-    async def async_set_swing_mode(self, swing_mode):
-        """Event-loop entry point (PC-14).  #398 polish."""
-        self.set_swing_mode(swing_mode)
 
     @property
     def swing_modes(self) -> list[str]:
