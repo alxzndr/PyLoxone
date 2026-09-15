@@ -1241,19 +1241,38 @@ class LoxoneEntity(Entity):
         target = uuid if uuid is not None else self.uuidAction
         coordinator = self._connection_coordinator()
         api = getattr(coordinator, "api", None)
-        if coordinator is None or api is None:
-            _LOGGER.debug("No live Loxone coordinator for %s; falling back to the bus", target)
+
+        def _dispatch() -> None:
+            # Always runs on the event-loop thread (see below).
+            if coordinator is None or api is None:
+                _LOGGER.debug("No live Loxone coordinator for %s; falling back to the bus", target)
+                if secured:
+                    self.hass.bus.async_fire(SECUREDSENDDOMAIN, dict(uuid=target, value=value, code=code))
+                else:
+                    self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=target, value=value))
+                return
             if secured:
-                self.hass.bus.async_fire(SECUREDSENDDOMAIN, dict(uuid=target, value=value, code=code))
+                coro = api.send_secured_websocket_command(target, value, code if code is not None else DEFAULT)
             else:
-                self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=target, value=value))
-            return
-        if secured:
-            coro = api.send_secured_websocket_command(target, value, code if code is not None else DEFAULT)
+                coro = api.send_websocket_command(target, value)
+            # Tracked on the entry (CORE-03/RUF006): unload cancels it.
+            coordinator.config_entry.async_create_background_task(self.hass, coro, name=f"loxone-send-{target}")
+
+        # Thread safety: HA runs a *sync* service handler (``def open_cover``,
+        # ``def set_temperature``, ``def press`` ...) in its executor, and both
+        # ``async_create_background_task`` and ``bus.async_fire`` are
+        # loop-thread-only -- creating the task from a worker thread raised
+        # "loop ... is not the running loop" (eager task factory) and the
+        # command was silently lost. Hop onto the loop when we are not on it.
+        loop = getattr(self.hass, "loop", None)
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if loop is None or running is loop:
+            _dispatch()
         else:
-            coro = api.send_websocket_command(target, value)
-        # Tracked on the entry (CORE-03/RUF006): unload cancels it.
-        coordinator.config_entry.async_create_background_task(self.hass, coro, name=f"loxone-send-{target}")
+            loop.call_soon_threadsafe(_dispatch)
 
     def _connection_coordinator(self) -> LoxoneCoordinator | None:
         """
