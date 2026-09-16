@@ -3,15 +3,15 @@
 Fork: `alxzndr/PyLoxone`, branch `master`
 Base: `JoDehli/PyLoxone` at `7561247` (release 0.9.23, the upstream HEAD when
 this work began on 2026-09-03)
-Last updated: 2026-09-15 (release 0.10.7)
+Last updated: 2026-09-16 (release 0.10.9)
 
 ---
 
 ## The short version
 
-Since branching, 123 commits changed 185 files (38,481 lines added, 4,277
-removed). The test suite went from 69 tests to 952 and whole-integration
-coverage from 14 % to about 88 %.
+Since branching, 131 commits changed 129 files (31,146 lines added, 4,528
+removed). The test suite went from 69 tests to 962 and whole-integration
+coverage from 14 % to about 89 %.
 
 **Yes, you can run it**, with one caveat that is genuinely one-way. Read the
 rollback section before you install.
@@ -199,7 +199,7 @@ to: inert brightness ranges, resetting counters fed to the energy dashboard as
 monotonic ones, entity churn on every reconnect, and a dead integration after
 a firmware update.
 
-The risks are the one-way migration, which a backup covers, and that 952
+The risks are the one-way migration, which a backup covers, and that 962
 passing tests prove internal consistency rather than agreement with the
 Loxone protocol. The parts of that protocol the maintainer's house exercises
 have been checked against real hardware. The parts it does not exercise have

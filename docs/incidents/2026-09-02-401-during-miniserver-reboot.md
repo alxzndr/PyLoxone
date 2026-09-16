@@ -1,7 +1,7 @@
 # PyLoxone incident report — transient 401 during Miniserver reboot permanently kills the integration
 
 **Date of incident:** 2026-09-02, ~21:54–21:56 CEST (integration stayed dead until manual reload on 2026-09-03 ~08:45)
-**Status:** root cause confirmed in PyLoxone 0.9.23 source; to be reported upstream at [JoDehli/PyLoxone](https://github.com/JoDehli/PyLoxone)
+**Status:** root cause confirmed in PyLoxone 0.9.23 source. Fixed in this fork's 0.10.0 (finding CORE-09, `tests/test_setup_retry.py`): a 401 during setup is retried and only escalates to a re-authentication flow after repeated failures. Not reported upstream; the report below is kept as written on 2026-09-03
 
 ---
 
