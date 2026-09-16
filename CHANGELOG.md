@@ -13,7 +13,31 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+## 0.10.8 - 2026-09-16
+
+### Fixed
+
+- Child devices are linked to the Miniserver device with `via_device_id`
+  on Home Assistant 2026.8 and newer. Home Assistant 2026.9 logged a
+  deprecation for the old `via_device` link once per device at every
+  start, and the old form stops working in 2027.8. On the 2026.7 floor the
+  old form is still used, because the new key is rejected there.
+
 ### Changed
+
+- `manifest.json` points `issue_tracker`, `documentation` and `codeowners`
+  at this repository, so Home Assistant's own "report a bug" links no
+  longer send users of the fork to upstream.
+- The code parses on Python 3.13 again. The 0.10.0 rewrite of
+  `except A, B:` to the parenthesised form had been undone by the
+  formatter: with `target-version = "py314"`, ruff strips those
+  parentheses on every run. Ruff now targets py313, which keeps them and
+  flags the 3.14-only form, and the two modules that relied on deferred
+  annotation evaluation gained `from __future__ import annotations`. The
+  supported floor is unchanged (Home Assistant 2026.7 needs 3.14).
+- The stale bot marks issues stale after 180 days instead of 30.
+- The incident report in `docs/incidents/` no longer contains the
+  Miniserver serial and LAN address.
 
 - Repository cleanup: the per-package agent prompts and PR bodies of the
   2026-09 review were removed from `docs/review/` (the findings catalogue,
