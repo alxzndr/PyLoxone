@@ -39,7 +39,7 @@ class LoxoneLightSwitch(LoxoneEntity, LightEntity):
             # controller (CORE-20/PC-05 device identity).
             controller_name = self._light_controller_name or self._lox_name
             self._attr_device_info = device_info_for(
-                kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room, True
+                kwargs.get("config_entry"), self._light_controller_id, controller_name, self.type, self.room
             )
         else:
             self.type = "Light"

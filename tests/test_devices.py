@@ -206,6 +206,12 @@ def test_device_info_for_prefers_via_device_id(monkeypatch):
     assert info["via_device"] == ("loxone", MS_SERIAL)
     assert "via_device_id" not in info
 
+    # a non-tuple override is the bug that used to slip through as a
+    # positional argument (0.10.8 and earlier: ``True`` from two light
+    # sub-control constructors)
+    with pytest.raises(TypeError):
+        device_info_for(entry, "uuid-9", "Name", "Ventilation", None, via_override=True)
+
     # an explicit override is a tuple and stays one
     monkeypatch.setattr(loxone_helpers, "supports_via_device_id", lambda: True)
     info = device_info_for(entry, "uuid-9", "Name", "Ventilation", None, via_override=("loxone", "parent"))
@@ -214,7 +220,14 @@ def test_device_info_for_prefers_via_device_id(monkeypatch):
 
 
 def test_supports_via_device_id_matches_installed_home_assistant():
-    assert loxone_helpers.supports_via_device_id() == ("via_device_id" in dr.DEVICE_INFO_TYPES["primary"])
+    """The probe must say yes from 2026.8 (where `via_device_id` appeared) and
+    no on the 2026.7 floor; pinned to the version, not to the probe's own
+    implementation, so an HA refactor of the key table (2026.9 dropped
+    ``DEVICE_INFO_TYPES``) shows up here instead of silently falling back."""
+    from homeassistant.const import __version__ as ha_version
+
+    major, minor = (int(part) for part in ha_version.split(".")[:2])
+    assert loxone_helpers.supports_via_device_id() == ((major, minor) >= (2026, 8))
 
 
 def test_device_info_for_rejects_missing_uuid():
@@ -376,9 +389,16 @@ def test_dead_dispatcher_wiring_is_deleted():
 # --------------------------------------------------------------------------- #
 # CORE-16 / CORE-20: the device registry after a full setup
 # --------------------------------------------------------------------------- #
-async def test_device_registry_snapshot_after_setup(hass, mock_connection, mock_entry, enable_custom_integrations):
+async def test_device_registry_snapshot_after_setup(
+    hass, mock_connection, mock_entry, enable_custom_integrations, caplog
+):
     await _setup_entry(hass, mock_entry)
     device_registry = dr.async_get(hass)
+
+    # HA >= 2026.9 reports every `via_device` tuple passed to the device
+    # registry as deprecated (removed in 2027.8); the child devices must link
+    # with `via_device_id` there, so nothing of the kind may be logged.
+    assert not [rec for rec in caplog.records if "via_device" in rec.getMessage() and "deprecated" in rec.getMessage()]
 
     # one Miniserver host device, with its real identity fields and no
     # fake MAC connection from the host IP (CORE-16).

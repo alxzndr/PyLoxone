@@ -90,15 +90,17 @@ def supports_via_device_id() -> bool:
     The key exists from Home Assistant 2026.8; 2026.9 deprecates the
     ``via_device`` tuple (removed in 2027.8).  On the 2026.7 floor the key
     is unknown and ``DeviceInfoError`` rejects any device info carrying it,
-    so the tuple has to stay there.
+    so the tuple has to stay there.  Probed on the ``DeviceInfo`` TypedDict
+    itself: the module-level key table that also listed it in 2026.8
+    (``DEVICE_INFO_TYPES``) is gone again in 2026.9.
     """
     try:
-        return "via_device_id" in dr.DEVICE_INFO_TYPES["primary"]
-    except (AttributeError, KeyError, TypeError):
+        return "via_device_id" in dr.DeviceInfo.__annotations__
+    except (AttributeError, TypeError):
         return False
 
 
-def device_info_for(config_entry, uuid, name, model, room=None, via_override=None):
+def device_info_for(config_entry, uuid, name, model, room=None, *, via_override=None):
     """
     Build a *fresh* ``_attr_device_info`` dict for one entity (CORE-20).
 
@@ -135,6 +137,16 @@ def device_info_for(config_entry, uuid, name, model, room=None, via_override=Non
         info["model"] = model
     if room:
         info["suggested_area"] = room
+    if via_override is not None and not (isinstance(via_override, tuple) and len(via_override) == 2):
+        # Keyword-only since 0.10.9: two light sub-control constructors used to
+        # pass a stray positional ``True`` here, which became a bogus
+        # ``via_device`` link (and, from HA 2026.9, a deprecation warning).
+        raise TypeError(f"via_override must be a (domain, identifier) tuple, got {via_override!r}")
+    if via is not None and via == (DOMAIN, uuid):
+        # The Miniserver host device itself (keep-alive, version, traffic
+        # sensors): a device cannot be its own via device.  The tuple form
+        # used to be ignored silently; the id form raises from 2026.9.
+        return info
     via_id = miniserver_via_device_id(config_entry) if via_override is None else None
     if via_id and supports_via_device_id():
         info["via_device_id"] = via_id
