@@ -21,7 +21,7 @@ The asymmetry is the bug: every other failure during setup — 503 out-of-servic
 |---|---|
 | PyLoxone | 0.9.23 (HACS, latest at time of incident) |
 | Home Assistant Core | 2026.8.1 (HAOS, bare-metal NUC) |
-| Miniserver | snr `50:4F:94:10:9A:CB`, firmware **17.0.3.31** after the update, `http://10.0.3.1:80` |
+| Miniserver | snr `50:4F:94:xx:xx:xx`, firmware **17.0.3.31** after the update, `http://<miniserver-ip>:80` |
 | Auth config | username/password (`admin`), token flow; `hashAlg` reported by `getkey2` = SHA1 |
 
 ## Timeline (all times CEST, from HA `system_log`)
@@ -30,7 +30,7 @@ The asymmetry is the bug: every other failure during setup — 503 out-of-servic
 |---|---|---|
 | 21:54:18 | `Miniserver out of service:` — websocket drops, Miniserver starts firmware update/reboot | `pyloxone_api/connection.py:642` |
 | 21:54:19 | First `Service Unavailable (503)` (4 occurrences until 21:56:06) — the `ConfigEntryNotReady` retry loop working **as designed** | `pyloxone_api/loxone_http_client.py:223` |
-| 21:55:05, 21:55:41 | `Timeout error for http://10.0.3.1/jdev/cfg/apiKey` (2×) — still rebooting, still retrying correctly | `pyloxone_api/loxone_http_client.py:105` |
+| 21:55:05, 21:55:41 | `Timeout error for http://<miniserver-ip>/jdev/cfg/apiKey` (2×) — still rebooting, still retrying correctly | `pyloxone_api/loxone_http_client.py:105` |
 | 21:56:11 | HTTP server is back up, but auth is not ready yet: `GET /data/LoxAPP3.json` → **`Unauthorized (401)`** → `LoxoneUnauthorisedError` → `Failed to get structure file` → `Could not connect to Loxone Miniserver` → **`setup_error`** | chain: `loxone_http_client.py:191` → `connection.py:908` → `coordinator.py:68` → `__init__.py:266` |
 | 21:56:11 → 08:45 next day | Integration dead. No retries, no repair issue, no reauth prompt. | — |
 | 08:45 (2026-09-03) | Manual `homeassistant.reload_config_entry` → connects instantly with the **same stored credentials**; structure file fetched (softwareVersion sensor now reads 17.0.3.31) | — |
@@ -40,10 +40,10 @@ The asymmetry is the bug: every other failure during setup — 503 out-of-servic
 Run the morning after, before the manual reload, with the exact username/password stored in the config entry:
 
 ```
-$ curl -u 'admin:*****' -o /dev/null -w "%{http_code}" http://10.0.3.1/data/LoxAPP3.json
+$ curl -u 'admin:*****' -o /dev/null -w "%{http_code}" http://<miniserver-ip>/data/LoxAPP3.json
 200
 
-$ curl 'http://10.0.3.1/jdev/sys/getkey2/admin'
+$ curl 'http://<miniserver-ip>/jdev/sys/getkey2/admin'
 {"LL":{"control":"dev/sys/getkey2/admin","code":"200", ...}}
 ```
 
@@ -99,7 +99,7 @@ Either of these, ideally both:
 2026-09-02 21:54:19 ERROR custom_components.loxone.pyloxone_api.loxone_http_client (loxone_http_client.py:223)  [count: 4, until 21:56:06]
     Service Unavailable (503): <errorcode>503</errorcode> <errordetail>Service Unavailable</errordetail>
 2026-09-02 21:55:05 ERROR custom_components.loxone.pyloxone_api.loxone_http_client (loxone_http_client.py:105)  [count: 2]
-    Timeout error for http://10.0.3.1/jdev/cfg/apiKey
+    Timeout error for http://<miniserver-ip>/jdev/cfg/apiKey
 2026-09-02 21:56:11 ERROR custom_components.loxone.pyloxone_api.loxone_http_client (loxone_http_client.py:191)
     Unauthorized (401): <errorcode>401</errorcode> <errordetail>Unauthorized</errordetail>
 2026-09-02 21:56:11 ERROR custom_components.loxone.pyloxone_api.connection (connection.py:908)
