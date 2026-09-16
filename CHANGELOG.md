@@ -13,6 +13,24 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+## 0.10.9 - 2026-09-16
+
+### Fixed
+
+- The `via_device_id` link introduced in 0.10.8 did not take effect on
+  Home Assistant 2026.9: the capability probe looked for a module-level
+  key table that 2026.9 removed, so it silently fell back to the
+  deprecated tuple and the start-up warning stayed. The probe now
+  inspects the `DeviceInfo` type itself. Two more things the 2026.9 test
+  run exposed: entities on the Miniserver device itself (keep-alive,
+  version, traffic sensors) were linked to their own device, which the
+  tuple form ignored and the id form rejects, so they now carry no link;
+  and the dimmer and switch sub-controls of a `LightControllerV2` passed a
+  stray positional `True` as the link override, which became a bogus
+  `via_device` value. Verified on 2026.8.1 and 2026.9.1; the setup test
+  now fails if the deprecation is logged, and the probe test is pinned to
+  the Home Assistant version instead of the probe's own implementation.
+
 ## 0.10.8 - 2026-09-16
 
 ### Fixed
