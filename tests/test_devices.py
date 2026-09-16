@@ -187,6 +187,34 @@ def test_device_info_for_via_linking():
     assert miniserver_via(SimpleNamespace()) is None
     # without an entry (or without a stamped via tuple) there is no link
     assert "via_device" not in device_info_for(None, "u", "n", "m")
+    assert "via_device_id" not in device_info_for(None, "u", "n", "m")
+
+
+def test_device_info_for_prefers_via_device_id(monkeypatch):
+    """A stamped host-device id links with ``via_device_id`` (HA >= 2026.8);
+    the deprecated ``via_device`` tuple is only used where the key is unknown
+    (the 2026.7 floor rejects it with ``DeviceInfoError``)."""
+    entry = SimpleNamespace(loxone_via=("loxone", MS_SERIAL), loxone_via_device_id="host-dev-id")
+
+    monkeypatch.setattr(loxone_helpers, "supports_via_device_id", lambda: True)
+    info = device_info_for(entry, "uuid-9", "Name", "Ventilation", "Kitchen")
+    assert info["via_device_id"] == "host-dev-id"
+    assert "via_device" not in info
+
+    monkeypatch.setattr(loxone_helpers, "supports_via_device_id", lambda: False)
+    info = device_info_for(entry, "uuid-9", "Name", "Ventilation", "Kitchen")
+    assert info["via_device"] == ("loxone", MS_SERIAL)
+    assert "via_device_id" not in info
+
+    # an explicit override is a tuple and stays one
+    monkeypatch.setattr(loxone_helpers, "supports_via_device_id", lambda: True)
+    info = device_info_for(entry, "uuid-9", "Name", "Ventilation", None, via_override=("loxone", "parent"))
+    assert info["via_device"] == ("loxone", "parent")
+    assert "via_device_id" not in info
+
+
+def test_supports_via_device_id_matches_installed_home_assistant():
+    assert loxone_helpers.supports_via_device_id() == ("via_device_id" in dr.DEVICE_INFO_TYPES["primary"])
 
 
 def test_device_info_for_rejects_missing_uuid():

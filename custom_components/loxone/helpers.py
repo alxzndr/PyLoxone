@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any, Final
 from collections.abc import Iterator
 
+from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, cfmt
@@ -31,7 +32,7 @@ def json_decoder(value):
         return value
     try:
         return json.loads(value)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return None
 
 
@@ -45,7 +46,7 @@ def literal_decoder(value):
         return value
     try:
         return ast.literal_eval(value)
-    except ValueError, SyntaxError, TypeError:
+    except (ValueError, SyntaxError, TypeError):
         return None
 
 
@@ -60,6 +61,7 @@ def literal_decoder(value):
 # Attribute name the Miniserver host-device tuple is stored on the config
 # entry for at setup time (``async_setup_entry``).
 MINISERVER_VIA_ATTR = "loxone_via"
+MINISERVER_VIA_DEVICE_ID_ATTR = "loxone_via_device_id"
 
 
 def miniserver_via(config_entry):
@@ -67,6 +69,33 @@ def miniserver_via(config_entry):
     if config_entry is None:
         return None
     return getattr(config_entry, MINISERVER_VIA_ATTR, None)
+
+
+def miniserver_via_device_id(config_entry):
+    """The registry id of this entry's Miniserver host device, or ``None``.
+
+    Stamped by ``async_setup_entry`` once the host device is registered
+    (before the platforms forward), so entity constructors can link their
+    device with ``via_device_id`` instead of the deprecated ``via_device``
+    tuple.
+    """
+    if config_entry is None:
+        return None
+    return getattr(config_entry, MINISERVER_VIA_DEVICE_ID_ATTR, None)
+
+
+def supports_via_device_id() -> bool:
+    """Whether this Home Assistant accepts ``via_device_id`` in device info.
+
+    The key exists from Home Assistant 2026.8; 2026.9 deprecates the
+    ``via_device`` tuple (removed in 2027.8).  On the 2026.7 floor the key
+    is unknown and ``DeviceInfoError`` rejects any device info carrying it,
+    so the tuple has to stay there.
+    """
+    try:
+        return "via_device_id" in dr.DEVICE_INFO_TYPES["primary"]
+    except (AttributeError, KeyError, TypeError):
+        return False
 
 
 def device_info_for(config_entry, uuid, name, model, room=None, via_override=None):
@@ -83,8 +112,9 @@ def device_info_for(config_entry, uuid, name, model, room=None, via_override=Non
     name / model:  the control's own name and its control type (e.g.
         ``"Ventilation"``), not e.g. a sub-sensor's.
     room:          resolved room name → ``suggested_area`` (optional).
-    via_override:  explicit ``via_device``; by default the Miniserver host
-        device of ``config_entry`` (CORE-20, see PS-20).
+    via_override:  explicit ``via_device`` tuple; by default the Miniserver
+        host device of ``config_entry`` (CORE-20, see PS-20), linked with
+        ``via_device_id`` where Home Assistant supports it.
 
     Returns a dict — ``homeassistant`` accepts plain dicts as device info —
     freshly allocated on every call so no two entities share one object.
@@ -105,7 +135,10 @@ def device_info_for(config_entry, uuid, name, model, room=None, via_override=Non
         info["model"] = model
     if room:
         info["suggested_area"] = room
-    if via is not None:
+    via_id = miniserver_via_device_id(config_entry) if via_override is None else None
+    if via_id and supports_via_device_id():
+        info["via_device_id"] = via_id
+    elif via is not None:
         info["via_device"] = via
     return info
 
@@ -282,7 +315,7 @@ def loxone_timestamp(value) -> datetime | None:
         return None
     try:
         return dt_util.utc_from_timestamp(value / 1000 + LOXONE_EPOCH_SECONDS)
-    except OverflowError, OSError, ValueError:
+    except (OverflowError, OSError, ValueError):
         return None
 
 

@@ -105,13 +105,14 @@ class MiniServer:
         return info
 
     @callback
-    def async_update_device_registry(self) -> None:
+    def async_update_device_registry(self) -> dr.DeviceEntry | None:
         """
         Create/update this entry's Miniserver host device (CORE-16).
 
         Called exactly once from ``async_setup_entry`` — before the platforms
         forward — so that the per-control devices created by the entity
-        constructors can set ``via_device`` against an existing entry.
+        constructors can link against an existing entry (the returned
+        device's id is stamped on the entry for ``via_device_id``).
         Skipped (with a warning) when the structure file carries no serial:
         registering ``(None, None)`` identifiers is exactly what corrupted
         device lookups before.
@@ -119,7 +120,7 @@ class MiniServer:
         serial = self.serial
         if not isinstance(serial, str) or not serial:
             _LOGGER.warning("Miniserver structure file has no msInfo.serialNr; no host device will be registered")
-            return
+            return None
 
         device_registry = dr.async_get(self.hass)
         fields: dict[str, Any] = dict(self.miniserver_device_info())
@@ -129,7 +130,7 @@ class MiniServer:
         if host:
             fields["configuration_url"] = f"http://{host}:{port}"
 
-        device_registry.async_get_or_create(
+        return device_registry.async_get_or_create(
             config_entry_id=self.config_entry.entry_id,
             identifiers={(DOMAIN, serial)},
             manufacturer="Loxone",

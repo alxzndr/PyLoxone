@@ -428,7 +428,7 @@ async def async_migrate_entry(hass, config_entry):
             data[key] = options.pop(key, default)
         try:
             data[CONF_PORT] = int(data[CONF_PORT])
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             data[CONF_PORT] = DEFAULT_PORT
         version = 5
         _LOGGER.info("Migration to version %s successful (connection keys moved to entry data)", 5)
@@ -940,8 +940,11 @@ async def async_setup_entry(hass, config_entry):
 
     # CORE-16: register the host device (the first-ever caller of
     # ``async_update_device_registry``) *before* the platforms create
-    # the child devices that point at it via ``via_device``.
-    coordinator.miniserver.async_update_device_registry()
+    # the child devices that point at it.  Its registry id is what
+    # ``device_info_for`` links with (``via_device_id``; the tuple above
+    # is the fallback for Home Assistant 2026.7).
+    host_device = coordinator.miniserver.async_update_device_registry()
+    config_entry.loxone_via_device_id = host_device.id if host_device is not None else None
 
     # CORE-30 (WP-5.2): a firmware below the floor is a repair issue, not a
     # silent accident; at or above it removes a stray issue (no-op).
