@@ -1,185 +1,231 @@
 # PyLoxone
-![Installs](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=Installations&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.loxone.total)
-[![Latest release](https://img.shields.io/github/v/release/JoDehli/PyLoxone?label=version)](https://github.com/JoDehli/PyLoxone/releases/latest)
-![Hassfest](https://img.shields.io/github/actions/workflow/status/JoDehli/PyLoxone/hassfest.yaml?label=hassfest)
-![HACS](https://img.shields.io/github/actions/workflow/status/JoDehli/PyLoxone/validate.yaml?label=HACS)
+
+[![Latest release](https://img.shields.io/github/v/release/alxzndr/PyLoxone?label=release)](https://github.com/alxzndr/PyLoxone/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/alxzndr/PyLoxone/ci.yaml?branch=master&label=CI)](https://github.com/alxzndr/PyLoxone/actions/workflows/ci.yaml)
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
-If you want to support my work on this binding you can buy me a coffee:
+Home Assistant integration for Loxone Miniservers. It connects to the
+Miniserver's websocket, mirrors every supported control as a Home Assistant
+entity, and receives state changes as the Miniserver pushes them (no polling).
 
-<a href="https://www.buymeacoffee.com/JoDehli" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;-webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;" ></a>
+This is a maintained fork of [JoDehli/PyLoxone](https://github.com/JoDehli/PyLoxone),
+the original integration by Jörg Dehli. It started from upstream 0.9.23 with a
+full code review and fixes the reconnect, multi-Miniserver, security and
+platform issues found there, and adds support for more Loxone control types.
+[`docs/fork-vs-upstream.md`](docs/fork-vs-upstream.md) lists the differences
+and the one migration you cannot undo. If you want to support the original
+author: [buy JoDehli a coffee](https://www.buymeacoffee.com/JoDehli).
+Thanks also to Pawel Pieczul of openHAB for the token authentication.
 
-Home Assistant binding for Loxone Miniservers.
-
-A special thanks to Pawel Pieczul from the great openhab2 house automation software. 
-He really helped me a lot to with the new token based authentication. Thanks Pawel!!!
+**Contents:**
+[Requirements](#requirements) ·
+[Installation](#installation) ·
+[Setting up a Miniserver](#setting-up-a-miniserver) ·
+[Configuration options](#configuration-options) ·
+[What you get](#what-you-get) ·
+[Events](#events) ·
+[Services](#services) ·
+[Repairs and diagnostics](#repairs-diagnostics-and-system-health) ·
+[Logging](#log-configuration) ·
+[Recorder](#recorder-configuration) ·
+[Troubleshooting](#troubleshooting) ·
+[Recipes](#recipes) ·
+[Contributing](#contributing)
 
 ## Requirements
 
-- **Home Assistant 2026.7.0 or newer** -- this is the floor advertised to
-  HACS (`hacs.json`) and matches the manifests of this release.
-- State updates are **pushed over the websocket** connection (the
-  integration never polls), and all state is event-driven.
-- Home Assistant itself must run on **CPython 3.14.2 or newer** (Home
-  Assistant 2026.x); that is also the minimum for the development
-  environment -- see [CONTRIBUTING.md](CONTRIBUTING.md).
+- **Home Assistant 2026.7.0 or newer.** This is the floor declared to HACS in
+  `hacs.json`; older releases lack units the sensor platform uses.
+  Home Assistant 2026.x itself runs on CPython 3.14.2 or newer, which is
+  also the floor for the development environment (see
+  [CONTRIBUTING.md](CONTRIBUTING.md)).
+- **Miniserver firmware 7.0.0 or newer** (the JSON websocket API). Gen 1
+  and Gen 2 Miniservers are supported; the integration raises a repair
+  issue on older firmware.
+- A Miniserver user. A dedicated user with the permissions your
+  automations need is better than `admin`.
 
-## Config for the gen2 miniserver
-If you have the gen2 miniserver you should connect via local access. It is more reliable and faster than a cloud connection.
+## Installation
 
-### Config for cloud connection
-Please use this only in case local access is not possible.
+### HACS (recommended)
 
-Example:
-- Miniserver Ip: https://dns.loxonecloud.com/123456789ABC
-- Port: 443
+1. Install [HACS](https://hacs.xyz/docs/use/download/download/).
+2. HACS > Integrations > three-dot menu > *Custom repositories*: add
+   `https://github.com/alxzndr/PyLoxone` with category *Integration*.
+3. Download PyLoxone and restart Home Assistant.
+4. Settings > Devices & Services > *Add integration* > **PyLoxone**.
 
-Change 123456789ABC to your miniserver Serial Number.
+### Manual
 
-## Manual installation
-1. Download the zip file and extract all files.
-2. Copy the ***custom_components*** folder in the same folder where your configuration.yaml is located
-3. Restart Home-Assistant
-4. Go to Configuration -> Integrations and search for Pyloxone
-5. Add the Integration and fill out all required fields
-6. Restart Home-Assistant
+1. Download the [latest release](https://github.com/alxzndr/PyLoxone/releases/latest)
+   and extract it.
+2. Copy `custom_components/loxone` into the `custom_components` folder next
+   to your `configuration.yaml`.
+3. Restart Home Assistant and add the integration as above.
 
-## Hacs installation
-1. Install hacs to your homeassistant installation. See https://hacs.xyz/docs/use/download/download/
-2. Add this repository to hacs: https://github.com/JoDehli/PyLoxone
-3. Install the PyLoxone binding 
-4. Restart Home-Assistant
-5. Go to Configuration -> Integrations and search for Pyloxone
-6. Add the Integration and fill out all required fields
-7. Restart Home-Assistant
+### Upgrading from JoDehli/PyLoxone
 
-## Configuring the integration
+Installing this fork over the upstream integration keeps your entities, but
+it migrates the config entry to a newer version that upstream cannot load.
+**Take a full backup first**; restoring it is the only way back. Details in
+[`docs/fork-vs-upstream.md`](docs/fork-vs-upstream.md#the-one-way-door-read-this-first).
 
-The integration is configured through the UI (no YAML). Adding a Miniserver
-asks for the connection description:
+## Setting up a Miniserver
+
+Everything is configured through the UI; there is no YAML configuration for
+the connection. Opening the setup form sends one LoxLIVE broadcast on the
+LAN and prefills the address and port of a Miniserver that answers; a
+Miniserver that does not answer just leaves the fields blank.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `host` | -- | IP or hostname of the Miniserver. For a cloud connection use `dns.loxonecloud.com/<serial>` (see above). |
-| `port` | `8080` | HTTP port. `8443` for the local HTTPS tunnel, `443` for the Loxone Cloud address. |
-| `username` | -- | Loxone Miniserver user (e.g. `admin`). |
-| `password` | -- | Password of that user. Never sent over the wire in plaintext: the API layer authenticates with a token. |
-| `verify_ssl` | `true` | Enable TLS certificate verification on the HTTPS paths (local HTTPS tunnel and the Loxone Cloud connection). **Do not disable this**: the same connection carries your credentials and every state update, so an unverified TLS downgrade lets an attacker read and rewrite both. Leave it on unless you have a specific, understood reason (self-signed certificate you trust) and can tie it to your network. The plain-HTTP local path (port 8080) is not affected by this setting. |
+| `host` | (probe result) | IP address or hostname of the Miniserver. For a cloud connection use `dns.loxonecloud.com/<serial>` (see below). |
+| `port` | `8080` | The Miniserver's HTTP port. Many Miniservers listen on `80` locally; `8443` is the local HTTPS port and `443` the Loxone Cloud port. |
+| `username` | | Loxone user. |
+| `password` | | Password of that user. It is never sent in plain text: the integration authenticates with a token. |
+| Verify TLS certificate | on | `verify_ssl`, see [Configuration options](#configuration-options). Only affects HTTPS connections. |
 
-The connection description is stored in the config entry's **data**; changing
-it later (moved Miniserver, new IP, renewed cloud address) is done through the
-**reauthentication** flow in *Settings -> Devices & Services*, not on the
-options page.
+The form only submits once the Miniserver has accepted the credentials, and
+the same Miniserver (by serial number) cannot be added twice. Usernames and
+passwords must be representable in Latin-1; the form says so when they are
+not.
 
-Credentials that contain characters outside of Latin-1 are rejected by the
-Miniserver; the form tells you when a credential cannot be represented.
+### Local or cloud connection
+
+Connect locally whenever you can; it is faster and more reliable. Use the
+Loxone Cloud address only when local access is impossible:
+
+- `host`: `dns.loxonecloud.com/123456789ABC` (replace with your Miniserver
+  serial number)
+- `port`: `443`
+
+### Changing the connection later
+
+When the Miniserver rejects the stored credentials, the entry starts a
+re-authentication flow (a repair issue appears, and the entry shows that it
+needs attention under Settings > Devices & Services) where you can enter
+host, port, username and password again. To change the address of a Miniserver that is
+simply unreachable, remove the entry and add it again: entity ids derive from
+the Loxone UUIDs and are stable, so automations keep working, but entity
+customisations and area assignments are lost. A backup covers that.
+
+### Several Miniservers
+
+Add one entry per Miniserver. Entries are isolated from each other: state
+and commands never cross over, and the `loxone_event` bus event carries the
+`entry_id` of the Miniserver that produced it.
 
 ## Configuration options
 
-The options page (*Settings -> Devices & Services -> PyLoxone -> the
-Miniserver entry -> Options, Pencil icon) carries only preferences. All of them apply after the
-entry reloads (saving the options triggers the reload).
+The TLS verification setting is asked for when adding or re-authenticating a
+Miniserver; the other options live on the entry's options page (Settings >
+Devices & Services > PyLoxone > *Configure*). Saving the options reloads the
+entry.
 
 | Option | Default | Effect |
 |---|---|---|
-| `verify_ssl` | `true` | Verifies the TLS certificate of the HTTPS paths when connecting (collected on add/reauth, not on the options page). **Keep it on**: with verification off, a man-in-the-middle can read and rewrite both credentials and state. The plain-HTTP local path (port 8080) is not affected by this setting. |
-| `generate_scenes` | `true` | Generate one scene entity per mood of every `LightControllerV2`, as soon as the Miniserver streams the controller's mood list. Disable to skip scene generation entirely. |
-| `generate_scenes_delay` | `3` (minimum `3`) | Legacy setting, kept for existing installs. Traditionally the number of seconds the integration waited after setup before generating the `LightControllerV2` scenes. Scene generation had to happen after the light platform was fully loaded into Home Assistant, which on a slow install takes a few seconds -- `3` sec was the smallest value that reliably waited that out, which is why the option has a minimum of 3. Current versions generate scenes event-driven (immediately when the Miniserver pushes the mood list), so the stored value does not throttle scene creation anymore; the floor stays to keep migrated entries valid. |
-| `generate_lightcontroller_subcontrols` | new installs: `false`; pre-option installs: `true` (migrated default) | Controls the *default* enabled state of the individual sub-control entities (switches, dimmers, color pickers) underneath each `LightControllerV2`. With the option on, newly registered sub-control entities start **enabled**; with it off they start **disabled** but remain in the entity registry, so you can enable any of them later (see below). The sub-controls are always registered; the option only decides their initial visibility. |
-| `generate_groups` | new installs: `false`; pre-option installs: option not set = groups on | Controls the Loxone auto-groups: the master group `group.loxone_group` plus one subgroup per control family (analog sensors, digital sensors, switches, buttons, covers, lights, dimmers, climates, ventilations, accontrollers, numbers, texts). New installs start with groups off; on existing installs that date from before the option existed, the legacy behaviour (groups on) is kept until you decide on the options page. |
+| `verify_ssl` | `true` | Verify the Miniserver's TLS certificate on the HTTPS paths (local HTTPS and the Loxone Cloud address). **Keep it on**: the same connection carries your credentials and every state update, so with verification off a man-in-the-middle can read and rewrite both. Only turn it off for a self-signed certificate you trust on a network you control. The plain-HTTP local path is not affected. |
+| `generate_scenes` | `true` | Create one `scene` entity per mood of every `LightControllerV2`, as soon as the Miniserver streams the controller's mood list. Off skips scene generation entirely. |
+| `generate_scenes_delay` | `3` (minimum `3`) | Legacy setting kept for existing installs. Older versions waited this many seconds after setup before generating the `LightControllerV2` scenes, because the light platform had to be fully loaded first and 3 seconds was the smallest value that reliably worked on a slow install. Scenes are now generated when the mood list arrives, so the value no longer delays anything; the floor stays so migrated entries remain valid. |
+| `generate_lightcontroller_subcontrols` | `false` for new installs, `true` for installs that predate the option | Whether the sub-control entities of a `LightControllerV2` (its switches, dimmers and colour pickers) start **enabled**. They are always registered; with the option off they start disabled and can be enabled per entity later (see [Enabling LightControllerV2 sub-controls](#enabling-lightcontrollerv2-sub-controls)). |
+| `generate_groups` | `false` for new installs; unset on installs that predate the option, which keeps their groups on | Create the Loxone auto-groups: `group.loxone_group` plus one subgroup per control family (analog sensors, digital sensors, switches, buttons, covers, lights, dimmers, climates, ventilations, AC controllers, numbers, texts). |
 
-## LightControllerV2 Sub-Controls
+## What you get
 
-Each `LightControllerV2` in Loxone groups individual lighting outputs (dimmers, color pickers, switches) as sub-controls. These are registered in the Home Assistant entity registry, enabled or disabled by the **`generate_lightcontroller_subcontrols`** option (see the table above).
+### Devices and areas
 
-To access individual light outputs (or enable one that starts disabled):
+- The **Miniserver** is a device of its own, with diagnostic sensors for the
+  software version, the last keep-alive message (disabled by default), the
+  inbound and outbound websocket traffic (messages per minute), and the
+  Miniserver's global notification text when the structure file has one.
+- Every Loxone control becomes a device; a control with several entities
+  (a room controller and its diagnostic sensors, a meter and its registers)
+  keeps them on one device.
+- The Loxone room of a control is suggested as the device's area when the
+  device is created. To apply rooms to existing entities, call
+  `loxone.sync_areas` (see [Services](#services)).
 
-1. Open **Settings → Devices & Services → Entities**
-2. Filter by your LightControllerV2 device
-3. Enable the sub-control entities you want to use (dimmer, color picker, etc.)
+### Entities
 
-## Entities and attributes
+Every supported control type and what it turns into:
 
-Every Loxone control is mapped to a Home Assistant entity of the domain
-shown below. All Loxone entities share a small set of state attributes:
-
-| Common attribute | Meaning |
-|---|---|
-| `uuid` | the Loxone `uuidAction` of the control (use it with the websocket command services below) |
-| `platform` | always `loxone` |
-| `room` | the room name of the control (when the Miniserver supplies one) |
-| `category` | the Loxone category name of the control (when supplied) |
-| `device_type` | the Loxone control family (`Sensor analog`, `Switch`, `Jalousie`, ...) |
-
-(`uuid`, `platform`, `room`, `category`, `state_uuid`, `device_type` are kept
-out of the recorder, see [Recorder Configuration](#recorder-configuration).)
-Some platforms additionally report the `state_uuid` (the stream the entity
-reads its state from) and platform-specific attributes, listed here:
-
-| Loxone control | HA domain | Notes and extra attributes |
+| Loxone control | HA domain | What you get |
 |---|---|---|
-| `InfoOnlyAnalog` | `sensor` | Automatic device-class detection from unit/category/name (see below). The Miniserver's "error" value (`-1`) is reported as `unknown`. |
-| `Meter` | `sensor` | Meter block with sub-sensors for actual/total/totalNeg/storage registers (`<name> Actual`, `<name> Total`, ...), classified as energy/power. |
-| `InfoOnlyDigital` | `binary_sensor` | Digital on/off sensors. |
-| `PresenceDetector` | `binary_sensor` | Presence detector (`<name> Presence`). |
-| `SmokeAlarm` | `binary_sensor` | Smoke alarm. |
+| `Alarm` | `alarm_control_panel` | Arm home, away, night, vacation and disarm. Night uses the same Loxone command as home (interior motion suppressed), vacation the same as away. A secured alarm asks for a numeric code when arming. Attributes: `level`, `armed_at`, `next_level_at`, `armed_delay`, `armed_delay_total_delay` (seconds). |
+| `InfoOnlyDigital` | `binary_sensor` | On/off sensor. The device class is guessed from the control's own on/off text and its category (door, window, motion, smoke, gas, moisture, vibration, plug, opening) and stays unset when nothing matches. |
+| `PresenceDetector` | `binary_sensor` + `sensor` | Presence binary sensor, plus `Illuminance` (lx) and `Noise` (dB) sensors on the same device when the detector reports them. |
+| `SmokeAlarm` | `binary_sensor` | Smoke alarm, on when the alarm level is above 0. |
+| `Pushbutton` | `button` | Pressing sends `pulse`. Home Assistant shows the time of the last press; the Miniserver's own press echo is the `last_pressed` attribute. A pushbutton has no state, so it cannot reliably *trigger* automations (see [Known limitations](#known-limitations)). |
+| `UpDownDigital` | `button` | Two buttons, `Up` and `Down`, on one device; pressing sends `UpOn` / `DownOn`. The control publishes no state. |
+| `IRoomControllerV2` | `climate` + `switch` + `sensor` | Room controller V2: presets (the Loxone timer modes), a target temperature, or a target range when the room heats and cools, on/off. Attributes: `is_overridden`, `demand` (1 heating, -1 cooling, 0 idle, fed by the room's `ClimateController`), `operating_mode`, `active_mode`, `current_mode`, `op_mode`, `active_state`. On the same device: a `Comfort Override` switch (configuration category) and diagnostic sensors `Override Reason`, `Comfort Temperature` and `Comfort Temperature (Cool)` for the states the controller reports. |
+| `IRoomController` (legacy) | `climate` | The pre-V2 room controller, named `<room> Climate`: target temperature and on/off. Attributes: `mode`, `override`, `open_window`, `curr_heat_temp_ix`, `curr_cool_temp_ix`. The mode table is unverified on real V1 hardware. |
+| `AcControl` | `climate` | Air conditioning: target temperature and on/off, plus fan and swing modes when the control publishes fan-speed or airflow lists. Reports `hvac_action`. |
+| `Jalousie` | `cover` + `select` | Blinds, shutters, curtains and awnings; the device class follows the Miniserver's `animation` detail. Open, close, stop, set position. Blinds also get tilt open/close/set and the `loxone.quick_shade` service. Controls with sun automation get the `loxone.enable_sun_automation` / `loxone.disable_sun_automation` services and a `Sun auto` select (Off / Auto / Shade) on the same device. Attributes: `current_position`, `current_shade_mode`, `current_position_loxone_style`, and with sun automation `automatic_text`, `auto_state`, `is_sun_automation_enabled`, `target_position`. |
+| `Gate` | `cover` | Gates and garage doors (device class garage, gate or door from the `animation` detail): open, close, stop, and set position when the gate reports one. |
+| `Window` | `cover` | Motorised windows: open, close, stop, set position. Attribute: `target_position`. |
+| `Ventilation` | `fan` | Speed 0-100 % and the preset profiles `Low`, `Medium`, `High`, `Auto`, `Away`. Sub-entities on the same device when reported: `Presence`, `Humidity`, `Air Quality` (as CO2), outdoor `Temperature`. **Known to be wrong on real hardware**: selecting a preset does nothing and setting a speed is a self-reverting one-hour override; see [Known limitations](#known-limitations). |
+| `LightControllerV2` | `light` (+ `switch`, `scene`, sub-lights) | The controller: on/off, moods as *effects*, and brightness when it has a master dimmer (no colour on this entity). Attributes: `selected_scene`, `selected_scenes`, `subcontrols`. A controller with a presence input gets a `Presence Detection` switch on the same device. Its `Switch`, `Dimmer`, `EIBDimmer` and `ColorPickerV2` sub-controls become light entities of their own (disabled unless `generate_lightcontroller_subcontrols` is on) with a `light_controller` attribute. Moods become scenes, see below. |
+| `Dimmer` / `EIBDimmer` | `light` | Standalone dimmers: on/off and brightness, scaled to the dimmer's own min/max range. |
+| `ColorPickerV2` | `light` | Colour pickers, standalone or inside a light controller. `Rgb` pickers give colour and colour temperature, `TunableWhite` pickers colour temperature only (2700-6500 K), `Lumitech` behaves like RGB. |
+| `LightsceneRGB` | `light` + `select` | An RGB light driven by the red, green and blue channel streams. When the control has a scene list, a `Scene` select is added on the same device. The write commands are unverified on real hardware. |
+| `AudioZoneV2` | `media_player` | Speaker zone: play, pause, stop, next, previous, volume set/step/mute, on/off and source selection. Attributes: `source`, `favourites`. Power, mute and source commands are unverified on real hardware. |
+| `Slider` | `number` | A number VI with the Miniserver's min, max and step; unit and precision come from the control's format string. Attribute: `state_uuid`. |
+| `LightControllerV2` moods | `scene` | One scene per mood of each light controller, created when `generate_scenes` is on and the controller has pushed its mood list. Activating sends `changeTo/<moodId>`. |
+| `Radio` | `select` | Radio-button block as a select. Selecting while the block is locked in Loxone raises an error; a block without outputs is skipped. Attributes: `state_uuid`, `locked`. |
+| `InfoOnlyAnalog` | `sensor` | Analog value with automatic device-class detection from unit, category and name (see below). The Miniserver's error value (`-1`) reads as `unknown`. |
+| `InfoOnlyText` | `sensor` | Read-only text value. |
+| `TextInput` | `text` + `sensor` | A text VI as a settable `text` entity (values longer than 255 characters are truncated) and as a read-only sensor. Attribute: `state_uuid`. |
+| `Meter`, `EnergyManager`, `EnergyManager2`, `PowerUnit`, `Wallbox` | `sensor` | One sensor per register the control reports, on one device: `Actual` (power, measurement), `Total` and `Total Neg` (energy, total increasing), `Level` (energy, measurement). Units and precision come from the control's format details. |
+| `Tracker` | `sensor` | The tracker's entries as a comma-joined string, also when nested under another control such as an alarm. Attributes: `entries`, `count`, `state_uuid`. |
+| `NfcCodeTouch` | `sensor` | Access reader: a `lastuser` sensor plus diagnostic `Code Date` and `Device State` sensors on one device, and a `loxone_nfc_auth` bus event per authentication (see [Events](#events)). The `lastcode` and `lasttag` credentials are never exposed. |
+| `ClimateController` | `sensor` | Summary of the rooms demanding heat or cold (`Heating (n)`, `Cooling (n)`, `Idle`); it also feeds the `demand` attribute of each room controller. Attributes: `heat_demand`, `cool_demand`. |
+| Message Center | `sensor` + repairs | One diagnostic sensor per Message Center block whose state is the highest active severity; active entries appear as repair issues and disappear when they clear. Attribute: `status` (counts per severity). |
 | `Switch` | `switch` | On/off switch. |
-| `TimedSwitch` | `switch` | Switch with a deactivation timer; extra attributes `delay` (seconds remaining) and `delay_time_total` (seconds total). |
-| `Pushbutton` | `button` | A press is an event, not a state: the entity is press-ready (state `on`), last press is recorded in the `last_pressed` attribute; also `state_uuid`, `new_state`, `state_value`. Stateless -- cannot be used to *trigger* automations reliably (see Known Limitations). |
-| `Jalousie` | `cover` | Blinds/shutters/awnings. Open/close/stop, set position; with a shade position: tilt open/close/set plus the `quick_shade` entity service; with sun automation: `enable_sun_automation` / `disable_sun_automation` services. Extra: `current_position`, `current_shade_mode`, `current_position_loxone_style`, and (sun-automated) `automatic_text`, `auto_state`, `is_sun_automation_enabled`, `target_position`. |
-| `Window` | `cover` | Real windows: open/close/stop, set position. Extra: `target_position`. |
-| `Gate` | `cover` | Gates/garage doors (device class derived from the Miniserver's `animation` detail: garage/gate/door): open/close/stop. |
-| `Intercom` (sub-controls) | `switch` | The intercom's reachable buttons as switches. |
-| `InfoOnlyAnalog` / `Meter` attributes on a `LightControllerV2` | `sensor` | Fan-out sensors for sliders and other analog states attached to lights (e.g. ventilation hubs). |
-| `LightControllerV2` | `light` | The controller itself: on/off, brightness, color, effects (moods). Extra: `selected_scene`, `selected_scenes`, `subcontrols`, `device_type`. When the controller has a presence input, an auxiliary `<name> Presence Detection` **switch** is created on the same device. |
-| `Dimmer` / `EIBDimmer` | `light` | Standalone dimmers (not attached to an `LightControllerV2`). |
-| `ColorPickerV2` | `light` | RGB / Kelvin color pickers, standalone or as sub-controls. |
-| `Alarm` | `alarm_control_panel` | Arm home / arm away (arm away and arm home are both supported; disarm always). Secured alarms additionally want a numeric **arm code**. Extra: `level`, `armed_at`, `next_level_at`, `armed_delay`, `armed_delay_total_delay`. |
-| `IRoomControllerV2` | `climate` + `switch` + `sensor` | RoomControllerV2 as climate (targets, modes, comfort), plus a `<name> Comfort Override` **switch** (entity category: config) and diagnostic **sensors** for the comfort temperature and the override reason. Extra (climate): `override`, `demand` (1 = heating, -1 = cooling, 0 = idle, from the linked `ClimateController`). |
-| `IRoomController` (legacy) | `climate` | The non-V2 room controller. Extra: `override`. |
-| `AcControl` | `climate` | Air-conditioning control. |
-| `AudioZoneV2` | `media_player` | Volume (set/up/down), play, pause, stop, next, previous track. |
-| `Ventilation` | `fan` | Ventilation with preset profiles (`Low`, `Medium`, `High`, `Auto`, `Away`) and a 0-100 speed. Sub-sensors on the same device where the Miniserver provides them: presence, indoor humidity, indoor air quality (as CO2), outside temperature. |
-| `Slider` | `number` | A number VI with the Miniserver's `(min, max, step, format)` applied to the HA entity. Extra: `state_uuid`. |
-| `TextInput` | `text` + `sensor` | A text VI both as settable `text` entity (values over 255 characters are truncated) and as read-only sensor. Extra: `state_uuid`. |
-| `Radio` (radio buttons) | `select` | Radio block as a select; when the block is locked in Loxone, selecting raises an error. Extra: `state_uuid`, `locked`. |
-| `LightControllerV2` moods | `scene` | One scene per mood (created by the `generate_scenes` option). Activating the scene sends `changeTo/<moodId>` to the controller. |
+| `TimedSwitch` | `switch` | Switch with a deactivation timer; turning on sends `pulse`. Attributes: `delay_time_total`, and `delay` (seconds remaining) while it is on. |
+| `Intercom` / `IntercomV2` | `switch` | The intercom's sub-controls that report an `active` state, as switches on the intercom's device. |
 
-### Fan
-The `fan` domain is only used for `Ventilation` controls: speed is the
-0-100 percentage the Miniserver reports, and the preset mode selects the
-configured ventilation profiles.
+Loxone entities carry the attributes `uuid` (the control's `uuidAction`, usable
+with the [websocket command services](#services)), `platform` (`loxone`),
+`room` and `category` (when the Miniserver supplies them), and on most
+platforms `device_type` (the Loxone control family) and `state_uuid` (the
+state stream the entity reads). These bookkeeping attributes are excluded from
+the recorder; see [Recorder configuration](#recorder-configuration).
 
-### Scenes
-Scenes are generated per `LightControllerV2` from the mood list the
-Miniserver pushes over the websocket (no fixed wait after setup).
+### Enabling LightControllerV2 sub-controls
 
-## Known Limitations
+A `LightControllerV2` groups its outputs (dimmers, colour pickers, switches)
+as sub-controls. They are always registered; whether they start enabled is
+the `generate_lightcontroller_subcontrols` option. To enable one later:
 
-- Pushbuttons are stateless. They can not be used to reliably trigger automations. Use a Switch as a workaround and turn it off again in the Automation or in Loxone itself.
+1. Settings > Devices & Services > Entities
+2. Filter by the light controller's device
+3. Enable the sub-control entities you want
 
-## Sensor Device Class Detection
+### Sensor device class detection
 
-Sensors (InfoOnlyAnalog, Meter) are automatically classified based on their unit and Loxone category/name. The following device classes are detected:
+`InfoOnlyAnalog` sensors get a device class from their unit and, where the
+unit is ambiguous, from the Loxone category or name:
 
 | Device class | Detected by |
 |---|---|
-| `temperature` | Unit: °C, °F |
-| `humidity` | Unit: % **and** category or name contains "humidity", "vlhkost", "feucht", or "humidité" |
-| `battery` | Unit: % **and** name contains "batt", "akku", or "battery" |
-| `energy` | Unit: kWh, Wh, MWh |
-| `power` | Unit: W, kW |
-| `volume_flow_rate` | Unit: L/h, L/min |
-| `water` | Unit: L |
-| `illuminance` | Unit: lx, Lx, lux |
-| `carbon_dioxide` | Unit: ppm |
-| `wind_speed` | Unit: km/h |
+| `temperature` | Unit `°C` or `°F` |
+| `humidity` | Unit `%` **and** category or name contains "humidity", "vlhkost", "feucht" or "humidité" |
+| `battery` | Unit `%` **and** name contains "batt", "akku" or "battery" |
+| `energy` | Unit `kWh`, `Wh` or `MWh` |
+| `power` | Unit `W` or `kW` |
+| `volume_flow_rate` | Unit `L/h` or `L/min` |
+| `water` | Unit `L` |
+| `illuminance` | Unit `lx`, `Lx` or `lux` |
+| `carbon_dioxide` | Unit `ppm` |
+| `wind_speed` | Unit `km/h` |
 
-Sensors with `%` unit that don't match any keyword are left without a device class.
+A `%` sensor that matches no keyword gets no device class. An energy or water
+value only becomes a total-increasing sensor (the kind the energy dashboard
+wants) when its name or category says "total", "meter" or "counter";
+otherwise it is a plain measurement.
 
-### Overriding the detected device class
-
-If the automatic detection assigns the wrong device class (or you want to set one for an unclassified sensor), use Home Assistant's built-in [entity customization](https://www.home-assistant.io/docs/configuration/customizing-devices/) in `configuration.yaml`:
+To override a detected class, or set one on an unclassified sensor, use Home
+Assistant's [entity customization](https://www.home-assistant.io/docs/configuration/customizing-devices/):
 
 ```yaml
 homeassistant:
@@ -191,24 +237,39 @@ homeassistant:
       device_class: humidity
 ```
 
+### Known limitations
+
+- **Pushbuttons are stateless.** They cannot reliably trigger automations.
+  Use a switch in Loxone instead and turn it off again in the automation or
+  in Loxone.
+- **Ventilation presets and speed do not work on real hardware.** A live
+  test showed that the Miniserver ignores the mode command the fan entity
+  sends, and that the speed command is a one-hour override that reverts.
+  Reading the current speed works. A redesign is planned; the correct
+  commands are not yet known (`docs/review/2026-09-remediation-plan.md`,
+  "Ventilation fan model rework").
+- Some commands were implemented from documentation and inference rather
+  than observed on hardware (audio zone power/mute/source, `LightsceneRGB`
+  writes, gate positioning, `UpDownDigital`, `Tracker` payloads, the legacy
+  room controller mode table). Each is listed with a test procedure in
+  [`docs/review/LIVE-MINISERVER-CHECKS.md`](docs/review/LIVE-MINISERVER-CHECKS.md);
+  reports from real installations are welcome.
+
 ## Events
 
 ### `loxone_event`
 
 Every state message the Miniserver pushes over the websocket is republished
-on the Home Assistant bus as a `loxone_event` event, for use with user
-automations. The event data is the raw message of the Miniserver --
-**one key per changed Loxone UUID, mapped to its new value** -- plus one
-extra key:
+on the Home Assistant bus as a `loxone_event` event. The event data is the
+raw message, one key per changed Loxone UUID mapped to its new value, plus
+the entry id:
 
 | Key | Meaning |
 |---|---|
-| `<uuid>` | the new value of the Loxone state with that UUID (the UUID string is the key, the value is the new value; several UUIDs can change in one message) |
-| `entry_id` | the config entry ID of the Miniserver that produced the message -- with **more than one** Loxone Miniserver in Home Assistant this is how you discriminate which one changed (multi-instance setups) |
+| `<uuid>` | the new value of the Loxone state with that UUID; several UUIDs can change in one message |
+| `entry_id` | the config entry of the Miniserver that produced the message; with more than one Miniserver this is how you tell them apart |
 
-Individual keep-alive values show up with the special key `keep_alive`.
-
-Example, as an automation (`trigger`):
+Keep-alive values arrive under the key `keep_alive`.
 
 ```yaml
 automation:
@@ -219,39 +280,43 @@ automation:
     condition:
       - condition: template
         value_template: >
-          {{ trigger.event.data | length > 1
-             and '152c22de-033a-94b5-ffff403fb0c34b9e' in trigger.event.data }}
+          {{ '152c22de-033a-94b5-ffff403fb0c34b9e' in trigger.event.data }}
     action:
       - ...
 ```
 
-### Outbound bus events (advanced)
+### `loxone_nfc_auth`
 
-You can also *send* commands by firing the bus events `loxone_send`
-(or `loxone_send_secured` for secured controls) with `uuid`, `value` and
--- for the secured one -- `code` in the event data. Each loaded Miniserver
-only executes commands whose UUID it actually knows, so firing the event
-never reaches another Miniserver. Prefer the `loxone.event_websocket_command`
-service below; the bus events exist for external users of the old
-interface.
+Fired once per authentication on an `NfcCodeTouch` reader, with `uuid` and
+`name` of the reader, `user` (who authenticated), `code_date` (ISO 8601, UTC)
+and `entry_id`. The code or tag used is never part of the event.
+
+### Outbound bus events (legacy)
+
+Commands can also be sent by firing `loxone_send` (or `loxone_send_secured`
+for secured controls) with `uuid`, `value` and, for the secured variant,
+`code` in the event data. Each Miniserver only executes commands for UUIDs
+it knows, so an event never reaches the wrong Miniserver. Prefer the
+`loxone.event_websocket_command` service; the bus events remain for
+existing users of the old interface.
 
 ## Services
 
-The complete service schema lives in
-[`custom_components/loxone/services.yaml`](custom_components/loxone/services.yaml)
-(the same source that renders these services in HA's Developer Tools).
+The service schemas live in
+[`custom_components/loxone/services.yaml`](custom_components/loxone/services.yaml),
+which is also what Home Assistant's Developer Tools render.
 
-| Service | Scope | Data fields | What it does |
+| Service | Target | Fields | What it does |
 |---|---|---|---|
-| `loxone.event_websocket_command` | domain (all entries) | `uuid` **or** `device` (exactly one), `value` (default `""`) | Send an arbitrary websocket command (`value`) to a Loxone to the UUID that is known to any of the loaded Miniservers (`uuid`), or through one of the integration's own entities (`device`). Errors are raised if the target does not belong to a loaded Miniserver. |
-| `loxone.event_secured_websocket_command` | domain (all entries) | `uuid` **or** `device`, `value`, `code` | As above, but through the secured channel (used by secured controls; `code` is the security code). |
-| `loxone.sync_areas` | domain | `create_areas` (bool, default `false`) | Apply Loxone rooms to HA areas of Loxone entities: it moves every Loxone entity to the area with its `room` attribute (creating missing areas only when `create_areas` is true). Entities whose room does not exist in HA are left untouched when `create_areas` is false. |
-| `loxone.reload` | domain | `entry_id` (optional string) | Reload the Loxone integration: `async_schedule_reload` per entry, so it is the safe reload (unload-then-load owned by HA). Without `entry_id` all loaded Loxone entries reload; with it, only the named one. |
-| `loxone.enable_sun_automation` | entity (Jalousie covers with sun automation) | -- | Enable the Loxone sun automation on the targeted `Jalousie` cover. |
-| `loxone.disable_sun_automation` | entity (Jalousie covers with sun automation) | -- | Disable the Loxone sun automation on the targeted `Jalousie` cover. |
-| `loxone.quick_shade` | entity (Jalousie covers with shade position) | -- | Move the slats of the targeted `Jalousie` cover to the Loxone-computed shade position (the position depends on multiple values on the Miniserver). |
+| `loxone.event_websocket_command` | any loaded Miniserver | `uuid` **or** `device` (exactly one), `value` (default `""`) | Send an arbitrary websocket command (`value`) to a control, addressed by Loxone UUID or by one of the integration's own entities. Raises when the target belongs to no loaded Miniserver. |
+| `loxone.event_secured_websocket_command` | any loaded Miniserver | `uuid` **or** `device`, `value`, `code` | As above, through the secured channel; `code` is the control's visual password. |
+| `loxone.sync_areas` | all entries | `create_areas` (bool, default `false`) | Move every Loxone entity to the area named after its `room` attribute. Missing areas are created only when `create_areas` is true; otherwise such entities are left untouched. |
+| `loxone.reload` | all entries or one | `entry_id` (optional) | Reload the integration, safely, through Home Assistant's own unload-then-load. Without `entry_id` every Loxone entry reloads. |
+| `loxone.enable_sun_automation` | `Jalousie` covers with sun automation | | Enable the Loxone sun automation on the targeted cover. |
+| `loxone.disable_sun_automation` | `Jalousie` covers with sun automation | | Disable the Loxone sun automation on the targeted cover. |
+| `loxone.quick_shade` | `Jalousie` covers (blinds) | | Move the slats to the shade position the Miniserver computes. |
 
-### Websocket direct command service (example)
+Example:
 
 ```yaml
 service: loxone.event_websocket_command
@@ -260,29 +325,44 @@ data:
   value: pulse
 ```
 
-You can choose to target a Loxone entity by UUID or by HA entity ID (a Loxone
-entity of *any of the loaded* Miniservers). Websocket commands let you, for
-example, send data captured by other Home Assistant devices immediately to a
-VI on the Miniserver.
+The command names for each control type are in the Loxone structure file
+documentation on the [Loxone website](https://www.loxone.com/dede/kb/api/).
 
-## Log Configuration
-If you want to paste a log into an issue, the integration's loggers are the
-integration root (`custom_components.loxone`) and the websocket protocol
-client (`custom_components.loxone.pyloxone_api`); individual modules log
-under their own modules:
+## Repairs, diagnostics and system health
+
+- **Repair issues** (Settings > System > Repairs): the Miniserver rejected
+  the stored credentials (with a re-authentication prompt), the Miniserver
+  firmware is below 7.0.0, a leftover `loxone:` block in `configuration.yaml`
+  (it was never read; remove it), and one issue per active Message Center
+  entry with the Loxone help link.
+- **Diagnostics download** (device page > three-dot menu > *Download
+  diagnostics*) contains the structure file with the serial number, MAC,
+  project name, URLs, credentials and tokens redacted. It is safe to attach
+  to an issue.
+- **System health** (Settings > System > Repairs > three-dot menu > *System
+  information*) shows the serial, project name, local and remote URL and
+  software version of each connected Miniserver.
+
+## Log configuration
+
+The integration logs under `custom_components.loxone`; the websocket protocol
+client under `custom_components.loxone.pyloxone_api`. For an issue report:
 
 ```yaml
 logger:
   default: warning
   logs:
-    homeassistant: warning
-    homeassistant.helpers: warning
     custom_components.loxone: debug
     custom_components.loxone.pyloxone_api: debug
 ```
 
-## Recorder Configuration
-A Loxone system generates a few thousand events per day. These events are recorded in your homeassistant and the database file can grow a lot per day. It is recommended to exclude loxone events from the recorder using the following settings:
+A healthy session logs nothing at WARNING or above. A lost connection logs
+one WARNING when it drops and one INFO when it is back.
+
+## Recorder configuration
+
+A Loxone system generates a few thousand `loxone_event` events per day.
+Exclude them from the recorder unless you need them in the history:
 
 ```yaml
 recorder:
@@ -291,203 +371,137 @@ recorder:
       - loxone_event
 ```
 
-In addition, the bookkeeping attributes of Loxone entities (`uuid`,
-`platform`, `room`, `category`, `state_uuid`, `device_type`) are excluded
-from the recorder by the integration itself.
+The bookkeeping attributes of Loxone entities (`uuid`, `platform`, `room`,
+`category`, `state_uuid`, `device_type`) are already excluded by the
+integration.
 
-## Some examples
+## Troubleshooting
 
-### Using a TextInput to control a block's API Connector
+| Symptom | Cause and fix |
+|---|---|
+| "Failed to perform action" on covers, climates, fans or buttons | Fixed in 0.10.7 (0.10.5 for most of them). Update. |
+| The integration stays down after a Miniserver firmware update or reboot | A booting Miniserver briefly answers 401. Since 0.10.0 setup retries and only asks for re-authentication after five failures over five minutes. On upstream 0.9.23 the entry stayed dead until reloaded by hand. |
+| A repair asks you to re-authenticate although the password is right | The Miniserver rejected the token and the password. Check the user is not locked or expired in Loxone Config, then complete the repair. |
+| Log floods with "Callback error" on every state message | Fixed in 0.10.1. |
+| Entity names look different after upgrading | 0.10.0 adopted Home Assistant's entity naming: the entity adopts the device name instead of repeating it. Entity ids are unchanged. |
+| Half of a dimmer's brightness slider does nothing | Fixed in 0.10.0: dimmers now honour their Loxone min/max range. |
+| Ventilation presets have no effect | Known limitation, see above. |
+| Home Assistant refuses to load the entry after going back to upstream | The fork's config entry version is newer than upstream's. Restore a backup or remove and re-add the integration. |
 
-The TextInput Virtual Input in the Miniserver enables some neat advanced applications.  
-The Audioserver for example, has limited API-support. If you want to switch presets from Home Assistant, this is not possible using the traditional Audio Player API interface.
+## Recipes
 
-A neat way around this, is by adressing the Audio Player block's API Connector using a VTI (Virtual Text Input). This enables all of the block's functionality in Home Assistant.
+### Send text to a block's API Connector through a TextInput
 
-First, create a VTI and connect it to the block's API Connector.
+The Audioserver's API is limited; switching presets from Home Assistant is
+not possible through the media player. Create a virtual text input (VTI) in
+Loxone Config and connect it to the Audio Player block's API Connector:
 
-<img src="./images/vti.png" width=25%>
+<img src="./images/vti.png" width="25%">
 
-Second, send anything you want to this VTI from Home Assistant. In this use case, we want the Audio Player to switch to preset 4:
+Then send commands to the VTI's `text` entity:
 
-```
+```yaml
 service: loxone.event_websocket_command
 data:
-  value: SET(Ap;Fav;4)
   device: text.ingang_vti1
+  value: SET(Ap;Fav;4)
 ```
-You can even directly address the Audio Player's TTS engine.
-```
+
+The block's text-to-speech works the same way:
+
+```yaml
 service: loxone.event_websocket_command
 data:
   device: text.ingang_vti1
   value: SET(AP;TTS;Woop-woop, that's the sound of da police)
-
 ```
-### Using a Slider to send data from Home Assistant to the Loxone Miniserver
 
-The Miniserver connects to/interfaces with a wide range of third party devices and services. However, support is quite limited in comparison to Home Assistant.  
-If you take the DSMR P1 digital meter interface for example. This (serial) interface is supported on a wide range of platforms, but not on the Miniserver.  
-A workaround could be creating a VI on the Miniserver and configuring it like a Slider. This VI will then appear in this integration as a Number entity to which you can send any numerical value.  
-Any change in the sensor value in Home Assistant should trigger an automation that sets the new value to the entity in the Loxone integration.
+### Push a Home Assistant value into the Miniserver through a Slider
 
-## Advanced usage: what to do if your device is not supported
-You can integrate nearly every Loxone Entity in your Home Assistant system by adding a custom sensor to your yaml file. 
+The Miniserver supports far fewer devices than Home Assistant (a DSMR P1
+meter, for example). Create a virtual input in Loxone Config, configure it
+as a slider, and it appears here as a `number` entity. An automation that
+triggers on the Home Assistant sensor and calls `number.set_value` keeps the
+Miniserver in sync.
 
-### Example 1 with a RoomComfortTemperature
-Here is a example of a sensor which is displaying the comfort temperature of a room controller v2:
+### Read any state as a YAML sensor
+
+Any Loxone state can be read through a YAML sensor by UUID, which is how
+you reach values of controls the integration does not model:
+
 ```yaml
 sensor:
   - name: RoomComfortTemperature
     platform: loxone
     uuidAction: "15beed5b-01ab-d81d-ffff2b06d5b9c660"
     unit_of_measurement: "°C"
-    device_class: "temperature"    # Use device classes from homeassitant for example temperature, humidity, voltage   
-    state_class: "total"           # measurement, total or total_increasing see https://developers.home-assistant.io/docs/core/entity/sensor/#long-term-statistics
+    device_class: temperature   # any Home Assistant sensor device class
+    state_class: measurement    # measurement, total or total_increasing
 ```
-In this example a sensor with the name roomcomforttemperature (sensor.roomcomforttemperature) is created. The sensor is listening to all events from the loxone system with the specified uuid ([How do you get the uuid?](https://github.com/JoDehli/PyLoxone?tab=readme-ov-file#how-do-you-get-the-uuid)).
 
-You can also send any websocket to a loxone entity for example to increase and decrease the temperature of a room controller v2. Here is a script that raises and lowers the temperature in 0.5 °C steps:
+Combined with the websocket command service this gives you write access
+too. A script that raises or lowers a room controller's comfort temperature
+by 0.5 °C:
 
 ```yaml
 script:
   tempup:
     alias: TempUp
-    mode: single
     sequence:
-    - data_template:
-        uuid: "15beed5b-01ab-d81f-ffff2b06d5b9c660" 
-        value: "setComfortTemperature/{{ states('sensor.roomcomforttemperature')|float+0.5}}"
-      service: loxone.event_websocket_command
+      - service: loxone.event_websocket_command
+        data:
+          uuid: "15beed5b-01ab-d81f-ffff2b06d5b9c660"
+          value: "setComfortTemperature/{{ states('sensor.roomcomforttemperature') | float + 0.5 }}"
   tempdown:
     alias: TempDown
-    mode: single
     sequence:
-    - data_template:
-        uuid: "15beed5b-01ab-d81f-ffff2b06d5b9c660"
-        value: "setComfortTemperature/{{ states('sensor.roomcomforttemperature')|float-0.5}}"
-      service: loxone.event_websocket_command
+      - service: loxone.event_websocket_command
+        data:
+          uuid: "15beed5b-01ab-d81f-ffff2b06d5b9c660"
+          value: "setComfortTemperature/{{ states('sensor.roomcomforttemperature') | float - 0.5 }}"
 ```
 
-### Example 2 with a UpDownAnalog
+The same pattern drives an `UpDownAnalog`: a YAML sensor on its `uuidAction`
+to read the value, and two scripts that send `<current value> + 1` and
+`<current value> - 1` to the same UUID.
 
-- First get the uuidAction as described above for example. Let's assume your uuidAction for the UpDownAnalog is 152ecfaa-03ac-f715-ffff403fb0c34b9e.
-- Create a Sensor do display the current value of the UpDownAnalog like this:
-```yaml
-sensor:
-  - name: "Up and Down Sensor"
-    platform: loxone
-    uuidAction: "152ecfaa-03ac-f715-ffff403fb0c34b9e"
-    unit_of_measurement: ""
-```
-- Create a script for incrementing up and down like this:
-```yaml
-down:
-  alias: Down
-  mode: single
-  sequence:
-  - data_template:
-      uuid: "152ecfaa-03ac-f715-ffff403fb0c34b9e"
-      value: "{{ states('sensor.up_and_down_sensor')|float-1}}"
-    service: loxone.event_websocket_command
+### Finding a UUID
 
-up:
-  alias: Up
-  mode: single
-  sequence:
-  - data_template:
-      uuid: "152ecfaa-03ac-f715-ffff403fb0c34b9e"
-      value: "{{ states('sensor.up_and_down_sensor')|float+1}}"
-    service: loxone.event_websocket_command
-```
-
-The commands for each entity can be found in the structure file. You can download it from the [Loxone Homepage](https://www.loxone.com/dede/kb/api/).
-
-## How do you get the uuid?
-
-If you need the UUID of an entity to use it in a service call or to manually add it to Home Assistant, you can get it from your Loxone setup by visit the following site with your prefered browser:
+Every Loxone entity exposes its control UUID as the `uuid` attribute
+(Developer Tools > States). For controls that have no entity, open the
+structure file in a browser and search it:
 
 ```
-http://{ip-address-of-your-loxone}:{port}/data/LoxAPP3.json
-
-{ip-address-of-your-loxone} --> replace with the ip of your loxone 
-
-{port} --> replace with your port (default: 80)
+http://<miniserver-ip>:<port>/data/LoxAPP3.json
 ```
-After entering your username and password you will see your LoxApp3.json. You can paste it in your prefered JSON editor/viewer (eg. https://jsonformatter.org/). 
-In this file you can find all your uuid ids for all your devices.  
 
+After logging in you get the whole structure file as JSON. Each control is
+listed under `controls` with its `name`, `type`, `uuidAction` and a `states`
+map of the UUIDs it streams, for example:
 
-Here is a example of a Room Controller V2: 
 ```json
-        "15beed5b-01ab-d81f-ffff2b06d5b9c660": {
-            "name": "Intelligente Raumregelung",
-            "type": "IRoomControllerV2",
-            "uuidAction": "15beed5b-01ab-d81f-ffff2b06d5b9c660",
-            "room": "13efd3e5-019d-8ad2-ffff403fb0c34b9e",
-            "cat": "152c22de-0338-94b5-ffff2b06d5b9c660",
-            "defaultRating": 2,
-            "isFavorite": false,
-            "isSecured": false,
-            "details": {
-                "timerModes": [
-                    {
-                        "name": "Anwesend",
-                        "description": "Komfortbetrieb",
-                        "id": 1
-                    },
-                    {
-                        "name": "Abwesend",
-                        "description": "Sparbetrieb",
-                        "id": 0
-                    },
-                    {
-                        "name": "Aus",
-                        "description": "Geb\u0041udeschutz",
-                        "id": 2
-                    }
-                ],
-                "format": "%.1f\u00b0",
-                "connectedInputs": 0
-            },
-            "states": {
-                "tempActual": "15beed5b-01ab-d7f7-ffff2b06d5b9c660",
-                "tempTarget": "15beed5b-01ab-d7f7-ffff2b06d5b9c660",
-                "comfortTemperature": "15beed5b-01ab-d81d-ffff2b06d5b9c660",
-                "comfortTolerance": "15beed5b-01ab-d800-ffff2b06d5b9c660",
-                "absentMinOffset": "15beed5b-01ab-d801-ffff2b06d5b9c660",
-                "absentMaxOffset": "15beed5b-01ab-d802-ffff2b06d5b9c660",
-                "frostProtectTemperature": "15beed5b-01ab-d803-ffff2b06d5b9c660",
-                "heatProtectTemperature": "15beed5b-01ab-d804-ffff2b06d5b9c660",
-                "activeMode": "15beed5b-01ab-d7f1-ffff2b06d5b9c660",
-                "comfortTemperatureOffset": "15beed5b-01ab-d7ec-ffff2b06d5b9c660",
-                "overrideEntries": "15beed5b-01ab-d7ed-ffff2b06d5b9c660",
-                "prepareState": "15beed5b-01ab-d7ee-ffff2b06d5b9c660",
-                "useOutdoor": "15beed5b-01ab-d7ef-ffff2b06d5b9c660",
-                "operatingMode": "15beed5b-01ab-d7f2-ffff2b06d5b9c660",
-                "overrideReason": "15beed5b-01ab-d7f4-ffff2b06d5b9c660",
-                "openWindow": "15beed5b-01ab-d7f8-ffff2b06d5b9c660",
-                "modeList": "15beed5b-01ab-d7f6-ffff2b06d5b9c660"
-            },
-            "subControls": {
-                "15beed5b-01ab-d7eb-ffff2b06d5b9c660": {
-                    "name": "Heating and Cooling",
-                    "type": "IRCV2Daytimer",
-                    "uuidAction": "15beed5b-01ab-d7eb-ffff2b06d5b9c660",
-                    "defaultRating": 0,
-                    "isFavorite": false,
-                    "isSecured": false,
-                    "details": {
-                        "analog": true,
-                        "format": "%.1f\u00b0"
-                    },
-                    "states": {
-                        "entriesAndDefaultValue": "15beed5b-01ab-d7eb-ffff2b06d5b9c660",
-                        "mode": "15beed5b-01ab-d81e-ffff2b06d5b9c660",
-                        "modeList": "15beed5b-01ab-d7f3-ffff2b06d5b9c660",
-                        "value": "15beed5b-01ab-d7f1-ffff2b06d5b9c660"
-                    }
-                }
-            }
-        },
+"15beed5b-01ab-d81f-ffff2b06d5b9c660": {
+    "name": "Intelligente Raumregelung",
+    "type": "IRoomControllerV2",
+    "uuidAction": "15beed5b-01ab-d81f-ffff2b06d5b9c660",
+    "states": {
+        "tempActual": "15beed5b-01ab-d7f7-ffff2b06d5b9c660",
+        "comfortTemperature": "15beed5b-01ab-d81d-ffff2b06d5b9c660",
+        "activeMode": "15beed5b-01ab-d7f1-ffff2b06d5b9c660"
+    }
+}
 ```
+
+Commands go to the `uuidAction`; a YAML sensor reads one of the `states`.
+
+## Contributing
+
+Bug reports and feature requests go to the
+[issue tracker](https://github.com/alxzndr/PyLoxone/issues); the issue form
+asks for the Miniserver firmware, the Home Assistant version and a debug log
+(see [Log configuration](#log-configuration)). Development setup, tests and
+the release process are in [CONTRIBUTING.md](CONTRIBUTING.md); release notes
+are in [CHANGELOG.md](CHANGELOG.md); the longer maintainer documentation is
+indexed in [`docs/README.md`](docs/README.md).
+
+Licensed under the Apache License 2.0, see [LICENSE](LICENSE).

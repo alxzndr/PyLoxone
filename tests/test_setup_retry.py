@@ -1,7 +1,7 @@
 """WP-1.5 regression tests: a 401 during setup must retry, not die (CORE-09).
 
-Incident 2026-09-02 (see ``2026-09-02-pyloxone-401-setup-error.md`` at the
-repo root): a Miniserver reboot answered 401 during the short boot window
+Incident 2026-09-02 (see ``docs/incidents/2026-09-02-401-during-miniserver-reboot.md``):
+a Miniserver reboot answered 401 during the short boot window
 after its HTTP server came back, ``async_setup_entry`` hit the
 ``LoxoneUnauthorisedError -> return False`` branch, and the entry sat in
 ``setup_error`` for 10.5 hours while every *other* failure type retried.

@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
+#
+# Local lint + format.  `scripts/lint` formats in place; `scripts/lint --check`
+# only reports (this is what the CI `lint` job runs).
+#
+# The blocking rule set is pinned by tests/test_lint_ratchet.py (BLOCKING_SELECT)
+# and mirrored in .pre-commit-config.yaml; change all three together.  The full
+# `select = ALL` pass from ruff.toml stays advisory: `ruff check . --statistics`.
 
-set -e
+set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-ruff format .
-# Blocking lint subset (mirrors the CI `lint` job). The full `ALL` pass is
-# advisory until the WP-5.3 lint ratchet clears the style backlog:
-#   ruff check . --statistics
-ruff check . --select F,E9,PLE,B,T20,S307,ASYNC,RUF006
+BLOCKING_SELECT="F,E9,PLE,B,T20,S307,ASYNC,RUF006,F401,G004,ERA001,B006,BLE001,TRY400,ARG"
+
+if [ "${1:-}" = "--check" ]; then
+    ruff check . --select "${BLOCKING_SELECT}"
+    ruff format --check .
+else
+    ruff format .
+    ruff check . --select "${BLOCKING_SELECT}"
+fi

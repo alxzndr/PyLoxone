@@ -11,10 +11,12 @@ permissions:
 
 jobs:
   # ------------------------------------------------------------------------
-  # Verify manifest version == push tag, then (if applicable) create the
-  # GitHub release that wraps the contents of the `Unreleased` block in
-  # CHANGELOG.md. This makes it impossible to tag 0.9.24 while the manifest
-  # still says 0.9.23 (see TOOL-02: release 0.9.23 shipped 0.9.22).
+  # Verify manifest version == push tag, then create (or update) the GitHub
+  # release whose notes are the CHANGELOG.md section of that version
+  # (`## <version> - <date>`), falling back to the `## Unreleased` block when
+  # the section has not been cut yet. The version guard makes it impossible
+  # to tag 0.9.24 while the manifest still says 0.9.23 (TOOL-02: release
+  # 0.9.23 shipped 0.9.22).
   # ------------------------------------------------------------------------
   verify-and-publish:
     runs-on: ubuntu-latest
@@ -44,11 +46,19 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_REF#refs/tags/}"
-          BODY=$(awk '
-            /^## Unreleased/{grab=1;next}
+          VERSION="${TAG#v}"
+          # The section of this version ("## 0.10.8 - 2026-09-20"), else Unreleased.
+          BODY=$(awk -v v="${VERSION}" '
+            $0 ~ ("^## " v "([^0-9.]|$)") {grab=1; next}
             /^## /{grab=0}
             grab' CHANGELOG.md)
-          if [ -z "${BODY}" ]; then
+          if [ -z "$(printf '%s' "${BODY}" | tr -d '[:space:]')" ]; then
+            BODY=$(awk '
+              /^## Unreleased/{grab=1;next}
+              /^## /{grab=0}
+              grab' CHANGELOG.md)
+          fi
+          if [ -z "$(printf '%s' "${BODY}" | tr -d '[:space:]')" ]; then
             BODY="Release ${TAG}"
           fi
           if gh release view "${TAG}" 2>/dev/null; then

@@ -134,7 +134,7 @@ RELOAD_SCHEMA = vol.Schema(
 
 # A Miniserver that is still booting (firmware update / reboot) answers 401 to
 # authenticated requests for a short window after its HTTP server is back up
-# (see 2026-09-02-pyloxone-401-setup-error.md).  A 401 during setup is
+# (see docs/incidents/2026-09-02-401-during-miniserver-reboot.md).  A 401 during setup is
 # therefore retried; once the failures span this long we escalate to
 # `ConfigEntryAuthFailed` + a reauth flow (with the repair issue HA raises
 # for it, CORE-09 / WP-3.4).

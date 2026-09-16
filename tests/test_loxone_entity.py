@@ -1,6 +1,6 @@
 """WP-1.1 regression tests for the ``LoxoneEntity`` base class.
 
-Covers the three acceptance criteria in docs/review/prompts/WP-1.1.md:
+Covers the three acceptance criteria of WP-1.1 (docs/review/2026-09-remediation-plan.md):
 
 1. An in-place reload of the config entry must NOT leak the shared
    ``loxone_event`` bus listener (CORE-01).  The old ``LoxoneEntity`` stored the

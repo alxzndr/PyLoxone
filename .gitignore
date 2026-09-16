@@ -1,41 +1,37 @@
-.HA_VERSION
+# Python
+__pycache__/
+*.py_tmp
+*.egg-info
+*/build/*
+*/dist/*
+venv/
+.venv/
 
+# Tooling caches and reports
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.idea
+.claude/
+.vscode
+
+# Environment / secrets
+.env
+*.log
+*.db
+
+# Home Assistant scratch config used by the devcontainer (config/configuration.yaml is tracked)
+config/*
+!config/configuration.yaml
+.HA_VERSION
 .storage
 .cloud
 deps
 tts
-venv
-
 hass.py
-
-.idea
-*.db
-*.log
-!hacs.json
-/venv/
-
-__pycache__
-custom_components/loxone/homeassistant
-.vscode
 ha_data_folder/
-*.py_tmp
+custom_components/loxone/homeassistant
 
-# Env file for tests
-.env
-
-# artifacts
-.pytest*
-*.egg-info
-*/build/*
-*/dist/*
-
-# misc
-.coverage
-coverage.xml
-.ruff_cache
-
-# Home Assistant configuration
-config/*
-!config/configuration.yaml
-
+# Scratch
 tmp*

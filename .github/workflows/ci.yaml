@@ -28,11 +28,11 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - run: pip install ruff==0.15.20
 
-      # Blocking: the defect families (WP-0.1) plus the ratcheted-in
-      # advisory groups (WP-5.3: F401/G004/ERA001/B006/BLE001/TRY400/ARG).
-      # The set only ever grows; tests/test_lint_ratchet.py pins it.
-      - name: ruff check (defect subset, blocking)
-        run: ruff check . --select F,E9,PLE,B,T20,S307,ASYNC,RUF006,F401,G004,ERA001,B006,BLE001,TRY400,ARG
+      # Blocking: the rule set in scripts/lint (defect families plus the
+      # ratcheted-in groups). The set only ever grows; tests/test_lint_ratchet.py
+      # pins it, and scripts/lint --check also runs `ruff format --check`.
+      - name: ruff check + format check (blocking)
+        run: bash scripts/lint --check
 
       # Advisory: the full `ruff.toml` (`select = ALL`) pass. Not blocking until
       # the WP-5.3 lint ratchet has worked its way through the backlog.
@@ -40,8 +40,6 @@ jobs:
         continue-on-error: true
         run: ruff check . --statistics
 
-      - name: ruff format check
-        run: ruff format --check .
 
   # ---------------------------------------------------------------------------
   # Test: Python 3.14 only (Home Assistant 2026.8.1 refuses < 3.14.2).

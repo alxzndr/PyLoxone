@@ -2,7 +2,7 @@ from ipaddress import ip_address
 
 import pytest
 
-from ..discover import discover
+from custom_components.loxone.pyloxone_api.discover import discover
 
 
 @pytest.mark.online

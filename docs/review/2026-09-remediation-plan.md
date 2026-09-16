@@ -1,5 +1,12 @@
 # PyLoxone remediation plan (2026-09-03)
 
+> **Status (2026-09-15):** every work package below (WP-0.1 to WP-6.10) landed
+> and shipped in release 0.10.0; later releases are in `CHANGELOG.md`. The one
+> open item is the "Ventilation fan model rework" follow-up at the end of this
+> file. The plan is kept as the record of what was decided and why; the
+> per-package agent prompts it refers to were removed from the repository once
+> they had been executed.
+
 This plan turns the findings in `2026-09-findings.md` into work packages (WPs) that one agent can
 complete in one session each. Finding IDs (`API-01`, `CORE-05`, `PS-02`, `PC-01`, `TOOL-07`) refer to
 that catalogue; read the referenced entries before starting a WP.
@@ -140,7 +147,7 @@ start as soon as 1.1 and 1.3 are merged. Agents working Phase 4 must not touch `
 
 ### WP-1.5 Transient 401 during setup must retry, not die (incident 2026-09-02)
 - **Findings**: CORE-09 (retry + close parts only; reauth stays in WP-3.4).
-- **Files**: `custom_components/loxone/__init__.py` (the `try/except` block around `async_config_entry_first_refresh`, lines 257-298 only — WP-1.1 owns the `LoxoneEntity` class further down the same file; rebase carefully), `tests/test_setup_retry.py` (new). Read `2026-09-02-pyloxone-401-setup-error.md` at the repo root first.
+- **Files**: `custom_components/loxone/__init__.py` (the `try/except` block around `async_config_entry_first_refresh`, lines 257-298 only — WP-1.1 owns the `LoxoneEntity` class further down the same file; rebase carefully), `tests/test_setup_retry.py` (new). Read `docs/incidents/2026-09-02-401-during-miniserver-reboot.md` first.
 - **Steps**: delete the `return False`; every failure branch awaits `coordinator.api.close()` (wrap the whole block so it cannot be missed); `LoxoneUnauthorisedError` → increment a per-entry consecutive-auth-failure counter with first-failure timestamp stored in `hass.data[DOMAIN]` under a key that survives the retry (HA re-creates the coordinator on each attempt, so do not store it on the coordinator), log at WARNING "Miniserver answered 401 during setup; retrying (attempt n)", and raise `ConfigEntryNotReady`; when the counter reaches 5 **and** at least 5 minutes have elapsed since the first failure, log at ERROR with guidance to check credentials and keep raising `ConfigEntryNotReady` (WP-3.4 later replaces this branch with `ConfigEntryAuthFailed`); reset the counter on successful setup. Keep the existing `LoxoneServiceUnAvailableError`/`OSError`/`TimeoutError` behaviour.
 - **Acceptance**: harness test where the patched `LoxoneConnection.open` raises `LoxoneUnauthorisedError` twice then succeeds → entry reaches `LOADED` after HA's retries (use `async_fire_time_changed` to advance the retry timer) and `api.close` was awaited once per failed attempt; test where it raises 401 forever → entry stays `SETUP_RETRY`, never `SETUP_ERROR`, and after the fifth attempt an ERROR log record with the word "credentials" exists; the 503 path still raises `ConfigEntryNotReady`.
 
