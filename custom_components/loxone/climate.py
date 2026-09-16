@@ -5,6 +5,8 @@ For more details about this component, please refer to the documentation at
 https://github.com/JoDehli/PyLoxone
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -53,7 +55,7 @@ def _parse_mode_list(raw, what: str) -> list[dict]:
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
-        except ValueError, TypeError:
+        except (ValueError, TypeError):
             _LOGGER.debug("Could not parse %s: %r", what, raw)
             return []
     if not isinstance(raw, list):
@@ -159,7 +161,7 @@ def capabilities_to_hvac_modes(bits, range_allowed: bool = True) -> list[HVACMod
     """
     try:
         value = int(bits)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         value = 3
     modes = [HVACMode.AUTO, HVACMode.OFF]
     if value & 1:

@@ -107,14 +107,14 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
         if self._min_uuid in e:
             try:
                 self._min = float(e[self._min_uuid])
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 pass
             request_update = True
 
         if self._max_uuid in e:
             try:
                 self._max = float(e[self._max_uuid])
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 pass
             request_update = True
 
@@ -126,7 +126,7 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
             position = e[self._position_uuid]
             try:
                 position = float(position)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 position = None
             if position is not None:
                 if self._master_min_max_known:

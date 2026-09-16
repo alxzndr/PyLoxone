@@ -383,7 +383,7 @@ def message_center_entry_timestamp(timestamps) -> datetime | None:
         return None
     try:
         return dt_util.utc_from_timestamp(value)
-    except OverflowError, OSError, ValueError:
+    except (OverflowError, OSError, ValueError):
         return None
 
 
@@ -1569,7 +1569,7 @@ class LoxoneRoomControllerOverrideSensor(SensorEntity):
         if self._uuid in e:
             try:
                 code = int(float(e[self._uuid]))
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return
             slug = OVERRIDE_REASON_SLUGS.get(code, OVERRIDE_REASON_UNKNOWN)
             if slug not in self._attr_options:
@@ -1828,7 +1828,7 @@ class LoxoneMessageCenterSensor(LoxoneEntity, SensorEntity):
         """Parse the ``getEntries`` response and reconcile the issues."""
         try:
             payload = json.loads(value)
-        except json.JSONDecodeError, TypeError:
+        except (json.JSONDecodeError, TypeError):
             _LOGGER.exception("Failed to parse the Message Center getEntries response")
             return
         entries = payload.get("entries") if isinstance(payload, dict) else None

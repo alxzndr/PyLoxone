@@ -183,21 +183,21 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         if self._master_min_uuid and self._master_min_uuid in event:
             try:
                 self._master_min = float(event[self._master_min_uuid])
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 pass
             request_update = True
 
         if self._master_max_uuid and self._master_max_uuid in event:
             try:
                 self._master_max = float(event[self._master_max_uuid])
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 pass
             request_update = True
 
         if self._master_position_uuid and self._master_position_uuid in event:
             try:
                 position = float(event[self._master_position_uuid])
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 position = None
             if position is not None:
                 if self._master_min_max_known:

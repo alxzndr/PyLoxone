@@ -51,7 +51,7 @@ def fan_speed_percentage(speed: object) -> int | None:
         return None
     try:
         value = int(round(float(speed)))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return max(0, min(100, value))
 
@@ -89,7 +89,7 @@ def ventilation_profile_id(mode: object) -> int | None:
     """
     try:
         value = int(mode)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return value if value in VENTELATION_INT_TO_STR else None
 

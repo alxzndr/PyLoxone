@@ -1,6 +1,11 @@
 # The contents of this file is based on https://github.com/home-assistant/core/blob/dev/pyproject.toml
 
-target-version = "py314"
+# py313, not py314, on purpose: Home Assistant 2026.7 needs CPython 3.14, but
+# with a py314 target the formatter rewrites `except (A, B):` into the PEP 758
+# form `except A, B:` (a SyntaxError below 3.14) on every run. Targeting 3.13
+# keeps the parenthesised form and makes the 3.14-only form a lint error, so
+# the code stays portable to a lower floor (upstream still declares one).
+target-version = "py313"
 line-length = 120
 
 [lint]

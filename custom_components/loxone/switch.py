@@ -425,7 +425,7 @@ class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
             try:
                 entries = json.loads(raw) if isinstance(raw, str) else raw
                 self._attr_is_on = isinstance(entries, list) and len(entries) > 0
-            except json.JSONDecodeError, TypeError:
+            except (json.JSONDecodeError, TypeError):
                 self._attr_is_on = False
             self.async_write_ha_state()
 

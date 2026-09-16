@@ -342,7 +342,7 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
             value = data[state_uuid]
             try:
                 number = int(float(value))
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 number = None
             self._attr_current_option = self._num_to_option.get(number)
             request_update = True

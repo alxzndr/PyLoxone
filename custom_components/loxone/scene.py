@@ -32,7 +32,7 @@ def parse_mood_list(raw):
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
-        except json.JSONDecodeError, TypeError:
+        except (json.JSONDecodeError, TypeError):
             return None
     if isinstance(raw, list):
         return [mood for mood in raw if isinstance(mood, dict) and mood.get("id") is not None and "name" in mood]

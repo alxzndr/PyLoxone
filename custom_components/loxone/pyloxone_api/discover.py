@@ -73,7 +73,7 @@ def _discover_blocking(wait: int) -> tuple[str, int, str] | None:
             read_sock.settimeout(float(wait))
             try:
                 response = read_sock.recv(1024).decode()
-            except TimeoutError, OSError:
+            except (TimeoutError, OSError):
                 return None
 
             # Look for a Loxone Response.

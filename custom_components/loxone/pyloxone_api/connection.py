@@ -5,6 +5,8 @@ For more details about this component, please refer to the documentation at
 https://github.com/JoDehli/pyloxone-api
 """
 
+from __future__ import annotations
+
 import asyncio
 import hashlib
 import inspect
@@ -548,7 +550,7 @@ class LoxoneBaseConnection:
         code = getattr(mess_obj, "code", None)
         try:
             code = int(code) if code is not None else None
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             code = None
         if code in (None, 0, 200):
             return
@@ -2191,7 +2193,7 @@ class LoxoneConnection(LoxoneBaseConnection):
             else:
                 pass
 
-        except LoxoneTokenError, LoxoneUnauthorisedError:
+        except (LoxoneTokenError, LoxoneUnauthorisedError):
             raise
 
         except SESSION_TRANSPORT_ERRORS as e:

@@ -188,7 +188,7 @@ def audio_zone_stream_names_list(raw) -> list[str] | None:
     try:
         if isinstance(raw, str):
             raw = json.loads(raw)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return None
     if not isinstance(raw, list):
         return None
@@ -211,7 +211,7 @@ def audio_zone_metadata(raw) -> dict | None:
     try:
         if isinstance(raw, str):
             raw = json.loads(raw)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return None
     if not isinstance(raw, dict):
         return None

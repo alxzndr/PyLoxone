@@ -83,7 +83,7 @@ def _as_int_seconds(value):
         return None
     try:
         return int(float(value))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
