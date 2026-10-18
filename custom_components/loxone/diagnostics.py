@@ -15,6 +15,7 @@ which entry was being requested.  This version:
 
 from __future__ import annotations
 
+import datetime
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -23,6 +24,7 @@ from homeassistant.helpers.redact import async_redact_data
 
 from .const import DOMAIN
 from .miniserver import get_miniserver_from_hass
+from .pyloxone_api.loxone_token import LOXONE_EPOCH
 
 # Keys that `async_redact_data` will mask (case-sensitive exact match,
 # all nesting levels).  ``serialNr``/``mac`` are the fingerprint fields of the
@@ -64,6 +66,30 @@ def _jsononly(node):
     return node if isinstance(node, JSONableScalable) else None
 
 
+def _connection_diagnostics(config_entry: ConfigEntry) -> dict[str, Any]:
+    """
+    Session state and token expiry, never the token itself.
+
+    ``valid_until`` counts seconds since 2009-01-01 in the Miniserver's local
+    time (the Loxone epoch), so the date is given without a time zone.
+    """
+    coordinator = getattr(config_entry, "runtime_data", None)
+    api = getattr(coordinator, "api", None)
+    if api is None:
+        return {}
+    token = api.get_token_dict()
+    valid_until = token.get("valid_until") or 0
+    info: dict[str, Any] = {
+        "connected": bool(getattr(coordinator, "connected", False)),
+        "token_present": bool(token.get("token")),
+        "token_hash_alg": token.get("hash_alg") or None,
+        "token_refresh_failures": api._refresh_failures,  # noqa: SLF001
+    }
+    if valid_until > 0:
+        info["token_valid_until"] = (LOXONE_EPOCH + datetime.timedelta(seconds=valid_until)).isoformat()
+    return info
+
+
 async def async_get_config_entry_diagnostics(hass: HomeAssistant, config_entry: ConfigEntry) -> dict[str, Any]:
     """Return diagnostics for the requested ``config_entry`` (redacted)."""
     miniserver = get_miniserver_from_hass(hass, config_entry)
@@ -79,4 +105,5 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, config_entry: 
             # which entry is being inspected (anti cross-install leak).
             "entry_id": config_entry.entry_id,
         },
+        "connection": _connection_diagnostics(config_entry),
     }

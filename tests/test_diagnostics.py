@@ -45,6 +45,26 @@ async def test_diagnostics_redacts_serial_and_mac(
     assert "entry" in diag  # request-scoped payload is still present
 
 
+async def test_diagnostics_reports_token_expiry_without_the_token(
+    hass, mock_connection, mock_entry, enable_custom_integrations
+) -> None:
+    mock_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+    api = mock_entry.runtime_data.api
+    api._token.token = "SECRET-JWT"
+    api._token.hash_alg = "SHA256"
+    # 2026-01-01 00:00 is 17 years (incl. the 4 leap days 2012-2024) after the Loxone epoch.
+    api._token.valid_until = (17 * 365 + 4) * 86400
+
+    diag = await async_get_config_entry_diagnostics(hass, mock_entry)
+
+    assert diag["connection"]["token_present"] is True
+    assert diag["connection"]["token_hash_alg"] == "SHA256"
+    assert diag["connection"]["token_valid_until"] == "2026-01-01T00:00:00"
+    assert "SECRET-JWT" not in json.dumps(diag, default=str)
+
+
 async def test_diagnostics_returns_empty_dict_when_no_entry(hass, mock_entry, enable_custom_integrations) -> None:
     """An entry that never ran async_setup_entry: no miniserver -> {} not None."""
     result = await async_get_config_entry_diagnostics(hass, mock_entry)
