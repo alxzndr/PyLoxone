@@ -28,6 +28,14 @@ _LOGGER = logging.getLogger(__name__)
 # (@mousator, JoDehli/PyLoxone#466) confirms the sub-controls are
 # handled the same way.  The match lives in this one tuple: the
 # ``iter_controls`` filter and the dispatch below both use it.
+#
+# VERIFY (safety): the structure file v16 says an Intercom's sub-controls
+# are "0-3 outputs of type Pushbutton" (p. 91; ``pulse`` since 8.0) and an
+# IntercomV2's "0-N outputs of type Pushbutton" (p. 93) — state ``active``,
+# commands ``pulse`` (tap) or ``on`` ... ``off`` (press and hold).  They are
+# exposed here as switches whose turn-on sends ``on``, which holds a door
+# opener output until a ``turn_off`` follows.  Behaviour unchanged for now;
+# see docs/review/LIVE-MINISERVER-CHECKS.md (IntercomV2 item).
 INTERCOM_TYPES = ("Intercom", "IntercomV2")
 
 

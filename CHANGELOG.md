@@ -39,6 +39,25 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   sensors on the monitor's device; only `Open` and `Tilted` are enabled by
   default.
 
+### Changed
+
+- The documentation no longer claims support that was only ever tested
+  against the synthetic test fixture. Checked against the Loxone structure
+  file (v16): a `PresenceDetector` publishes no brightness or noise state,
+  so the `Illuminance` and `Noise` sub-sensors added in 0.10.0 (#461) most
+  likely never appear on a real Miniserver; the README now points to
+  ticking "Use" on the detector's outputs, which turns them into
+  `InfoOnlyAnalog` sensors. An `AudioZoneV2` documents no `active`, `mute`,
+  `source`, `sourceList`, `favouriteList` or `metadata` state and no on/off,
+  mute or source command, so power, mute, source selection and track
+  metadata are described as unverified instead of supported. The outputs
+  of an intercom are pushbuttons in the structure file, while the
+  integration exposes them as switches that send `on` and hold the output
+  until turned off; the README warns about door openers until that is
+  changed. The code paths stay (they are guarded and do nothing when the
+  states are missing) and are marked for a live check in
+  `docs/review/LIVE-MINISERVER-CHECKS.md`.
+
 ## 0.10.9 - 2026-09-16
 
 ### Fixed

@@ -285,6 +285,13 @@ class LoxoneAudioZoneV2(LoxoneEntity, MediaPlayerEntity):
     def _state_uuids(self) -> frozenset[str]:
         # CORE-27: the state streams this zone reacts to (WP-6.7 broadened
         # the set from volume/playState with the power/zone-ability streams).
+        # VERIFY: the structure file v16 (p. 41-44) lists serverState,
+        # playState, clientState, power, volumeStep, volume and the
+        # alarm/bell/buzzer/TTS volumes for an AudioZoneV2 — no ``active``,
+        # ``mute``, ``source``, ``sourceList``, ``favouriteList`` or
+        # ``metadata``.  Those keys come from the synthetic fixture; on a real
+        # Miniserver they are most likely absent and simply never subscribe.
+        # The documented power state is ``power``.
         keys = (
             "volume",
             "playState",

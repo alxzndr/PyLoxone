@@ -150,6 +150,15 @@ METER_FAMILY_TYPES = ("Meter", "EnergyManager", "EnergyManager2", "PowerUnit", "
 # numeric measurement).  WP-6.1 keeps the *presence* device linkage in
 # the binary_sensor platform: the sub-sensors here carry the parent
 # control's device identifiers, so HA merges them into the same device.
+#
+# VERIFY: the structure file v16 (p. 124) lists only activeSince, active,
+# locked, infoText and time for a PresenceDetector, and the upstream
+# discussion of #461 says the same: the block does not publish brightness
+# or noise.  The states above come from the synthetic test fixture, so on a
+# real Miniserver this path most likely yields nothing (it is guarded and
+# harmless).  Users get the values by ticking "Use" on the sensor's Lx /
+# noise outputs, which arrive as InfoOnlyAnalog.  See
+# docs/review/LIVE-MINISERVER-CHECKS.md before relying on it or deleting it.
 PRESENCE_SUB_SENSOR_SPECS: dict[str, tuple[str, str]] = {
     "illuminance": ("Illuminance", "%.0f lx"),
     "noise": ("Noise", "%.0f dB"),
