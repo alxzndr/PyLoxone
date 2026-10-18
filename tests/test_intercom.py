@@ -1,4 +1,4 @@
-"""Intercom blocks (``Intercom`` / ``IntercomV2``): the outputs are pushbuttons.
+"""Intercom blocks (``Intercom`` / ``IntercomV2``): outputs, doorbell, answer, mute.
 
 Structure file v16 (pp. 90-93): an ``Intercom`` has the states ``bell``
 (0/1), ``lastBellEvents``, ``lastBellTimestamp``, ``version``; an
@@ -20,11 +20,13 @@ output "Door Opener") and "Entrance Intercom" (``IntercomV2``, output
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
@@ -37,12 +39,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Hand-transcribed from tests/fixtures/LoxAPP3.json ("Entrance Intercom").
 V2_ACTION_UUID = "63746c3a-9c7d-96f2-ffff-e301696e743276000024"
+V2_BELL_UUID = "36333734-9c8d-9336-ffff-d303136a2b42d300025"
+V2_MUTED_UUID = "36333734-9c8d-9336-ffff-d303136a2b42d300032"
 V2_SUB_UUID = "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026"
 V2_SUB_ACTIVE_UUID = "37333735-9cad-9336-ffff-d303136b2c42d300027"
 V2_CONTROL_NAME = "Entrance Intercom"
 V2_SUB_NAME = "Door Lock"
 # ... and "Main Intercom" (legacy ``Intercom``).
 V1_ACTION_UUID = "63746c3a-0165-9696-ffff-0496e7465726000101"
+V1_BELL_UUID = "36333734-0166-9336-ffff-d303136352d3000102"
 V1_SUB_UUID = "7375623a-0167-9696-ffff-0496e7465726000103"
 # The fixture's one plain "Switch" (not an intercom output).
 PLAIN_SWITCH_UUID = "63746c3a-0157-9766-ffff-e6720526f6f6000087"
@@ -50,6 +55,11 @@ PLAIN_SWITCH_UUID = "63746c3a-0157-9766-ffff-e6720526f6f6000087"
 # Hand-derived entity ids: area (Hall) + device name + short entity name.
 V2_DOOR_BUTTON = "button.hall_entrance_intercom_door_lock"
 V1_DOOR_BUTTON = "button.hall_main_intercom_door_opener"
+V2_ANSWER_BUTTON = "button.hall_entrance_intercom_answer"
+V1_ANSWER_BUTTON = "button.hall_main_intercom_answer"
+V2_DOORBELL = "event.hall_entrance_intercom_doorbell"
+V1_DOORBELL = "event.hall_main_intercom_doorbell"
+V2_MUTE = "switch.hall_entrance_intercom_mute"
 
 # Hand-transcribed from the fixture's rooms/cats tables (uuid -> name).
 HALL_ROOM_UUID = "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005"  # "Hall"
@@ -112,6 +122,16 @@ async def _setup(hass, entry, config=None):
 async def _unload(hass, entry):
     await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def _wait_until(hass, predicate, *, message: str, seconds: float = 10.0) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + seconds
+    while loop.time() < deadline:
+        if predicate():
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"timed out waiting for: {message}")
 
 
 def _sent_to(mock_connection, uuid):
@@ -223,6 +243,10 @@ async def test_setup_creates_output_buttons_not_switches(hass, mock_connection, 
     assert registry.async_get(V2_DOOR_BUTTON).original_name == V2_SUB_NAME
     assert devices.async_get(registry.async_get(V1_DOOR_BUTTON).device_id).model == "Intercom"
 
+    # Every intercom entity shares the intercom's one device.
+    for entity_id in (V2_ANSWER_BUTTON, V2_DOORBELL, V2_MUTE):
+        assert registry.async_get(entity_id).device_id == device.id, entity_id
+
     await _unload(hass, mock_entry)
 
 
@@ -273,9 +297,145 @@ async def test_intercom_without_subcontrols_is_inert(hass, mock_connection, mock
     await _setup(hass, mock_entry, config)
 
     assert hass.states.get(V2_DOOR_BUTTON) is None
-    # The other intercom (and the platform) still came up.
+    # The rest of the intercom (and the platforms) still came up.
+    assert hass.states.get(V2_ANSWER_BUTTON) is not None
     assert hass.states.get(V1_DOOR_BUTTON) is not None
 
+    await _unload(hass, mock_entry)
+
+
+# --------------------------------------------------------------------------- #
+# Answer and mute
+# --------------------------------------------------------------------------- #
+async def test_answer_button_sends_answer_to_the_intercom(
+    hass, mock_connection, mock_entry, enable_custom_integrations
+):
+    await _setup(hass, mock_entry)
+
+    await hass.services.async_call("button", "press", {"entity_id": V2_ANSWER_BUTTON}, blocking=True)
+    await hass.services.async_call("button", "press", {"entity_id": V1_ANSWER_BUTTON}, blocking=True)
+    await hass.async_block_till_done()
+
+    assert _sent_to(mock_connection, V2_ACTION_UUID) == ["answer"]
+    assert _sent_to(mock_connection, V1_ACTION_UUID) == ["answer"]
+    assert er.async_get(hass).async_get(V2_ANSWER_BUTTON).unique_id == f"{V2_ACTION_UUID}/answer"
+
+    await _unload(hass, mock_entry)
+
+
+async def test_mute_switch_follows_muted_and_sends_mute(hass, mock_connection, mock_entry, enable_custom_integrations):
+    await _setup(hass, mock_entry)
+
+    # V2 only: the legacy Intercom has no ``muted`` state.
+    assert not any("main_intercom" in i for i in hass.states.async_entity_ids("switch"))
+    assert hass.states.get(V2_MUTE).state == "unavailable"  # no value seen yet
+
+    mock_connection.feed(V2_MUTED_UUID, 0)
+    await hass.async_block_till_done()
+    assert hass.states.get(V2_MUTE).state == "off"
+
+    await hass.services.async_call("switch", "turn_on", {"entity_id": V2_MUTE}, blocking=True)
+    await hass.async_block_till_done()
+    assert _sent_to(mock_connection, V2_ACTION_UUID) == ["mute/1"]
+    # Not optimistic: the state follows the Miniserver's echo.
+    assert hass.states.get(V2_MUTE).state == "off"
+    mock_connection.feed(V2_MUTED_UUID, 1)
+    await hass.async_block_till_done()
+    assert hass.states.get(V2_MUTE).state == "on"
+
+    await hass.services.async_call("switch", "turn_off", {"entity_id": V2_MUTE}, blocking=True)
+    await hass.async_block_till_done()
+    assert _sent_to(mock_connection, V2_ACTION_UUID) == ["mute/1", "mute/0"]
+
+    await _unload(hass, mock_entry)
+
+
+# --------------------------------------------------------------------------- #
+# Doorbell event
+# --------------------------------------------------------------------------- #
+async def test_doorbell_fires_ring_on_rising_edge_only(hass, mock_connection, mock_entry, enable_custom_integrations):
+    await _setup(hass, mock_entry)
+    state = hass.states.get(V2_DOORBELL)
+    assert state.attributes["device_class"] == "doorbell"
+    assert state.attributes["event_types"] == ["ring"]
+    assert state.state == "unknown"
+
+    # The session's first value is the baseline: no event.
+    mock_connection.feed(V2_BELL_UUID, 0.0)
+    await hass.async_block_till_done()
+    assert hass.states.get(V2_DOORBELL).state == "unknown"
+
+    # 0 -> 1: a ring.
+    mock_connection.feed(V2_BELL_UUID, 1.0)
+    await hass.async_block_till_done()
+    first = hass.states.get(V2_DOORBELL)
+    assert first.state != "unknown"
+    assert first.attributes["event_type"] == "ring"
+
+    # 1 -> 1 (repeat) and 1 -> 0: nothing.
+    mock_connection.feed(V2_BELL_UUID, 1.0)
+    mock_connection.feed(V2_BELL_UUID, 0.0)
+    await hass.async_block_till_done()
+    assert hass.states.get(V2_DOORBELL).state == first.state
+
+    # The next 0 -> 1 is a second ring.
+    mock_connection.feed(V2_BELL_UUID, 1.0)
+    await hass.async_block_till_done()
+    assert hass.states.get(V2_DOORBELL).state != first.state
+
+    # The legacy intercom's doorbell is its own entity and did not move.
+    assert hass.states.get(V1_DOORBELL).state == "unknown"
+
+    await _unload(hass, mock_entry)
+
+
+async def test_doorbell_ringing_at_startup_does_not_fire(hass, mock_connection, mock_entry, enable_custom_integrations):
+    await _setup(hass, mock_entry)
+
+    mock_connection.feed(V1_BELL_UUID, 1.0)
+    await hass.async_block_till_done()
+    assert hass.states.get(V1_DOORBELL).state == "unknown"
+
+    await _unload(hass, mock_entry)
+
+
+async def test_doorbell_reconnect_replay_is_a_new_baseline(
+    hass, mock_connection, mock_entry, enable_custom_integrations
+):
+    await _setup(hass, mock_entry)
+    coordinator = mock_entry.runtime_data
+
+    mock_connection.feed(V2_BELL_UUID, 0.0)
+    await hass.async_block_till_done()
+
+    for replayed in (0.0, 1.0):
+        mock_connection.drop()
+        await _wait_until(hass, lambda: coordinator.connected is False, message="session to go down")
+        assert hass.states.get(V2_DOORBELL).state == "unavailable"
+        await _wait_until(hass, lambda: coordinator.connected is True, message="session to come back")
+        # The Miniserver replays the current value: never an event.
+        mock_connection.feed(V2_BELL_UUID, replayed)
+        await hass.async_block_till_done()
+        assert hass.states.get(V2_DOORBELL).state == "unknown", replayed
+
+    # A change seen within the new session still fires.
+    mock_connection.feed(V2_BELL_UUID, 0.0)
+    mock_connection.feed(V2_BELL_UUID, 1.0)
+    await hass.async_block_till_done()
+    assert hass.states.get(V2_DOORBELL).attributes["event_type"] == "ring"
+
+    await _unload(hass, mock_entry)
+
+
+@pytest.mark.parametrize("value", ["garbage", None])
+async def test_doorbell_ignores_unreadable_values(hass, mock_connection, mock_entry, enable_custom_integrations, value):
+    await _setup(hass, mock_entry)
+    mock_connection.feed(V2_BELL_UUID, 0.0)
+    mock_connection.feed(V2_BELL_UUID, value)
+    mock_connection.feed(V2_BELL_UUID, 1.0)
+    await hass.async_block_till_done()
+    # The unreadable value neither fired nor broke the edge detection.
+    assert hass.states.get(V2_DOORBELL).attributes["event_type"] == "ring"
     await _unload(hass, mock_entry)
 
 

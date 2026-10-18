@@ -19,6 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
 from .helpers import get_or_create_device, iter_controls
+from .intercom import INTERCOM_V2, intercom_device_info, intercom_state_uuid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ async def async_setup_entry(
     entities = []
 
     for switch_entity in iter_controls(
-        hass, config_entry, ["Switch", "TimedSwitch", "IRoomControllerV2", "LightControllerV2"]
+        hass, config_entry, ["Switch", "TimedSwitch", INTERCOM_V2, "IRoomControllerV2", "LightControllerV2"]
     ):
         try:
             if switch_entity["type"] in ["Switch"]:
@@ -43,6 +44,11 @@ async def async_setup_entry(
                 new_switch = LoxoneTimedSwitch(**switch_entity)
                 entities.append(new_switch)
 
+            elif switch_entity["type"] == INTERCOM_V2:
+                # The intercom *outputs* are pushbuttons (button platform);
+                # the only intercom switch is the IntercomV2 mute.
+                if intercom_state_uuid(switch_entity, "muted") and intercom_device_info(switch_entity, config_entry):
+                    entities.append(LoxoneIntercomMuteSwitch(config_entry=config_entry, **switch_entity))
             elif switch_entity["type"] == "IRoomControllerV2":
                 states = switch_entity.get("states", {})
                 if "overrideEntries" in states:
@@ -264,6 +270,54 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
             "device_type": self.type,
             "platform": "loxone",
         }
+
+
+class LoxoneIntercomMuteSwitch(LoxoneEntity, SwitchEntity):
+    """
+    "Mute" of an ``IntercomV2``: state ``muted`` (the block's Qb output),
+    commands ``mute/1`` / ``mute/0`` (structure file v16, p. 93).
+
+    The state follows the Miniserver's ``muted`` echo only (no optimistic
+    flip): unavailable until the first value arrives.
+    """
+
+    _attr_available = False
+    _attr_is_on: bool | None = None
+    _attr_name = "Mute"
+    _attr_icon = "mdi:bell-cancel"
+
+    def __init__(self, **kwargs):
+        config_entry = kwargs.pop("config_entry", None)
+        super().__init__(**kwargs)
+        self._muted_uuid = intercom_state_uuid(kwargs, "muted")
+        self._attr_unique_id = f"{self.uuidAction}/mute"
+        self.type = "IntercomMute"
+        self._attr_device_info = intercom_device_info(kwargs, config_entry)
+
+    async def async_turn_on(self, **_kwargs: Any) -> None:
+        self._send("mute/1")
+
+    async def async_turn_off(self, **_kwargs: Any) -> None:
+        self._send("mute/0")
+
+    def _state_uuids(self) -> frozenset[str]:
+        return frozenset({self._muted_uuid}) if self._muted_uuid else frozenset()
+
+    @callback
+    def event_handler(self, e):
+        if not self._muted_uuid or self._muted_uuid not in e:
+            return
+        try:
+            self._attr_is_on = float(e[self._muted_uuid]) >= 0.5
+        except (TypeError, ValueError):
+            return
+        self._attr_available = True
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        """Return device specific state attributes."""
+        return {**self._attr_extra_state_attributes, "state_uuid": self._muted_uuid, "device_type": self.type}
 
 
 class LoxoneRoomControllerOverride(LoxoneEntity, SwitchEntity):
