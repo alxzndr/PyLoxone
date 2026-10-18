@@ -487,3 +487,57 @@ async def test_fatal_close_code_from_a_running_session_is_unauthorised():
     conn.connection = _Feed()
     with pytest.raises(LoxoneUnauthorisedError, match="blocked after too many failed login attempts"):
         await conn.start_listening(None)
+
+
+# --------------------------------------------------------------------------- #
+# Receive watchdog, stale queued commands, salt rotation (ported from upstream)
+# --------------------------------------------------------------------------- #
+async def test_receive_watchdog_ends_a_silent_session(monkeypatch):
+    """A half-open socket delivers nothing; three missed keepalive replies
+    (WEBSOCKET_READ_TIMEOUT) must end the session instead of waiting for
+    the TCP retransmit timeout."""
+    from custom_components.loxone.pyloxone_api import connection as connection_mod
+    from custom_components.loxone.pyloxone_api.exceptions import LoxoneConnectionError
+
+    class _Silent(StubLoxoneConnection):
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(connection_mod, "KEEP_ALIVE_PERIOD", 0.01)
+    monkeypatch.setattr(connection_mod, "WEBSOCKET_READ_TIMEOUT", 0.05)
+    conn = make_connection()
+    conn.connection = _Silent()
+    with pytest.raises(LoxoneConnectionError, match="no data from the Miniserver"):
+        await asyncio.wait_for(conn.start_listening(None), timeout=5)
+
+
+async def test_commands_queued_while_disconnected_are_dropped_at_session_start(caplog):
+    from custom_components.loxone.pyloxone_api.connection import MessageForQueue
+
+    conn = make_connection()
+    conn._message_queue.put_nowait(MessageForQueue("jdev/sps/io/gate/open", True))
+    conn._message_queue.put_nowait(MessageForQueue("jdev/sps/io/light/on", True))
+    stub = StubLoxoneConnection()
+    conn.connection = stub
+
+    with caplog.at_level(logging.WARNING), pytest.raises(LoxoneConnectionClosedOk):
+        await conn.start_listening(None)
+
+    assert "Dropped 2 command(s) queued while the Miniserver was not connected" in caplog.text
+    # Only the key exchange went out; neither stale command.
+    assert len(stub.sent) == 1
+    assert stub.sent[0].startswith("jdev/sys/keyexchange/")
+
+
+async def test_send_to_a_closed_socket_does_not_rotate_the_salt():
+    conn = make_connection()
+    conn._generate_salt()
+    conn._salt_time_stamp = 0  # expired: the next encrypted send would rotate it
+    salt = conn._salt
+    conn.connection = None
+    with pytest.raises(LoxoneConnectionClosedOk):
+        await conn._send_text_command("jdev/sps/io/x/on", encrypted=True)
+    assert conn._salt == salt

@@ -32,6 +32,11 @@ WEBSOCKET_CLOSE_TIMEOUT: Final = 10
 DELAY_CHECK_TOKEN_REFRESH: Final = 20
 TIMEOUT: Final = 30
 KEEP_ALIVE_PERIOD: Final = 30
+# Seconds without any received frame after which the socket counts as dead:
+# three missed keepalive replies. websockets' own ping is disabled (API-06),
+# so without this a half-open socket (pulled cable, frozen Miniserver) was
+# only noticed at the TCP retransmit timeout, minutes later.
+WEBSOCKET_READ_TIMEOUT: Final = 90
 IV_BYTES: Final = 16
 AES_KEY_SIZE: Final = 32
 

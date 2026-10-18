@@ -66,6 +66,7 @@ from .const import (
     TOKEN_PERMISSION,
     TOKEN_REFRESH_MAX_FAILURES,
     WEBSOCKET_CLOSE_TIMEOUT,
+    WEBSOCKET_READ_TIMEOUT,
 )
 from .exceptions import (
     LoxoneConnectionClosedOk,
@@ -416,6 +417,9 @@ class LoxoneBaseConnection:
         # reload builds a fresh object and the sensor re-baselines.
         self._rx_messages = 0
         self._tx_messages = 0
+        # time.monotonic() of the last frame received on the websocket; the
+        # keep-alive task's receive watchdog compares against it.
+        self._last_rx: float = time.monotonic()
         self._key_update_event: asyncio.Event | None = None
         self._shutdown_event = asyncio.Event()
         self._reconnect_event: asyncio.Event = asyncio.Event()
@@ -711,6 +715,10 @@ class LoxoneBaseConnection:
         # Encrypted commands are the ones that carry secrets; never log
         # their plaintext (ported from upstream d2fb1f6).
         _LOGGER.debug("Send %s command: %s", "encrypted" if encrypted else "text", command_for_log(command))
+        # Checked before encrypting: a send to a closed socket must not
+        # rotate the salt, or the Miniserver's nextSalt chain breaks.
+        if self.connection is None or not self.is_connected:
+            raise LoxoneConnectionClosedOk("Cannot send command - connection is not open")
         if encrypted:
             if self._new_salt_needed():
                 old_salt = self._salt
@@ -725,8 +733,6 @@ class LoxoneBaseConnection:
             cipher = b64encode(aes_cipher.encrypt(padded_bytes))
             enc_cipher = urllib.parse.quote(cipher.decode())
             command = f"jdev/sys/enc/{enc_cipher}"
-        if self.connection is None or not self.is_connected:
-            raise LoxoneConnectionClosedOk("Cannot send command - connection is not open")
         try:
             # A plain str goes out as a single frame; a list would trigger
             # websockets fragmentation (API-10).
@@ -1217,12 +1223,27 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         # Clear shutdown event when starting
         self._shutdown_event.clear()
+        self._last_rx = time.monotonic()
+        # Commands queued while there was no session (during the reconnect
+        # backoff) would otherwise be sent right after the key exchange,
+        # before authentication, and the Miniserver rejects them; a switch
+        # flipped minutes ago must not fire now either.
+        stale = 0
+        while not self._message_queue.empty():
+            self._message_queue.get_nowait()
+            self._message_queue.task_done()
+            stale += 1
+        if stale:
+            _LOGGER.warning("Dropped %d command(s) queued while the Miniserver was not connected", stale)
 
         async def keep_alive() -> None:
             """Send keep-alive messages to the Miniserver."""
             try:
                 while True:
                     await asyncio.sleep(KEEP_ALIVE_PERIOD)
+                    silent_for = time.monotonic() - self._last_rx
+                    if silent_for > WEBSOCKET_READ_TIMEOUT:
+                        raise LoxoneConnectionError(f"no data from the Miniserver for {int(silent_for)} s")
                     try:
                         # API-14: await the send directly — a detached task
                         # used to continue while the exception was swallowed.
@@ -1479,6 +1500,10 @@ class LoxoneConnection(LoxoneBaseConnection):
                         # left the socket and its exceptions were lost).
                         try:
                             await self._send_text_command(msg.command, encrypted=msg.flag)
+                        except LoxoneConnectionClosedOk as e:
+                            # The socket went away; the outage is reported
+                            # once by the supervisor, not per queued command.
+                            _LOGGER.debug("Command not sent, connection closed: %s", e)
                         except SESSION_TRANSPORT_ERRORS as e:
                             _LOGGER.warning("Error sending message: %s", e)
                             _LOGGER.debug("Error sending message (traceback)", exc_info=True)
@@ -1498,9 +1523,12 @@ class LoxoneConnection(LoxoneBaseConnection):
         except asyncio.CancelledError:
             _LOGGER.debug("Message processing task cancelled - processing remaining messages")
 
-            # Process any remaining messages before shutdown
+            # Process any remaining messages before shutdown -- but only
+            # into a live socket: on a dead one every send failed and
+            # logged an ERROR. Left queued, they are dropped (with one
+            # WARNING) when the next session starts.
             remaining_count = 0
-            while not self._message_queue.empty():
+            while self.is_connected and not self._message_queue.empty():
                 try:
                     msg = self._message_queue.get_nowait()
                     remaining_count += 1
@@ -1578,6 +1606,7 @@ class LoxoneConnection(LoxoneBaseConnection):
             body = bytearray()
 
             async for message in connection:
+                self._last_rx = time.monotonic()
                 if not connection or connection.state == connection.state.CLOSED:
                     raise LoxoneConnectionError("Connection is closed")
 
@@ -1975,8 +2004,9 @@ class LoxoneConnection(LoxoneBaseConnection):
         # Signal shutdown to all tasks
         self._shutdown_event.set()
 
-        # Wait for message queue to drain (with timeout)
-        if self._message_queue:
+        # Wait for message queue to drain (with timeout) -- only while the
+        # socket can still take them.
+        if self._message_queue and self.is_connected:
             queue_size = self._message_queue.qsize()
             if queue_size > 0:
                 _LOGGER.debug("Waiting for %d messages to be processed...", queue_size)
