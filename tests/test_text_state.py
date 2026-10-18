@@ -110,7 +110,7 @@ async def test_text_state_without_icon_and_color_state(hass, mock_entry, enable_
     config = json.loads((REPO_ROOT / "tests/fixtures/LoxAPP3.json").read_text())
     del config["controls"][STATUS_ACTION]["states"]["iconAndColor"]
 
-    async def _fake_open(self, session=None):
+    async def _fake_open(self, session=None, **_kwargs):
         self.structure_file = config
         self.miniserver_version = config.get("softwareVersion")
         self.connected = True
