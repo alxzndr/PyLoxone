@@ -34,6 +34,7 @@ from homeassistant.core import (
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
@@ -334,6 +335,13 @@ def _async_register_domain_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "reload", handle_reload, schema=RELOAD_SCHEMA)
 
 
+def _registry_entity_name(entry) -> str:
+    """The entity's own name (``RegistryEntry.entity_name`` from HA 2026.11)."""
+    if (name := getattr(entry, "entity_name", None)) is not None:
+        return name
+    return entry.name or entry.original_name or ""
+
+
 async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
     """Sync HA areas from Loxone room attributes (``sync_areas`` service)."""
     data = data or {}
@@ -341,7 +349,9 @@ async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
     if create_areas not in [True, False]:
         create_areas = False
     lox_items = []
+    device_items = {}
     er_registry = er.async_get(hass)
+    dr_registry = dr.async_get(hass)
     ar_registry = ar.async_get(hass)
     for _id, entry in er_registry.entities.items():
         if entry.platform == DOMAIN:
@@ -350,8 +360,20 @@ async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
                 area = ar_registry.async_get_area_by_name(state.attributes["room"])
                 if area is None and create_areas:
                     area = ar_registry.async_get_or_create(state.attributes["room"])
-                if area and entry.area_id is None:
-                    lox_items.append((entry.entity_id, area.id))
+                if not area or entry.area_id is not None:
+                    continue
+                if entry.device_id is not None and not _registry_entity_name(entry):
+                    # The device's main entity (``has_entity_name`` with no
+                    # name of its own) follows its device's area; HA 2026.11
+                    # rejects an own area for it ("set the area on its device
+                    # instead").  Fill the device in instead, never overwrite.
+                    device = dr_registry.async_get(entry.device_id)
+                    if device is not None and device.area_id is None:
+                        device_items.setdefault(device.id, area.id)
+                    continue
+                lox_items.append((entry.entity_id, area.id))
+    for device_id, area_id in device_items.items():
+        dr_registry.async_update_device(device_id, area_id=area_id)
     for _ in lox_items:
         er_registry.async_update_entity(_[0], area_id=_[1])
 
