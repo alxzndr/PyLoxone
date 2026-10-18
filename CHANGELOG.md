@@ -58,6 +58,67 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   states are missing) and are marked for a live check in
   `docs/review/LIVE-MINISERVER-CHECKS.md`.
 
+### Security
+
+- The Loxone token no longer reaches the Home Assistant event bus. The
+  Miniserver's replies to the token requests (`getjwt`, `gettoken`,
+  `refreshjwt`), which carry the raw token, and to the key and salt
+  requests (`getkey2`, `getkey`, `getvisusalt`) were handed to the message
+  callback like any command reply, so the token was fired as a
+  `loxone_event` and written to the debug log. Those replies now stay
+  inside the connection.
+- `killtoken` is sent encrypted. It carries the raw token, which crossed
+  the network in clear text on the unencrypted `ws://` socket of a Gen 1
+  Miniserver (ported from upstream; the encrypted form is not yet verified
+  live).
+- Encrypted commands are logged by their command path only, so the debug
+  log no longer contains the token, the credential and token hashes or
+  the secured-command HMACs. Plain control commands stay readable.
+- Each secured command (alarm, gate, anything behind the visualisation
+  password) now waits for its own `getvisusalt` reply. The first reply used
+  to send every queued secured command, and a failed reply was only
+  logged, so a failed "open gate" could run together with a later
+  "disarm". A failed reply now drops its command, and a command older than
+  30 seconds is dropped instead of being sent late (ported from upstream).
+
+### Fixed
+
+- One malformed message no longer ends the session. A text frame that is
+  valid JSON but not an object (`12345678`, `null`, `{"LL": []}`) raised an
+  error the parser did not catch, and the session stayed down until a
+  manual reload. Found by running upstream's 0.10.1 parsing tests against
+  this fork.
+- A session that ends with an error the reconnect loop does not retry (an
+  HTTP 500 or a truncated `LoxAPP3.json` while reconnecting, or a bug)
+  reloads the entry after 30 seconds instead of leaving every entity
+  unavailable (ported from upstream).
+- The token persisted since 0.10.3 now survives a reload. Every unload
+  killed it on the Miniserver, and an unload runs for every reload
+  (options change, reauth), so the next setup fell back to a password
+  login. The token is no longer killed on unload; when the entry is
+  removed, it expires on the Miniserver.
+- The websocket is opened right before the key exchange instead of during
+  setup (#527). The Miniserver closes a socket that is not authenticated
+  within a few seconds, and Home Assistant sets up every platform in
+  between, so on a slow start the key exchange went to a closed socket:
+  an ERROR with traceback and entities that came up late.
+- A user the Miniserver has blocked after too many failed logins (close
+  code 4003) or disabled (4006) is no longer reconnected forever, which
+  can extend the block; the integration starts the reauth flow instead
+  (ported from upstream).
+- An outage produces one WARNING instead of about four ERROR tracebacks
+  per reconnect attempt. "Restored connection" is logged once the
+  Miniserver has accepted the session, not when the socket opens.
+- A half-open socket (pulled cable, frozen Miniserver) is detected after
+  90 seconds without data instead of at the TCP timeout, minutes later.
+- Commands given while the Miniserver was not connected are dropped with
+  one WARNING when the next session starts, instead of being sent before
+  authentication (and a gate pressed minutes ago opening now). Queued
+  commands are no longer pushed into a dead socket at shutdown.
+- An encrypted send to a closed socket no longer rotates the salt.
+- Diagnostics include the session state and the date the token expires
+  (never the token).
+
 ## 0.10.9 - 2026-09-16
 
 ### Fixed
