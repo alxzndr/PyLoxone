@@ -190,6 +190,10 @@
     "loxone_device_status": {
       "title": "{title}: {name}",
       "description": "{description}"
+    },
+    "intercom_switches_replaced": {
+      "title": "Loxone-Intercom-Ausgänge sind jetzt Tasten",
+      "description": "Die Ausgänge einer Intercom (Türöffner und Ähnliches) sind in der Loxone-Strukturdatei Taster. Bisher waren sie Schalter, deren Einschalten den Ausgang hielt, bis ein Ausschalten folgte; jetzt sind sie Tasten, und ein Drücken sendet einen Impuls. Die veralteten Schalter-Entitäten wurden entfernt: {entities}. Automationen, Skripte und Dashboards, die einen alten Schalter verwendet haben, müssen stattdessen die neue Taste drücken (`button.press`). Diese Meldung danach ignorieren."
     }
   }
 }

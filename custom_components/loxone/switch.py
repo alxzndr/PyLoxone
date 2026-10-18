@@ -18,76 +18,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .helpers import add_room_and_cat_to_value_values, device_info_for, get_or_create_device, iter_controls
-from .miniserver import get_miniserver_from_hass
+from .helpers import get_or_create_device, iter_controls
 
 _LOGGER = logging.getLogger(__name__)
-
-# WP-6.3 (#466): the newer firmware reports the same intercom block as
-# ``IntercomV2``; the reporter whose V2-suffix workaround worked
-# (@mousator, JoDehli/PyLoxone#466) confirms the sub-controls are
-# handled the same way.  The match lives in this one tuple: the
-# ``iter_controls`` filter and the dispatch below both use it.
-#
-# VERIFY (safety): the structure file v16 says an Intercom's sub-controls
-# are "0-3 outputs of type Pushbutton" (p. 91; ``pulse`` since 8.0) and an
-# IntercomV2's "0-N outputs of type Pushbutton" (p. 93) — state ``active``,
-# commands ``pulse`` (tap) or ``on`` ... ``off`` (press and hold).  They are
-# exposed here as switches whose turn-on sends ``on``, which holds a door
-# opener output until a ``turn_off`` follows.  Behaviour unchanged for now;
-# see docs/review/LIVE-MINISERVER-CHECKS.md (IntercomV2 item).
-INTERCOM_TYPES = ("Intercom", "IntercomV2")
-
-
-def intercom_sub_control_kwargs(control, config_entry=None, loxconfig=None):
-    """
-    ``LoxoneIntercomSubControl`` kwargs for the sub-controls of one
-    intercom block (``Intercom`` / ``IntercomV2``) — WP-6.3, #466.
-
-    One kwargs dict per *actable* sub-control: it must advertise an
-    ``active`` state stream (PS-05: without one the switch cannot
-    report state at all — it is skipped with a warning instead of
-    raising on every event).  Each keeps its own name (the device is
-    named after the intercom — WP-5.1), carries the parent's
-    ``uuidAction`` as ``parent_id``, and shares the parent's device
-    payload so the device registry merges all sub-controls onto the
-    intercom's one device.  Every ``states``/``subControls`` lookup is
-    guarded with ``.get()``: a malformed structure file yields no
-    sub-switches, never an aborted platform.
-    """
-    if not isinstance(control, dict):
-        return []
-    parent_uuid = control.get("uuidAction")
-    if not isinstance(parent_uuid, str) or not parent_uuid:
-        # PC-05: device_info_for needs the parent uuid for the shared
-        # device identifiers; without it there is no device to attach to.
-        return []
-    model = control.get("type") or "Intercom"
-    device_info = device_info_for(config_entry, parent_uuid, control.get("name", ""), model, control.get("room", ""))
-    kwargs_list: list[dict] = []
-    subcontrols = control.get("subControls")
-    if not isinstance(subcontrols, dict):
-        return kwargs_list
-    for sub_name, subcontrol in subcontrols.items():
-        if not isinstance(subcontrol, dict):
-            continue
-        # Work on a copy: the setup path hands the helper a shallow copy
-        # of the cached structure file, and entities mutate their kwargs.
-        subcontrol = dict(subcontrol)
-        if loxconfig is not None:
-            subcontrol = add_room_and_cat_to_value_values(loxconfig, subcontrol)
-        states = subcontrol.get("states")
-        active = states.get("active") if isinstance(states, dict) else None
-        if not active:
-            _LOGGER.warning(
-                "Skipping Intercom sub-control %s: no 'active' state",
-                subcontrol.get("name", sub_name),
-            )
-            continue
-        subcontrol["parent_id"] = parent_uuid
-        subcontrol["device_info"] = device_info
-        kwargs_list.append(subcontrol)
-    return kwargs_list
 
 
 async def async_setup_entry(
@@ -96,12 +29,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up entry."""
-    miniserver = get_miniserver_from_hass(hass, config_entry)
-    loxconfig = miniserver.lox_config.json
     entities = []
 
     for switch_entity in iter_controls(
-        hass, config_entry, ["Switch", "TimedSwitch", *INTERCOM_TYPES, "IRoomControllerV2", "LightControllerV2"]
+        hass, config_entry, ["Switch", "TimedSwitch", "IRoomControllerV2", "LightControllerV2"]
     ):
         try:
             if switch_entity["type"] in ["Switch"]:
@@ -112,12 +43,6 @@ async def async_setup_entry(
                 new_switch = LoxoneTimedSwitch(**switch_entity)
                 entities.append(new_switch)
 
-            elif switch_entity["type"] in INTERCOM_TYPES:
-                # WP-6.3 (#466): IntercomV2 is handled like Intercom —
-                # the pure helper keeps this branch at one call site.
-                for sub_kwargs in intercom_sub_control_kwargs(switch_entity, config_entry, loxconfig):
-                    new_switch = LoxoneIntercomSubControl(**sub_kwargs)
-                    entities.append(new_switch)
             elif switch_entity["type"] == "IRoomControllerV2":
                 states = switch_entity.get("states", {})
                 if "overrideEntries" in states:
@@ -334,46 +259,6 @@ class LoxoneSwitch(LoxoneEntity, SwitchEntity):
             "uuid": self.uuidAction,
             # PS-05: .get() -- a missing `active` state is not an error.
             "state_uuid": self.states.get("active"),
-            "room": self.room,
-            "category": self.cat,
-            "device_type": self.type,
-            "platform": "loxone",
-        }
-
-
-class LoxoneIntercomSubControl(LoxoneSwitch):
-    def __init__(self, **kwargs):
-        LoxoneSwitch.__init__(self, **kwargs)
-
-        self.type = "IntercomSubControl"
-        # WP-5.1: sub-entity of the Intercom device — carries only its
-        # own (short) name and the master's device payload (CORE-26).
-        self._parent_id = kwargs.get("parent_id")
-        self._attr_name = self._lox_name
-        self._attr_device_info = kwargs.get("device_info") or get_or_create_device(
-            self.unique_id, self._lox_name, self.type, self.room
-        )
-
-    async def async_turn_on(self, **_kwargs):
-        """Switch-domain service dispatch (event loop)."""
-        self._do_turn_on()
-
-    def _do_turn_on(self):
-        if not self._attr_is_on:
-            self._send("on")
-            self._attr_is_on = True
-            self.schedule_update_ha_state()
-
-    @property
-    def extra_state_attributes(self):
-        """
-        Return device specific state attributes.
-
-        Implemented by platform classes.
-        """
-        return {
-            "uuid": self.uuidAction,
-            "state_uuid": self.states["active"],
             "room": self.room,
             "category": self.cat,
             "device_type": self.type,

@@ -63,8 +63,6 @@ SMOKE_MUTE_UUID = "36333734-0155-9336-ffff-d303135322d3000085"
 DIGITAL_ACTIVE_UUID = "36333734-0113-9336-ffff-d303131322d3000019"
 LCV2_ACTION_UUID = "63746c3a-0183-9766-ffff-e67204c69676000131"
 LCV2_MOOD_LIST_UUID = "36333734-0188-9336-ffff-d303138332d3000136"
-INTERCOM_ACTION_UUID = "63746c3a-0165-9696-ffff-0496e7465726000101"
-INTERCOM_SUB_UUID = "7375623a-0167-9696-ffff-0496e7465726000103"
 METER_ACTION_UUID = "63746c3a-011a-9657-ffff-779204d65746000026"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -790,8 +788,8 @@ async def test_scene_activate_sends_change_to_command(hass):
 
 
 # ---------------------------------------------------------------------------
-# PS-06 / PS-05 setup level: presence switch created; intercom sub without
-# `active` skipped with a log
+# PS-06 setup level: presence switch created (intercom outputs without an
+# `active` state: tests/test_intercom.py)
 # ---------------------------------------------------------------------------
 async def test_setup_presence_switch_from_states(hass, mock_connection, mock_entry, enable_custom_integrations):
     # PS-06: the guard and the constructor now read states["presence"]; a
@@ -806,33 +804,6 @@ async def test_setup_presence_switch_from_states(hass, mock_connection, mock_ent
 
     # The presence switch entity exists (entity id may carry a room prefix).
     assert any("presence_detection" in i for i in hass.states.async_entity_ids("switch"))
-
-    await hass.config_entries.async_unload(mock_entry.entry_id)
-    await hass.async_block_till_done()
-
-
-async def test_setup_intercom_sub_control_without_active_skipped(
-    hass, mock_connection, mock_entry, enable_custom_integrations, caplog
-):
-    # PS-05: an intercom sub-control without an `active` state is skipped
-    # with a warning instead of raising on every event.
-    config = _fresh_loxapp3()
-    intercom = config["controls"][INTERCOM_ACTION_UUID]
-    sub = intercom["subControls"][INTERCOM_SUB_UUID]
-    sub["states"] = {"on": "37333735-0168-9336-ffff-d303136372d3000104"}  # no `active`
-
-    mock_entry.add_to_hass(hass)
-    with caplog.at_level(logging.WARNING), _fake_open_with(config):
-        assert await hass.config_entries.async_setup(mock_entry.entry_id)
-    await hass.async_block_till_done()
-
-    switch_ids = hass.states.async_entity_ids("switch")
-    # The entity is skipped ...
-    assert not any("main_intercom_micro" in i for i in switch_ids)
-    # ... the platform continues (the plain Switch set up fine) ...
-    assert any("living_room_light_switch" in i for i in switch_ids)
-    # ... and the user is told why.
-    assert any("no 'active' state" in r.message for r in caplog.records if r.levelno == logging.WARNING)
 
     await hass.config_entries.async_unload(mock_entry.entry_id)
     await hass.async_block_till_done()

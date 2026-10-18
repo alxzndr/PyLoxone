@@ -84,6 +84,7 @@ from .const import (
 )
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
 from .helpers import MINIMUM_SUPPORTED_FIRMWARE, meets_minimum_firmware
+from .intercom import async_remove_obsolete_intercom_switches
 from .pyloxone_api.exceptions import (
     LoxoneServiceUnAvailableError,
     LoxoneUnauthorisedError,
@@ -1002,6 +1003,10 @@ async def async_setup_entry(hass, config_entry):
     # where a YAML dict was expected and created no entities at all, and
     # its DomainPlatform was never unloaded (CORE-14).
     await hass.config_entries.async_forward_entry_setups(config_entry, LOXONE_PLATFORMS)
+
+    # 1.0.0 exposed intercom outputs as switches; they are pushbuttons now.
+    # Runs after the platforms so the replacement buttons are registered.
+    async_remove_obsolete_intercom_switches(hass, config_entry, coordinator.miniserver.lox_config.json)
 
     async def run_loxone_session() -> None:
         """

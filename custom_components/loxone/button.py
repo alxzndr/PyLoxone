@@ -15,6 +15,8 @@ from homeassistant.util import dt as dt_util
 
 from . import LoxoneEntity
 from .helpers import get_or_create_device, iter_controls
+from .intercom import INTERCOM_TYPES, intercom_output_kwargs
+from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,6 +47,18 @@ async def async_setup_entry(
             entities.append(LoxoneUpDownDigitalButton(**down))
         except Exception:
             _LOGGER.exception("Skipping UpDownDigital control %s", button_entity.get("name", "?"))
+
+    # Intercom blocks: every output is a pushbutton (structure file v16,
+    # pp. 91/93) -- a press sends ``pulse``.
+    loxconfig = get_miniserver_from_hass(hass, config_entry).lox_config.json
+    for intercom in iter_controls(hass, config_entry, list(INTERCOM_TYPES)):
+        try:
+            entities.extend(
+                LoxoneIntercomOutputButton(**kwargs)
+                for kwargs in intercom_output_kwargs(intercom, config_entry, loxconfig)
+            )
+        except Exception:
+            _LOGGER.exception("Skipping %s control %s", intercom.get("type", "?"), intercom.get("name", "?"))
 
     async_add_entities(entities)
 
@@ -165,3 +179,26 @@ class LoxoneUpDownDigitalButton(LoxoneEntity, ButtonEntity):
             "command": self._command,
             "device_type": self.type,
         }
+
+
+class LoxoneIntercomOutputButton(LoxoneButton):
+    """
+    One output of an ``Intercom`` / ``IntercomV2`` block (a door opener, a
+    light, ...).
+
+    The structure file types these outputs as ``Pushbutton``: a press sends
+    ``pulse`` -- the output fires once, as the intercom's own key does.
+    (Up to 1.0.0 they were switches whose turn-on sent ``on`` and held the
+    output until a turn-off.)  The unique id is the output's
+    ``uuidAction``, the name the output's own, and the entity sits on the
+    intercom's device.  The ``active`` press echo is optional.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._parent_id = kwargs.get("parent_id")
+        # WP-5.1: sub-entity of the intercom device -- its own short name.
+        self._attr_name = self._lox_name
+        self._attr_device_info = kwargs.get("device_info") or get_or_create_device(
+            self.unique_id, self._lox_name, self.type, self.room
+        )

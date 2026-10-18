@@ -513,21 +513,28 @@
       "uuidAction": "63746c3a-0165-9696-ffff-0496e7465726000101",
       "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
       "cat": "6361743a-0164-9637-ffff-269747963617000100",
-      "details": {},
+      "details": {
+        "deviceType": 1,
+        "videoInfo": {},
+        "audioInfo": {}
+      },
       "states": {
-        "active": "36333734-0166-9336-ffff-d303136352d3000102"
+        "bell": "36333734-0166-9336-ffff-d303136352d3000102",
+        "lastBellEvents": "36333734-0166-9336-ffff-d303136352d3000110",
+        "version": "36333734-0166-9336-ffff-d303136352d3000111",
+        "lastBellTimestamp": "36333734-0166-9336-ffff-d303136352d3000112"
       },
       "defaultRating": 2,
       "isFavorite": false,
       "isSecured": false,
       "subControls": {
         "7375623a-0167-9696-ffff-0496e7465726000103": {
-          "name": "Micro",
-          "type": "IntercomSubControl",
+          "name": "Door Opener",
+          "type": "Pushbutton",
           "uuidAction": "7375623a-0167-9696-ffff-0496e7465726000103",
           "details": {},
           "states": {
-            "on": "37333735-0168-9336-ffff-d303136372d3000104"
+            "active": "37333735-0168-9336-ffff-d303136372d3000104"
           },
           "defaultRating": 0,
           "isFavorite": false,
@@ -541,9 +548,15 @@
       "uuidAction": "63746c3a-9c7d-96f2-ffff-e301696e743276000024",
       "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
       "cat": "6361743a-0164-9637-ffff-269747963617000100",
-      "details": {},
+      "details": {
+        "deviceType": 1
+      },
       "states": {
-        "active": "36333734-9c8d-9336-ffff-d303136a2b42d300025"
+        "bell": "36333734-9c8d-9336-ffff-d303136a2b42d300025",
+        "address": "36333734-9c8d-9336-ffff-d303136a2b42d300030",
+        "answers": "36333734-9c8d-9336-ffff-d303136a2b42d300031",
+        "muted": "36333734-9c8d-9336-ffff-d303136a2b42d300032",
+        "deviceState": "36333734-9c8d-9336-ffff-d303136a2b42d300033"
       },
       "defaultRating": 2,
       "isFavorite": false,
@@ -551,7 +564,7 @@
       "subControls": {
         "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026": {
           "name": "Door Lock",
-          "type": "IntercomSubControl",
+          "type": "Pushbutton",
           "uuidAction": "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026",
           "details": {},
           "states": {
