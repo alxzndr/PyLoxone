@@ -83,7 +83,7 @@ from .const import (
     loxone_uuid_signal,
 )
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
-from .helpers import MINIMUM_SUPPORTED_FIRMWARE, meets_minimum_firmware
+from .helpers import MINIMUM_SUPPORTED_FIRMWARE, InPlaceEntityIdChange, meets_minimum_firmware
 from .pyloxone_api.exceptions import (
     LoxoneServiceUnAvailableError,
     LoxoneUnauthorisedError,
@@ -1157,7 +1157,7 @@ async def async_remove_config_entry_device(
     return True
 
 
-class LoxoneEntity(Entity):
+class LoxoneEntity(InPlaceEntityIdChange, Entity):
     """
     @DynamicAttrs
     """

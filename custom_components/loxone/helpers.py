@@ -15,10 +15,46 @@ from datetime import datetime
 from typing import Any, Final
 from collections.abc import Iterator
 
+from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, cfmt
+
+
+# The entity methods after whose override Home Assistant 2026.11 removes and
+# re-adds an entity when its entity_id changes, unless the same class (or a
+# subclass) also implements ``async_entity_id_changed``.
+_ADD_REMOVE_METHODS: Final = ("async_prepare_to_add_to_hass", "async_added_to_hass", "async_will_remove_from_hass")
+
+
+def _entity_id_changed_hook(owner: type):
+    @callback
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        # Nothing in this integration is keyed on the entity_id: signals and
+        # listeners are keyed on the entry and the control uuids.
+        parent = getattr(super(owner, self), "async_entity_id_changed", None)
+        if parent is not None:
+            parent(old_entity_id)
+
+    return async_entity_id_changed
+
+
+class InPlaceEntityIdChange:
+    """
+    Let Home Assistant rename the entity in place (2026.11 and newer).
+
+    From 2026.11 a custom entity class that overrides an add/remove method
+    is removed and re-added on an entity_id change, unless that class also
+    implements ``async_entity_id_changed``. Every subclass that overrides
+    one of them gets a pass-through hook here, so a class added later is
+    covered as well. On older releases the hook is never called.
+    """
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if "async_entity_id_changed" not in cls.__dict__ and any(m in cls.__dict__ for m in _ADD_REMOVE_METHODS):
+            cls.async_entity_id_changed = _entity_id_changed_hook(cls)
 
 
 def json_decoder(value):
