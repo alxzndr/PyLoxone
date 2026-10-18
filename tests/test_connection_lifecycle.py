@@ -23,6 +23,7 @@ import json
 import logging
 import struct
 import time
+import urllib.parse
 from types import SimpleNamespace
 
 import pytest
@@ -327,7 +328,33 @@ async def test_kill_token_sends_killtoken_command():
     conn.connection = stub
 
     await conn.kill_token()
-    assert stub.sent == ["jdev/sys/killtoken/KILLMETOKEN/admin"]
+    # The raw token goes out through command encryption, never in clear
+    # text (an unencrypted ws:// socket on a Gen 1 Miniserver).
+    assert len(stub.sent) == 1
+    wire = stub.sent[0]
+    assert wire.startswith("jdev/sys/enc/")
+    assert "KILLMETOKEN" not in wire
+    plaintext = conn._decrypt(urllib.parse.unquote(wire)).decode()
+    assert plaintext.endswith("/jdev/sys/killtoken/KILLMETOKEN/admin")
+
+
+async def test_encrypted_commands_are_logged_without_their_secrets(caplog):
+    conn = make_connection()
+    conn._token.token = "KILLMETOKEN"
+    conn.connection = StubLoxoneConnection()
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.loxone.pyloxone_api.connection"):
+        await conn.kill_token()
+        await conn._send_text_command("authwithtoken/HMACHASH/admin", encrypted=True)
+        await conn._send_text_command("jdev/sps/ios/VISUHASH/uuid-1/pulse", encrypted=True)
+        await conn._send_text_command("jdev/sps/io/uuid-2/on", encrypted=True)
+
+    for secret in ("KILLMETOKEN", "HMACHASH", "VISUHASH"):
+        assert secret not in caplog.text
+    assert "jdev/sys/killtoken/…" in caplog.text
+    assert "authwithtoken/…" in caplog.text
+    # Plain control commands carry no secret and stay readable.
+    assert "jdev/sps/io/uuid-2/on" in caplog.text
 
 
 async def test_kill_token_noop_when_not_connected():

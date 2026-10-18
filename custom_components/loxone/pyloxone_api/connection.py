@@ -103,6 +103,58 @@ RECONNECT_BASE_DELAY: Final = 1.0  # seconds; attempt 0 waits this long before r
 RECONNECT_MAX_DELAY: Final = 300.0  # cap: 5 minutes
 
 
+def command_for_log(command: str) -> str:
+    """
+    Strip the secret-bearing arguments from a command before logging it.
+
+    Every token command carries a secret: the raw token (``killtoken``),
+    an HMAC of the token or the credentials (``authwithtoken``,
+    ``getjwt``, ``refreshjwt``) or a secured-command HMAC
+    (``jdev/sps/ios``). Only the command path is kept, e.g.
+    ``jdev/sys/killtoken/<token>/<user>`` -> ``jdev/sys/killtoken/…``.
+    Plain control commands (``jdev/sps/io/<uuid>/<value>``) carry no
+    secret and stay readable, because they are what a debug log is for.
+    """
+    if command.startswith("jdev/sps/io/"):
+        return command
+    keep = 3 if command.startswith(("jdev/", "dev/")) else 1
+    parts = command.split("/")
+    path = "/".join(parts[:keep])
+    return f"{path}/…" if len(parts) > keep else path
+
+
+# Commands whose responses carry authentication material: the raw token
+# (getjwt/gettoken/refreshjwt), the token HMAC key and user salt (getkey2,
+# getkey), the visual-password key and salt (getvisusalt). Their responses
+# are protocol traffic for the connection itself, never state for the
+# message callback, which fires them on the Home Assistant event bus.
+_AUTH_COMMANDS: Final = frozenset(
+    {
+        "keyexchange",
+        "getkey",
+        "getkey2",
+        "getvisusalt",
+        "getjwt",
+        "gettoken",
+        "refreshjwt",
+        "refreshtoken",
+        "authwithtoken",
+        "killtoken",
+    }
+)
+
+
+def is_auth_response(message: BaseMessage) -> bool:
+    """True for a text response to one of the :data:`_AUTH_COMMANDS`."""
+    if not isinstance(message, TextMessage):
+        return False
+    control = message.control
+    if isinstance(control, (bytes, bytearray)):
+        control = control.decode("utf-8", errors="replace")
+    # jdev/sys/<cmd>/..., dev/sys/<cmd>/... or a bare <cmd>/... (authwithtoken)
+    return not _AUTH_COMMANDS.isdisjoint(str(control).split("/")[:3])
+
+
 def time_elapsed_in_seconds():
     return int(round(time.time()))
 
@@ -619,7 +671,9 @@ class LoxoneBaseConnection:
         (API-04: the old code only *warned* here and then kept on, crashing
         on ``self.connection.send`` with AttributeError).
         """
-        _LOGGER.debug("Send text command: %s", command)
+        # Encrypted commands are the ones that carry secrets; never log
+        # their plaintext (ported from upstream d2fb1f6).
+        _LOGGER.debug("Send %s command: %s", "encrypted" if encrypted else "text", command_for_log(command))
         if encrypted:
             if self._new_salt_needed():
                 old_salt = self._salt
@@ -812,8 +866,15 @@ class LoxoneBaseConnection:
         API-17: invalidate the current token on the Miniserver.
 
         Best-effort by contract: a failure must never block close() or
-        config-entry removal, so it only logs. Called before close() so
-        the websocket is still usable (see coordinator.async_cleanup).
+        config-entry removal, so it only logs. The integration does not
+        call it on unload or reload: the persisted token must survive those
+        (see coordinator.async_cleanup).
+
+        The raw token goes through command encryption (``jdev/sys/enc``):
+        sent plain, it crossed the network in clear text on an unencrypted
+        ``ws://`` connection (Gen 1 Miniserver). Ported from upstream
+        d2fb1f6; the encrypted form is not yet verified on a live
+        Miniserver (the plain one was).
 
         VERIFY: the killtoken command form is taken from Loxone's legacy
         32-char-token documentation; confirm against a live Miniserver
@@ -829,7 +890,7 @@ class LoxoneBaseConnection:
             return
         command = f"{CMD_KILL_TOKEN}/{token}/{self._encoded_username}"
         try:
-            await self._send_text_command(command, encrypted=False)
+            await self._send_text_command(command, encrypted=True)
             _LOGGER.debug("killtoken sent")
         except SESSION_TRANSPORT_ERRORS as e:
             _LOGGER.warning("killtoken failed (token may linger server-side): %s", e)
@@ -1521,7 +1582,10 @@ class LoxoneConnection(LoxoneBaseConnection):
                 # untracked create_task per message — bursts no longer risk
                 # losing the auth responses, and stream order is preserved.
                 await self._websocket_event(parsed_message)
-                if callback and msg_type in callback_types:
+                # Auth responses stay inside the connection: forwarded, the
+                # getjwt reply put the raw token on the event bus and in
+                # the debug log.
+                if callback and msg_type in callback_types and not is_auth_response(parsed_message):
                     await _run_callback(parsed_message)
 
             # API-02: websockets swallows ConnectionClosedOK - the iterator
@@ -2173,20 +2237,16 @@ class LoxoneConnection(LoxoneBaseConnection):
 
                         _LOGGER.debug("Token refreshed successfully, valid until: %s", valid_until)
 
+                    # The response carries the new token: log its field
+                    # names, never its values.
                     except KeyError as e:
                         _LOGGER.exception(
-                            "Missing key in token refresh response: %s. Response: %s, Message type: %s, Message: %s",
+                            "Missing key in token refresh response: %s (fields: %s)",
                             e,
-                            mess_obj.value_as_dict,
-                            type(mess_obj),
-                            getattr(mess_obj, "message", "N/A"),
+                            sorted(mess_obj.value_as_dict),
                         )
                     except Exception as e:
-                        _LOGGER.exception(
-                            "Unexpected error processing token refresh: %s. Response: %s",
-                            e,
-                            getattr(mess_obj, "value_as_dict", "N/A"),
-                        )
+                        _LOGGER.exception("Unexpected error processing token refresh: %s", e)
             # Handle binary file
             elif isinstance(mess_obj, BinaryFile) or isinstance(mess_obj, Keepalive):
                 pass

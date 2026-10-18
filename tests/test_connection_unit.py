@@ -375,6 +375,32 @@ async def test_non_object_json_text_frame_is_skipped_not_fatal(caplog) -> None:
     assert "Skipping unparseable TEXT frame (8 bytes)" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "control",
+    [
+        "jdev/sys/getjwt/HASH/admin/4/uuid/pyloxone_api",
+        "jdev/sys/gettoken/HASH/admin/4/uuid/pyloxone_api",
+        "jdev/sys/refreshjwt/HASH/admin",
+        "jdev/sys/getkey2/admin",
+        "jdev/sys/getvisusalt/admin",
+        "authwithtoken/HASH/admin",
+    ],
+)
+async def test_auth_responses_are_not_forwarded_to_the_callback(control) -> None:
+    # The getjwt reply carries the raw token; forwarded, it reached the
+    # loxone_event bus event and the coordinator's debug log.
+    body = json.dumps(
+        {"LL": {"control": control, "value": {"token": "SECRET-JWT", "key": "K", "salt": "S"}, "Code": "200"}}
+    ).encode()
+    assert await _run_listening([_header(0, len(body)), body]) == []
+
+
+async def test_command_responses_still_reach_the_callback() -> None:
+    body = b'{"LL": {"control": "jdev/sps/io/uuid-2/on", "value": "1", "Code": "200"}}'
+    seen = await _run_listening([_header(0, len(body)), body])
+    assert seen == [{"control": "jdev/sps/io/uuid-2/on", "value": "1", "Code": 200}]
+
+
 async def test_keepalive_header_is_handled_inline() -> None:
     seen = await _run_listening([_header(6, 0)])
     assert seen == [{"keep_alive": "received"}]
