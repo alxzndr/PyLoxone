@@ -179,14 +179,14 @@ def test_all_platforms_use_the_shared_unit_helper(cls_name):
 def test_accontrol_temperature_unit_celsius_not_found():
     """PC-23: '°C' at index 0 must read as Celsius (old find('°') == 0 -> F)."""
     e, _ = _ac_make({"temperature": "st1"}, details={"format": "°C"})
-    assert e.temperature_unit == UnitOfTemperature.CELSIUS
+    assert e.native_temperature_unit == UnitOfTemperature.CELSIUS
     e2, _ = _ac_make({"temperature": "st1"}, details={"format": "°F"})
-    assert e2.temperature_unit == UnitOfTemperature.FAHRENHEIT
+    assert e2.native_temperature_unit == UnitOfTemperature.FAHRENHEIT
 
 
 def test_v2_temperature_unit_bare_c():
     e, _ = _v2_make({"activeMode": "st1"}, details={"timerModes": [], "format": "C"})
-    assert e.temperature_unit == UnitOfTemperature.CELSIUS
+    assert e.native_temperature_unit == UnitOfTemperature.CELSIUS
 
 
 # ---------------------------------------------------------------------------
@@ -461,7 +461,7 @@ def test_v2_target_temperature_in_dual_building_protect():
     -> None while TARGET_TEMPERATURE was advertised."""
     e, _ = _v2_make(_full_v2_states(), details={"timerModes": [], "possibleCapabilities": 3})
     feed(e, {"st_op": 3, "st_active": 2, "st_target": 21.5})
-    assert e.target_temperature == 21.5
+    assert e.native_target_temperature == 21.5
     # the feature advertisement is not TARGET + TARGET_RANGE at the same time
     feats = e.supported_features
     assert feats & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
@@ -472,13 +472,13 @@ def test_v2_target_temperature_falls_back_to_comfort():
     """Until tempTarget is seen, the fallback to comfort temperature keeps
     the property a number while it is advertised (never a bare fall-off)."""
     e, _ = _v2_make(_full_v2_states(), details={"timerModes": []})
-    assert e.target_temperature is None or isinstance(e.target_temperature, (int, float))
+    assert e.native_target_temperature is None or isinstance(e.native_target_temperature, (int, float))
     feed(e, {"st_c": 20.5})
-    assert e.target_temperature == 20.5
+    assert e.native_target_temperature == 20.5
     feed(e, {"st_op": 0, "st_active": 0, "st_target": 22.25})
-    assert e.target_temperature == 22.25
+    assert e.native_target_temperature == 22.25
     feed(e, {"st_c": 19.75})  # tempTarget wins once present
-    assert e.target_temperature == 22.25
+    assert e.native_target_temperature == 22.25
 
 
 def test_v2_single_target_still_advertised_in_dual_mode():
@@ -489,7 +489,7 @@ def test_v2_single_target_still_advertised_in_dual_mode():
     feats = e.supported_features
     assert feats & ClimateEntityFeature.TARGET_TEMPERATURE
     assert not (feats & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
-    assert e.target_temperature == 21.0
+    assert e.native_target_temperature == 21.0
 
 
 @pytest.mark.asyncio
@@ -644,13 +644,13 @@ def test_v2_legacy_rgc_still_builds_from_legacy_states():
     assert e.has_entity_name is True
     assert e._attr_name is None
     assert e._attr_device_info["name"] == "Foyer Climate"
-    assert e.target_temperature is None
-    assert e.current_temperature is None
+    assert e.native_target_temperature is None
+    assert e.native_current_temperature is None
     assert e.hvac_mode == HVACMode.OFF
     feed(e, {"sM": 1, "sT": 21.0, "sA": 19.5})
     assert e.hvac_mode == HVACMode.HEAT
-    assert e.target_temperature == 21.0
-    assert e.current_temperature == 19.5
+    assert e.native_target_temperature == 21.0
+    assert e.native_current_temperature == 19.5
     # unknown mode code: falls back to OFF, not an exception
     feed(e, {"sM": 47})
     assert e.hvac_mode == HVACMode.OFF
@@ -668,8 +668,8 @@ def test_accontrol_missing_states_never_raise():
     assert e.swing_modes == []
     assert e.fan_mode is None
     assert e.swing_mode is None
-    assert e.target_temperature is None
-    assert e.current_temperature is None
+    assert e.native_target_temperature is None
+    assert e.native_current_temperature is None
 
 
 def test_accontrol_features_from_present_states():

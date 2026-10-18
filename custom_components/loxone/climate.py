@@ -305,6 +305,59 @@ class OperatingMode(Enum):
         raise ValueError(f"{mode} is not a valid number for {cls.__name__}")
 
 
+# Home Assistant 2026.11 renamed the temperature members a climate entity
+# implements to ``native_*`` (the old names warn until their removal in
+# 2027.11) and owns the new ``temperature_unit`` state attribute itself.
+# The entities below implement only the ``native_*`` names.  Releases before
+# 2026.11 (the floor is 2026.7) know only the old names, so there this mixin
+# serves them from the native ones.  On 2026.11+ it is empty: defining the
+# old names there too would be pointless, and defining only *some* of them
+# would make HA's migration shim route a native name back to its alias.
+CLIMATE_HAS_NATIVE_TEMPERATURES = hasattr(ClimateEntity, "native_current_temperature")
+
+
+class NativeTemperatureCompat:
+    """Serve the pre-2026.11 climate temperature names from the ``native_*`` ones."""
+
+    if not CLIMATE_HAS_NATIVE_TEMPERATURES:
+
+        @property
+        def native_current_temperature(self) -> float | None:
+            return None
+
+        @property
+        def native_target_temperature(self) -> float | None:
+            return None
+
+        @property
+        def native_target_temperature_high(self) -> float | None:
+            return None
+
+        @property
+        def native_target_temperature_low(self) -> float | None:
+            return None
+
+        @property
+        def current_temperature(self) -> float | None:
+            return self.native_current_temperature
+
+        @property
+        def target_temperature(self) -> float | None:
+            return self.native_target_temperature
+
+        @property
+        def target_temperature_high(self) -> float | None:
+            return self.native_target_temperature_high
+
+        @property
+        def target_temperature_low(self) -> float | None:
+            return self.native_target_temperature_low
+
+        @property
+        def temperature_unit(self) -> str:
+            return self.native_temperature_unit
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -349,7 +402,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
+class LoxoneRoomController(LoxoneEntity, NativeTemperatureCompat, ClimateEntity, ABC):
     """Loxone room controller (legacy, non-V2)"""
 
     def __init__(self, **kwargs):
@@ -415,12 +468,12 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         }
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
         """Return the current temperature."""
         return self.get_state_value("tempActual")
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         return self.get_state_value("tempTarget")
 
@@ -479,7 +532,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         ]
 
     @property
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform (PC-23)."""
         return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
 
@@ -510,7 +563,7 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         self.async_write_ha_state()
 
 
-class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
+class LoxoneRoomControllerV2(LoxoneEntity, NativeTemperatureCompat, ClimateEntity, ABC):
     """Loxone room controller V2 with demand tracking and dynamic capabilities."""
 
     _attr_translation_key = "room_controller_v2"
@@ -676,7 +729,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         return self.active_state.mode
 
     @property
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         """
         Return the unit of measurement used by the platform (PC-23).
 
@@ -688,7 +741,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
         """Return the current temperature."""
         return self.get_state_value("tempActual")
 
@@ -709,7 +762,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         self.async_write_ha_state()
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """
         Return the temperature we try to reach.
 
@@ -727,7 +780,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         return 0.5
 
     @property
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         """Return the highbound target temperature we try to reach."""
         mode = self.operating_mode
         active = self.active_mode
@@ -746,7 +799,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
                 return None
 
     @property
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         """Return the lowbound target temperature we try to reach."""
         mode = self.operating_mode
         active = self.active_mode
@@ -906,7 +959,7 @@ def ac_hvac_action(status, mode):
     return HVACAction.IDLE
 
 
-class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
+class LoxoneAcControl(LoxoneEntity, NativeTemperatureCompat, ClimateEntity, ABC):
     """Representation of a ACControl Loxone device."""
 
     def __init__(self, **kwargs):
@@ -981,7 +1034,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         return features
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
         """Return the current temperature."""
         return self.get_state_value("temperature")
 
@@ -1055,12 +1108,12 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         ]
 
     @property
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform (PC-23)."""
         return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         return self.get_state_value("targetTemperature")
 

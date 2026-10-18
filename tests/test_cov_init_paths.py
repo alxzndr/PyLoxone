@@ -183,9 +183,7 @@ async def test_sync_areas_keeps_an_entity_that_already_has_an_area(
     jalousie = _entity_id(hass, "cover", JALOUSIE_UUID)
     # A nameless main entity takes its area from its device (HA 2026.11
     # rejects an own area for it), so that is where the user puts it.
-    dr.async_get(hass).async_update_device(
-        entity_registry.async_get(jalousie).device_id, area_id=studio.id
-    )
+    dr.async_get(hass).async_update_device(entity_registry.async_get(jalousie).device_id, area_id=studio.id)
 
     await hass.services.async_call(DOMAIN, "sync_areas", {"create_areas": True}, blocking=True)
     await hass.async_block_till_done()

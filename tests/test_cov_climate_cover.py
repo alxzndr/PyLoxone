@@ -2,7 +2,7 @@
 
 Pinned here:
 
-* ``LoxoneRoomControllerV2.target_temperature_low`` / ``target_temperature_high``
+* ``LoxoneRoomControllerV2.native_target_temperature_low`` / ``target_temperature_high``
   — the dual-setpoint bounds HA reads while ``TARGET_TEMPERATURE_RANGE`` is
   advertised.  Only the two dual operating modes have bounds at all; within
   them each active mode reads different state keys (comfort, comfort +/- the
@@ -127,8 +127,8 @@ def test_v2_target_bounds_per_active_mode(operating_mode, active_mode, expected_
     _feed_temperatures(entity)
     entity.event_handler({OPERATING_MODE: operating_mode, ACTIVE_MODE: active_mode})
 
-    assert entity.target_temperature_low == expected_low
-    assert entity.target_temperature_high == expected_high
+    assert entity.native_target_temperature_low == expected_low
+    assert entity.native_target_temperature_high == expected_high
 
 
 @pytest.mark.parametrize("operating_mode", [OP_AUTO_HEAT, OP_AUTO_COOL, OP_MANUAL_HEAT])
@@ -138,10 +138,10 @@ def test_v2_single_setpoint_modes_have_no_range_bounds(operating_mode) -> None:
     _feed_temperatures(entity)
     entity.event_handler({OPERATING_MODE: operating_mode, ACTIVE_MODE: ACT_COMFORT})
 
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
     # The single-target property still answers (PC-12).
-    assert entity.target_temperature == T_COMFORT
+    assert entity.native_target_temperature == T_COMFORT
 
 
 def test_v2_economy_bounds_are_none_without_the_absent_offsets() -> None:
@@ -151,8 +151,8 @@ def test_v2_economy_bounds_are_none_without_the_absent_offsets() -> None:
     entity.event_handler({COMFORT: T_COMFORT, COMFORT_COOL: T_COMFORT_COOL})
     entity.event_handler({OPERATING_MODE: OP_AUTO_HEAT_COOL, ACTIVE_MODE: ACT_ECONOMY})
 
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 def test_v2_economy_bounds_are_none_before_the_comfort_values_arrive() -> None:
@@ -161,8 +161,8 @@ def test_v2_economy_bounds_are_none_before_the_comfort_values_arrive() -> None:
     entity.event_handler({ABSENT_MIN: T_ABSENT_MIN, ABSENT_MAX: T_ABSENT_MAX})
     entity.event_handler({OPERATING_MODE: OP_AUTO_HEAT_COOL, ACTIVE_MODE: ACT_ECONOMY})
 
-    assert entity.target_temperature_low is None
-    assert entity.target_temperature_high is None
+    assert entity.native_target_temperature_low is None
+    assert entity.native_target_temperature_high is None
 
 
 # --------------------------------------------------------------------------- #

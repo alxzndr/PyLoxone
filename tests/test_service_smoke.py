@@ -111,7 +111,9 @@ async def test_every_service_on_every_loxone_entity(hass, mock_connection, mock_
                 skipped[key] = skipped.get(key, 0) + 1
                 continue  # the entity does not advertise that feature: correct
             except ServiceValidationError as err:
-                if "does not support" in str(err):
+                # 2026.11 raises a translated error whose key names the
+                # missing feature (``missing_..._entity_feature``).
+                if "does not support" in str(err) or "entity_feature" in (err.translation_key or ""):
                     # e.g. range parameters on a single-setpoint thermostat: HA
                     # rejects the data shape before the handler runs -- correct.
                     skipped[key] = skipped.get(key, 0) + 1

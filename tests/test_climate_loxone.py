@@ -83,17 +83,17 @@ def test_accontrol_hvac_mode_defaults_off_without_states() -> None:
 def test_accontrol_temperature_unit_matches_symbol_not_find() -> None:
     # "°C" at index 0: the old ``.find("°")`` returned 0 (falsy) → mislabeled F.
     assert (
-        _accontrol({"temperature": "st"}, details={"format": "T °C today"}).temperature_unit
+        _accontrol({"temperature": "st"}, details={"format": "T °C today"}).native_temperature_unit
         == UnitOfTemperature.CELSIUS
     )
     assert (
-        _accontrol({"temperature": "st"}, details={"format": "T °F now"}).temperature_unit
+        _accontrol({"temperature": "st"}, details={"format": "T °F now"}).native_temperature_unit
         == UnitOfTemperature.FAHRENHEIT
     )
 
 
 def test_accontrol_temperature_unit_defaults_celsius_without_format() -> None:
-    assert _accontrol({"temperature": "st"}, details={}).temperature_unit == UnitOfTemperature.CELSIUS
+    assert _accontrol({"temperature": "st"}, details={}).native_temperature_unit == UnitOfTemperature.CELSIUS
 
 
 async def test_v2_unknown_operating_mode_logs_not_crash(hass, caplog) -> None:
