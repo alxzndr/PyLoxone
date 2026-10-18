@@ -9,9 +9,9 @@ Last updated: 2026-10-18 (release 1.0.0)
 
 ## The short version
 
-Since branching, 159 commits changed 135 files (33,409 lines added, 4,558
-removed). The test suite went from 69 tests to 1,049 and whole-integration
-coverage from 14 % to about 89 %.
+Since branching, 154 commits (not counting merges) changed 141 files (34,463
+lines added, 4,601 removed). The test suite went from 69 tests to 1,068 and
+whole-integration coverage from 14 % to about 90 %.
 
 **Yes, you can run it**, with one caveat that is genuinely one-way. Read the
 rollback section before you install.
@@ -224,7 +224,7 @@ to: inert brightness ranges, resetting counters fed to the energy dashboard as
 monotonic ones, entity churn on every reconnect, and a dead integration after
 a firmware update.
 
-The risks are the one-way migration, which a backup covers, and that 1,049
+The risks are the one-way migration, which a backup covers, and that 1,068
 passing tests prove internal consistency rather than agreement with the
 Loxone protocol. The parts of that protocol the maintainer's house exercises
 have been checked against real hardware. The parts it does not exercise have
