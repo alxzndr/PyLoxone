@@ -24,6 +24,25 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   group, and the control's `increaseOnly` detail is the `increase_only`
   attribute.
 
+### Fixed
+
+- Setting a single target temperature on an automatic `IRoomControllerV2`
+  sent `setComfortModeTemp` the difference to the comfort temperature,
+  but the Structure File defines it as the new absolute comfort
+  temperature, so asking for 22 °C in a 21 °C room asked the Miniserver
+  for 1 °C. It now sends the temperature itself, and no longer waits for
+  the comfort temperature state to arrive first (from upstream PR #530).
+- The legacy `IRoomController` follows the Structure File's mode table
+  (from upstream PR #530): modes 0-2 read as auto, 3 and 5 as heat, 4 and
+  6 as cool, and the "heating and cooling off" service mode as off. The
+  old table was a guess that read mode 1 as heat and sent `setMode/4` —
+  automatic cooling — for off. Off now sends `service/1`, auto, heat and
+  cool send `mode/0`, `mode/3` and `mode/4` (leaving the off service mode
+  first), target temperatures use `settemp` with the cooling index in the
+  cooling modes, and `heat_cool` is no longer offered because the
+  controller has no such mode; `restrictedToMode` hides heat or cool. The
+  command syntax still needs a check on real V1 hardware.
+
 ## 0.10.9 - 2026-09-16
 
 ### Fixed

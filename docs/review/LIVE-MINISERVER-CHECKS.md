@@ -65,17 +65,28 @@ logger:
   is permanent or expires after an hour.
 - **Pass / Fail:** if it expires, find the non-timed command and use it.
 
-### 4. Legacy `IRoomController` mode table (PC-26)
+### 4. Legacy `IRoomController` mode table and commands (PC-26, upstream #530)
 
-- **Helper:** the legacy mode map in `custom_components/loxone/climate.py`
-- **The doubt:** the legacy V1 table says `4 = Off`, while the V2 enum in the same
-  file says `4 = MANUAL_HEAT`. Both cannot be right. If V2 is correct, then
-  `set_hvac_mode(OFF)` on a V1 controller currently turns on **manual heating**.
-- **Test:** only applicable if you have a legacy (non-V2) `IRoomController`. Set
-  HVAC mode to `off` and confirm in the Loxone app that the room controller is off
-  rather than heating.
-- **Note:** if you have no V1 controller, say so — the safest resolution is then to
-  make the V1 path refuse unknown modes loudly instead of guessing.
+- **Helpers:** `LEGACY_ROOM_CONTROLLER_MODES`, `HVAC_TO_LEGACY_ROOM_CONTROLLER_MODE`,
+  `legacy_mode_to_hvac` and `LoxoneRoomController.async_set_hvac_mode` /
+  `async_set_temperature` in `custom_components/loxone/climate.py`
+- **Now per the Structure File (v16, "Intelligent Room Controller"):** `mode`
+  0 = automatic, 1/2 = automatic currently heating/cooling (not selectable),
+  3/4 = automatic heating/cooling, 5/6 = manual heating/cooling; `serviceMode`
+  1 = heating and cooling off. HA `off` sends `service/1`; `auto` / `heat` /
+  `cool` send `mode/0` / `mode/3` / `mode/4` (preceded by `service/0` when the
+  service mode is 1); a target temperature sends `settemp/<index>/<value>`
+  with `currCoolTempIx` in modes 2/4/6, else `currHeatTempIx`. The old guessed
+  table sent `setMode/4` — automatic cooling — for `off`.
+- **The doubt:** the spec names the `mode`, `service` and `settemp` commands
+  but not their argument syntax; `/`-separated like every other command is
+  assumed.
+- **Test:** only applicable if you have a legacy (non-V2) `IRoomController`.
+  Set HVAC mode `off`, then `heat`, and a target temperature; confirm in the
+  Loxone app that the controller goes to "heating and cooling off", back to
+  automatic heating, and that the active comfort temperature changed.
+- **Fail / adjust:** a `Message not handled` reply → fix the command shape in
+  the two methods above (one place each).
 
 ### 5. Audio zone on-off commands (WP-6.7, PC-43)
 

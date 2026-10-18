@@ -215,14 +215,28 @@ def test_legacy_mode_table_roundtrip():
     (old: `set_hvac_mode(OFF)` sent code 1 = manual heat)."""
     for lox, hvac in LEGACY_ROOM_CONTROLLER_MODES.items():
         assert legacy_mode_to_hvac(lox) == hvac
-        assert hvac_to_loxone(hvac, table="legacy") == lox
-    # The legacy V1 table keeps the codes the legacy controller documented:
-    # 0=Auto, 1=Manual/Heat, 2=Manual/Cool, 3=Auto/Heat-Cool, 4=Off.
-    assert legacy_mode_to_hvac(0) == HVACMode.AUTO
-    assert legacy_mode_to_hvac(1) == HVACMode.HEAT
-    assert legacy_mode_to_hvac(2) == HVACMode.COOL
-    assert legacy_mode_to_hvac(3) == HVACMode.HEAT_COOL
-    assert legacy_mode_to_hvac(4) == HVACMode.OFF
+        # every mode the writer can send reads back as itself
+        assert legacy_mode_to_hvac(hvac_to_loxone(hvac, table="legacy")) == hvac
+    # Structure File "Intelligent Room Controller" mode state: 0 automatic,
+    # 1/2 automatic currently heating/cooling, 3/4 automatic heating/cooling,
+    # 5/6 manual heating/cooling (upstream PR #530).
+    assert [legacy_mode_to_hvac(code) for code in range(7)] == [
+        HVACMode.AUTO,
+        HVACMode.AUTO,
+        HVACMode.AUTO,
+        HVACMode.HEAT,
+        HVACMode.COOL,
+        HVACMode.HEAT,
+        HVACMode.COOL,
+    ]
+    # 1/2 are not selectable: the writer uses 0/3/4.
+    assert hvac_to_loxone(HVACMode.AUTO, table="legacy") == 0
+    assert hvac_to_loxone(HVACMode.HEAT, table="legacy") == 3
+    assert hvac_to_loxone(HVACMode.COOL, table="legacy") == 4
+    # There is no off mode: service mode 1 ("heating and cooling off") is OFF.
+    assert hvac_to_loxone(HVACMode.OFF, table="legacy") is None
+    assert legacy_mode_to_hvac(3, service_mode=1) == HVACMode.OFF
+    assert legacy_mode_to_hvac(3, service_mode=0) == HVACMode.HEAT
 
 
 async def test_legacy_set_hvac_mode_read_write_agreement():
@@ -248,18 +262,21 @@ async def test_legacy_set_hvac_mode_read_write_agreement():
     e.hass.bus.async_fire = _rec
     e.schedule_update_ha_state = lambda *a, **k: None
 
+    assert e.hvac_modes == [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL]
     for hvac in e.hvac_modes:
+        if hvac == HVACMode.OFF:
+            continue
         out.clear()
         await e.async_set_hvac_mode(hvac)
         assert len(out) == 1
+        assert out[0].startswith("mode/")
         code = int(out[0].rsplit("/", 1)[1])
         assert legacy_mode_to_hvac(code) == hvac
 
-    # Explicit OFF regression: sends the table's OFF code, never manual heat.
+    # OFF is service mode 1; the old table sent setMode/4 (automatic cooling).
     out.clear()
     await e.async_set_hvac_mode(HVACMode.OFF)
-    assert out == ["setMode/4"]
-    assert legacy_mode_to_hvac(1) == HVACMode.HEAT  # code 1 stays "heat", not off
+    assert out == ["service/1"]
 
 
 def test_capabilities_to_hvac_modes_table():
@@ -321,12 +338,19 @@ _OFFSTATE = {
         # MANUAL_HEAT / MANUAL_COOL also route to the manual command
         pytest.param(4, 3, {"temperature": 19.0}, {}, ["setManualTemperature/19.0"], id="manual_heat"),
         pytest.param(5, 1, {"temperature": 25.0}, {}, ["setManualTemperature/25.0"], id="manual_cool"),
-        # AUTOMATIC single target: offset relative to comfort (hand: 20.5-21.0 = -0.5)
-        pytest.param(1, 1, {"temperature": 20.5}, {}, ["setComfortModeTemp/-0.5"], id="auto_comfort_user"),
+        # AUTOMATIC single target: setComfortModeTemp takes the ABSOLUTE
+        # temperature (Structure File; the old code sent 20.5 - 21.0 = -0.5)
+        pytest.param(1, 1, {"temperature": 20.5}, {}, ["setComfortModeTemp/20.5"], id="auto_comfort_user"),
+        pytest.param(1, 1, {"temperature": 21.0}, {}, ["setComfortModeTemp/21.0"], id="auto_comfort_equal_still_sent"),
+        # ... so it no longer depends on the comfort state having arrived
         pytest.param(
-            1, 1, {"temperature": 21.0}, {}, ["setComfortModeTemp/0.0"], id="auto_comfort_zero_offset_still_sent"
+            1,
+            1,
+            {"temperature": 20.5},
+            {"comfort_temperature": None},
+            ["setComfortModeTemp/20.5"],
+            id="auto_comfort_unknown_state",
         ),
-        pytest.param(1, 1, {"temperature": 20.5}, {"comfort_temperature": None}, [], id="auto_comfort_unknown_state"),
         pytest.param(1, 1, {}, {}, [], id="auto_no_temp_key"),
         # DUAL-comfort high target (cool side)
         pytest.param(3, 1, {"target_temp_high": 23.0}, {}, ["setComfortTemperatureCool/23.0"], id="dual_comfort_high"),
@@ -647,7 +671,7 @@ def test_v2_legacy_rgc_still_builds_from_legacy_states():
     assert e.native_target_temperature is None
     assert e.native_current_temperature is None
     assert e.hvac_mode == HVACMode.OFF
-    feed(e, {"sM": 1, "sT": 21.0, "sA": 19.5})
+    feed(e, {"sM": 5, "sT": 21.0, "sA": 19.5})  # 5 = manual heating
     assert e.hvac_mode == HVACMode.HEAT
     assert e.native_target_temperature == 21.0
     assert e.native_current_temperature == 19.5
