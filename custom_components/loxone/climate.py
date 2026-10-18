@@ -29,7 +29,7 @@ from .const import CONF_HVAC_AUTO_MODE, PRESET_PAUSED_WINDOW, PRESET_SCHEDULE, l
 # (parallel-safe, WP-4.2/4.4); see the PR body follow-up.
 PRESET_FIXED = "fixed"
 PRESET_FIXED_DYNAMIC = "fixed_dynamic"
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
+from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device, miniserver_temperature_unit
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,22 +63,24 @@ def _parse_mode_list(raw, what: str) -> list[dict]:
     return [m for m in raw if isinstance(m, dict)]
 
 
-def temperature_unit_from_format(fmt: str | None) -> str:
+def temperature_unit_from_format(fmt: str | None, default: str = UnitOfTemperature.CELSIUS) -> str:
     """
     Map a Loxone format string to a temperature unit (PC-23).
 
     The designer can put any format string on the input sensor; we assume it
     mentions the unit.  Containment, not ``str.find`` (index 0 is falsy):
     ``"°C"`` at position 0 must read as Celsius.  Falls back to the legacy
-    bare-letter heuristic, then to Celsius.
+    bare-letter heuristic, then to ``default``: the Miniserver's own unit
+    (``msInfo.tempUnit``), because Loxone Config's default temperature
+    formats are ``%.1f°`` / ``%d°`` without C or F.
     """
     if fmt is None:
-        return UnitOfTemperature.CELSIUS
+        return default
     if "°F" in fmt or "F" in fmt:
         return UnitOfTemperature.FAHRENHEIT
     if "°C" in fmt or "C" in fmt:
         return UnitOfTemperature.CELSIUS
-    return UnitOfTemperature.CELSIUS
+    return default
 
 
 # V2 (IRoomControllerV2) Loxone operating-mode codes.  -1 is the documented
@@ -566,7 +568,10 @@ class LoxoneRoomController(LoxoneEntity, NativeTemperatureCompat, ClimateEntity,
     @property
     def native_temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform (PC-23)."""
-        return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
+        return temperature_unit_from_format(
+            self.details.get("format") if isinstance(self.details, dict) else None,
+            miniserver_temperature_unit(getattr(self, "config_entry", None)),
+        )
 
     @property
     def target_temperature_step(self) -> float | None:
@@ -782,7 +787,10 @@ class LoxoneRoomControllerV2(LoxoneEntity, NativeTemperatureCompat, ClimateEntit
         We assume that the format string contains the unit of temperature,
         and default to Celsius if not.
         """
-        return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
+        return temperature_unit_from_format(
+            self.details.get("format") if isinstance(self.details, dict) else None,
+            miniserver_temperature_unit(getattr(self, "config_entry", None)),
+        )
 
     @property
     def native_current_temperature(self):
@@ -1154,7 +1162,10 @@ class LoxoneAcControl(LoxoneEntity, NativeTemperatureCompat, ClimateEntity, ABC)
     @property
     def native_temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform (PC-23)."""
-        return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
+        return temperature_unit_from_format(
+            self.details.get("format") if isinstance(self.details, dict) else None,
+            miniserver_temperature_unit(getattr(self, "config_entry", None)),
+        )
 
     @property
     def native_target_temperature(self) -> float | None:

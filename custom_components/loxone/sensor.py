@@ -30,6 +30,8 @@ from homeassistant.const import (
     CONF_UNIT_OF_MEASUREMENT,
     LIGHT_LUX,
     PERCENTAGE,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
     UnitOfEnergy,
     UnitOfPower,
     UnitOfRatio,
@@ -64,6 +66,7 @@ from .const import (
     loxone_message_signal,
 )
 from .helpers import (
+    miniserver_temperature_unit,
     InPlaceEntityIdChange,
     add_room_and_cat_to_value_values,
     clean_unit,
@@ -245,6 +248,18 @@ SENSOR_TYPES: tuple[LoxoneEntityDescription, ...] = (
         loxone_format_strings=(UnitOfPower.WATT, UnitOfPower.KILO_WATT),
         state_class=SensorStateClass.MEASUREMENT,
         device_class=SensorDeviceClass.POWER,
+    ),
+    LoxoneEntityDescription(
+        key="voltage",
+        loxone_format_strings=(UnitOfElectricPotential.VOLT, UnitOfElectricPotential.MILLIVOLT),
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.VOLTAGE,
+    ),
+    LoxoneEntityDescription(
+        key="current",
+        loxone_format_strings=(UnitOfElectricCurrent.AMPERE, UnitOfElectricCurrent.MILLIAMPERE),
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.CURRENT,
     ),
     LoxoneEntityDescription(
         key="volume_flow_rate",
@@ -1541,7 +1556,11 @@ class LoxoneSensor(LoxoneEntity, SensorEntity):
         details = details if isinstance(details, dict) else {}
         lox_format = details.get("format", "")
         self._attr_should_poll = False
-        self._attr_native_unit_of_measurement = clean_unit(lox_format) if isinstance(lox_format, str) else None
+        self._attr_native_unit_of_measurement = (
+            clean_unit(lox_format, miniserver_temperature_unit(kwargs.get("config_entry")))
+            if isinstance(lox_format, str)
+            else None
+        )
         self._parent_id = kwargs.get("parent_id")
 
         # PS-25: a format with an explicit ``.0`` still has a real precision

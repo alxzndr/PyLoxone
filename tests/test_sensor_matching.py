@@ -274,9 +274,10 @@ class TestSensorTypesStructure:
         for desc in SENSOR_TYPES:
             assert desc.native_unit_of_measurement is None, f"{desc.key} should not set native_unit_of_measurement"
 
-    def test_ten_descriptions(self):
-        """One per concept: temp, wind, energy, power, volume_flow_rate, water, illuminance, co2, humidity, battery."""
-        assert len(SENSOR_TYPES) == 10
+    def test_twelve_descriptions(self):
+        """One per concept: temp, wind, energy, power, voltage, current, volume_flow_rate, water, illuminance,
+        co2, humidity, battery."""
+        assert len(SENSOR_TYPES) == 12
 
     def test_unique_keys(self):
         keys = [desc.key for desc in SENSOR_TYPES]

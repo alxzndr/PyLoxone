@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .helpers import clean_unit, get_or_create_device, iter_controls
+from .helpers import clean_unit, get_or_create_device, iter_controls, miniserver_temperature_unit
 from .sensor import _is_numeric_format, match_sensor_description
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ async def async_setup_entry(
     for number_entity in iter_controls(hass, config_entry, ["Slider", "ValueSelector"]):
         cls = LoxoneValueSelector if number_entity.get("type") == "ValueSelector" else LoxoneNumber
         try:
-            entities.append(cls(**number_entity))
+            entities.append(cls(**number_entity, config_entry=config_entry))
         except Exception:
             # One bad control must not abort the whole number platform.
             _LOGGER.exception(
@@ -71,7 +71,7 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
         lox_format = details.get("format", "")
         numeric = _is_numeric_format(lox_format)
         if isinstance(lox_format, str) and lox_format:
-            unit = clean_unit(lox_format) or None
+            unit = clean_unit(lox_format, miniserver_temperature_unit(kwargs.get("config_entry"))) or None
             self._attr_native_unit_of_measurement = unit
             desc = match_sensor_description(
                 unit=unit,

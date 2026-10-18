@@ -178,6 +178,15 @@ connection and security fixes below are ported from upstream 0.10.0 and
 
 ### Fixed
 
+- A temperature format with a bare degree sign (`%.1f°`, `%d°`, which is
+  what Loxone Config itself writes) now reads as a temperature in the
+  Miniserver's own unit (`msInfo.tempUnit`, °C or °F); before, such a
+  sensor had no device class and a room controller assumed °C. Formats
+  that use Loxone's `<v.1>` value placeholders no longer end up as the
+  unit, and volts and amperes get the voltage and current device classes.
+  The format facts come from a reverse-engineering pass over
+  `LoxoneConfig.exe`.
+
 - One malformed message no longer ends the session. A text frame that is
   valid JSON but not an object (`12345678`, `null`, `{"LL": []}`) raised an
   error the parser did not catch, and the session stayed down until a

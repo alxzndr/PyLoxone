@@ -580,12 +580,41 @@ def iter_controls(hass, config_entry, types, recursive: bool = False) -> Iterato
         yield dict(add_room_and_cat_to_value_values(loxconfig, control))
 
 
-def clean_unit(lox_format):
-    """Extract the unit string from a Loxone format specifier like '%.1f °C'."""
-    search = re.search(cfmt, lox_format, flags=re.VERBOSE)
+# Loxone Config's value placeholders (``<v>``, ``<v.1>``, ``<v.pr>``, ``<vn>``,
+# ...), which a format may use instead of or beside a printf conversion.
+_VALUE_PLACEHOLDER_RE: Final = re.compile(r"<v[^<>]*>")
+
+
+def miniserver_temperature_unit(config_entry) -> str:
+    """
+    The temperature unit the Miniserver is set to: ``msInfo.tempUnit``,
+    0 = °C, 1 = °F (structure file v16), °C when unknown.
+    """
+    coordinator = getattr(config_entry, "runtime_data", None)
+    lox_config = getattr(getattr(getattr(coordinator, "miniserver", None), "lox_config", None), "json", None)
+    ms_info = lox_config.get("msInfo") if isinstance(lox_config, dict) else None
+    if isinstance(ms_info, dict) and ms_info.get("tempUnit") == 1:
+        return "°F"
+    return "°C"
+
+
+def clean_unit(lox_format, temperature_unit: str = "°C"):
+    """
+    Extract the unit string from a Loxone format specifier like '%.1f °C'.
+
+    Loxone Config's own temperature formats are ``%.1f°`` and ``%d°``,
+    without C or F: a bare ``°`` is the Miniserver's temperature unit, so the
+    caller passes that in. Value placeholders such as ``<v.1>`` are not part
+    of the unit.
+    """
+    stripped = _VALUE_PLACEHOLDER_RE.sub("", lox_format)
+    search = re.search(cfmt, stripped, flags=re.VERBOSE)
     if search:
-        unit = lox_format.replace(search.group(0).strip(), "").strip()
+        unit = stripped.replace(search.group(0).strip(), "").strip()
         if unit == "%%":
             unit = "%"
-        return unit
-    return lox_format
+    elif stripped != lox_format:
+        unit = stripped.strip()
+    else:
+        return lox_format
+    return temperature_unit if unit == "°" else unit
