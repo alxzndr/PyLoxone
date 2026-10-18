@@ -190,6 +190,10 @@
     "loxone_device_status": {
       "title": "{title}: {name}",
       "description": "{description}"
+    },
+    "intercom_switches_replaced": {
+      "title": "Loxone intercom outputs are buttons now",
+      "description": "The outputs of an intercom (door openers and the like) are pushbuttons in the Loxone structure file. They used to be switches whose turn-on held the output until a turn-off followed; they are buttons now, and a press sends a pulse. The obsolete switch entities were removed: {entities}. Automations, scripts and dashboards that used an old switch must press the new button instead (`button.press`). Dismiss this message once they are updated."
     }
   }
 }

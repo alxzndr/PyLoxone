@@ -13,29 +13,6 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
-### Added
-
-- Entities of blocks deleted in Loxone Config are removed at setup, with
-  the devices this leaves empty. They used to stay forever as "no longer
-  provided". An entity counts as stale only when its unique id starts with
-  a Loxone id that occurs nowhere in the structure file, and if more than
-  half of the entities would go, the structure file is treated as
-  incomplete and nothing is removed. A device whose block still exists can
-  no longer be deleted by hand, because it came straight back at the next
-  setup.
-- On Home Assistant 2026.11, changing an entity id renames the entity in
-  place instead of removing and re-adding it.
-- `scripts/pyloxone-cli` runs the protocol client without Home Assistant
-  to check the connection to a Miniserver. It asks for the password
-  instead of taking it on the command line.
-
-### Changed
-
-- Entity names no longer repeat their device's name: an output called
-  "home cinema led achter" on the controller "Home Cinema" is now shown as
-  "Home Cinema led achter" instead of "Home Cinema home cinema led
-  achter". Entity ids of existing entities do not change.
-
 ## 1.0.0 - 2026-10-18
 
 The fork continues at 1.0.0 because upstream has since released its own,
@@ -53,6 +30,7 @@ connection and security fixes below are ported from upstream 0.10.0 and
   explains that memory flags (Merker) appear once "Use" is ticked in
   Loxone Config, as the already supported `InfoOnlyDigital`,
   `InfoOnlyAnalog` and `InfoOnlyText` controls.
+
 - The window and door monitor (`WindowMonitor`) is supported (#524). Its
   contacts did not appear in Home Assistant at all, because the monitor is
   the only place the Miniserver publishes them. Each contact gets its own
@@ -77,6 +55,7 @@ connection and security fixes below are ported from upstream 0.10.0 and
   arrives, and a zero step is ignored. They join the `Loxone Numbers`
   group, and the control's `increaseOnly` detail is the `increase_only`
   attribute.
+
 - Ready for Home Assistant 2026.11, while 2026.7 stays the floor. The
   climate entities implement the renamed `native_current_temperature`,
   `native_target_temperature(_high/_low)` and `native_temperature_unit`
@@ -88,7 +67,53 @@ connection and security fixes below are ported from upstream 0.10.0 and
   Miniserver is unchanged. A CI job runs the suite against the newest
   Home Assistant beta and may fail without blocking.
 
+- Entities of blocks deleted in Loxone Config are removed at setup, with
+  the devices this leaves empty. They used to stay forever as "no longer
+  provided". An entity counts as stale only when its unique id starts with
+  a Loxone id that occurs nowhere in the structure file, and if more than
+  half of the entities would go, the structure file is treated as
+  incomplete and nothing is removed. A device whose block still exists can
+  no longer be deleted by hand, because it came straight back at the next
+  setup.
+
+- On Home Assistant 2026.11, changing an entity id renames the entity in
+  place instead of removing and re-adding it.
+
+- `scripts/pyloxone-cli` runs the protocol client without Home Assistant
+  to check the connection to a Miniserver. It asks for the password
+  instead of taking it on the command line.
+
+- Intercoms get a doorbell. Each `Intercom` and `IntercomV2` has an event
+  entity `Doorbell` (device class `doorbell`, event type `ring`) that fires
+  when the intercom's `bell` state goes from 0 to 1. The first value after
+  Home Assistant starts, after a reload and after every reconnect is taken
+  as the starting point and never fires, so a bell that is already ringing
+  when the connection comes back, or a value the Miniserver merely
+  repeats, does not run a doorbell automation; a ring that starts and ends
+  while the connection is down is missed. An `Answer` button sends
+  `answer`, which stops the bell, and an `IntercomV2` also gets a `Mute`
+  switch that follows the block's `muted` state and sends `mute/1` and
+  `mute/0`. All of them sit on the intercom's device. The test fixture now
+  models both intercom blocks as the structure file describes them.
+
 ### Changed
+
+- **Breaking for automations on intercom outputs:** the outputs of an
+  `Intercom` or `IntercomV2` (door openers, gate releases and the like) are
+  `button` entities now, not switches. The Loxone structure file (v16)
+  describes them as pushbuttons; the switches sent `on`, which kept a door
+  strike energised until a `turn_off` followed, and if that never came
+  (an automation error, a dropped connection) the door stayed released. A
+  press of the new button sends `pulse`, so the output fires once. The
+  button keeps the output's name and unique id and sits on the intercom's
+  device, so the entity id changes only in its domain, for example
+  `switch.hall_entrance_intercom_door_lock` becomes
+  `button.hall_entrance_intercom_door_lock`. On the first start the old
+  switch entries are removed from the entity registry, each with a WARNING
+  in the log naming the new button, and a repair issue lists them.
+  Automations, scripts and dashboards that turned an old switch on or off
+  must call `button.press` on the new entity instead. Outputs without an
+  `active` state, which used to be skipped, are buttons now too.
 
 - **Breaking for automations on the `Override Reason` sensor:** code 14
   now reads `low_request` ("Low Request") instead of `fixed` ("Fixed
@@ -102,6 +127,11 @@ connection and security fixes below are ported from upstream 0.10.0 and
   automation that compared the sensor with `fixed` should compare with
   `low_request`; the slugs for 0-8 are unchanged. The Structure File (v16)
   documents only 0-8, so the names of 9-20 still need a live check.
+
+- Entity names no longer repeat their device's name: an output called
+  "home cinema led achter" on the controller "Home Cinema" is now shown as
+  "Home Cinema led achter" instead of "Home Cinema home cinema led
+  achter". Entity ids of existing entities do not change.
 
 - The documentation no longer claims support that was only ever tested
   against the synthetic test fixture. Checked against the Loxone structure
@@ -129,13 +159,16 @@ connection and security fixes below are ported from upstream 0.10.0 and
   callback like any command reply, so the token was fired as a
   `loxone_event` and written to the debug log. Those replies now stay
   inside the connection.
+
 - `killtoken` is sent encrypted. It carries the raw token, which crossed
   the network in clear text on the unencrypted `ws://` socket of a Gen 1
   Miniserver (ported from upstream; the encrypted form is not yet verified
   live).
+
 - Encrypted commands are logged by their command path only, so the debug
   log no longer contains the token, the credential and token hashes or
   the secured-command HMACs. Plain control commands stay readable.
+
 - Each secured command (alarm, gate, anything behind the visualisation
   password) now waits for its own `getvisusalt` reply. The first reply used
   to send every queued secured command, and a failed reply was only
@@ -150,34 +183,43 @@ connection and security fixes below are ported from upstream 0.10.0 and
   error the parser did not catch, and the session stayed down until a
   manual reload. Found by running upstream's 0.10.1 parsing tests against
   this fork.
+
 - A session that ends with an error the reconnect loop does not retry (an
   HTTP 500 or a truncated `LoxAPP3.json` while reconnecting, or a bug)
   reloads the entry after 30 seconds instead of leaving every entity
   unavailable (ported from upstream).
+
 - The token persisted since 0.10.3 now survives a reload. Every unload
   killed it on the Miniserver, and an unload runs for every reload
   (options change, reauth), so the next setup fell back to a password
   login. The token is no longer killed on unload; when the entry is
   removed, it expires on the Miniserver.
+
 - The websocket is opened right before the key exchange instead of during
   setup (#527). The Miniserver closes a socket that is not authenticated
   within a few seconds, and Home Assistant sets up every platform in
   between, so on a slow start the key exchange went to a closed socket:
   an ERROR with traceback and entities that came up late.
+
 - A user the Miniserver has blocked after too many failed logins (close
   code 4003) or disabled (4006) is no longer reconnected forever, which
   can extend the block; the integration starts the reauth flow instead
   (ported from upstream).
+
 - An outage produces one WARNING instead of about four ERROR tracebacks
   per reconnect attempt. "Restored connection" is logged once the
   Miniserver has accepted the session, not when the socket opens.
+
 - A half-open socket (pulled cable, frozen Miniserver) is detected after
   90 seconds without data instead of at the TCP timeout, minutes later.
+
 - Commands given while the Miniserver was not connected are dropped with
   one WARNING when the next session starts, instead of being sent before
   authentication (and a gate pressed minutes ago opening now). Queued
   commands are no longer pushed into a dead socket at shutdown.
+
 - An encrypted send to a closed socket no longer rotates the salt.
+
 - Diagnostics include the session state and the date the token expires
   (never the token).
 
@@ -187,6 +229,7 @@ connection and security fixes below are ported from upstream 0.10.0 and
   temperature, so asking for 22 °C in a 21 °C room asked the Miniserver
   for 1 °C. It now sends the temperature itself, and no longer waits for
   the comfort temperature state to arrive first (from upstream PR #530).
+
 - The legacy `IRoomController` follows the Structure File's mode table
   (from upstream PR #530): modes 0-2 read as auto, 3 and 5 as heat, 4 and
   6 as cool, and the "heating and cooling off" service mode as off. The
@@ -197,12 +240,14 @@ connection and security fixes below are ported from upstream 0.10.0 and
   cooling modes, and `heat_cool` is no longer offered because the
   controller has no such mode; `restrictedToMode` hides heat or cool. The
   command syntax still needs a check on real V1 hardware.
+
 - Jalousies read their sun-automation state from `autoActive` and the info
   text from `infoText`, the names the Structure File uses (from upstream
   PR #530). Only the non-standard `autoState` / `autoInfoText` were read
   before, so on a Miniserver that sends the spec names every blind showed
   its automation as off and got no `Sun auto` select. The old names are
   still read when the spec ones are missing.
+
 - Two things that broke on the Home Assistant 2026.11 development branch
   are fixed in advance: setting up an entry failed because the group
   integration no longer re-exports `async_get_component`, and
@@ -210,8 +255,6 @@ connection and security fixes below are ported from upstream 0.10.0 and
   entity (no name of its own), which 2026.11 no longer allows an area of
   its own. `sync_areas` now gives such an entity's device the area
   instead, and still never overwrites an area the user set.
-
-
 ## 0.10.9 - 2026-09-16
 
 ### Fixed

@@ -90,6 +90,7 @@ from .helpers import (
     meets_minimum_firmware,
     structure_ids,
 )
+from .intercom import async_remove_obsolete_intercom_switches
 from .pyloxone_api.exceptions import (
     LoxoneServiceUnAvailableError,
     LoxoneUnauthorisedError,
@@ -1009,6 +1010,10 @@ async def async_setup_entry(hass, config_entry):
     # its DomainPlatform was never unloaded (CORE-14).
     await hass.config_entries.async_forward_entry_setups(config_entry, LOXONE_PLATFORMS)
     _async_remove_stale_entries(hass, config_entry, coordinator.api.structure_file)
+
+    # Up to 0.10.9 intercom outputs were switches; they are pushbuttons now.
+    # Runs after the platforms so the replacement buttons are registered.
+    async_remove_obsolete_intercom_switches(hass, config_entry, coordinator.miniserver.lox_config.json)
 
     async def run_loxone_session() -> None:
         """

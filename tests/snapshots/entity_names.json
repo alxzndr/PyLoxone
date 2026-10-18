@@ -111,6 +111,28 @@
   },
   {
     "domain": "button",
+    "entity_id": "button.hall_entrance_intercom_answer",
+    "unique_id": "63746c3a-9c7d-96f2-ffff-e301696e743276000024/answer",
+    "name": null,
+    "original_name": "Answer",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entrance Intercom",
+    "device_model": "IntercomV2"
+  },
+  {
+    "domain": "button",
+    "entity_id": "button.hall_entrance_intercom_door_lock",
+    "unique_id": "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026",
+    "name": null,
+    "original_name": "Door Lock",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entrance Intercom",
+    "device_model": "IntercomV2"
+  },
+  {
+    "domain": "button",
     "entity_id": "button.hall_introduce_pushbutton",
     "unique_id": "63746c3a-0161-9747-ffff-f64756365205000097",
     "name": null,
@@ -119,6 +141,28 @@
     "disabled": false,
     "device_name": "Introduce Pushbutton",
     "device_model": "Pushbutton"
+  },
+  {
+    "domain": "button",
+    "entity_id": "button.hall_main_intercom_answer",
+    "unique_id": "63746c3a-0165-9696-ffff-0496e7465726000101/answer",
+    "name": null,
+    "original_name": "Answer",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Main Intercom",
+    "device_model": "Intercom"
+  },
+  {
+    "domain": "button",
+    "entity_id": "button.hall_main_intercom_door_opener",
+    "unique_id": "7375623a-0167-9696-ffff-0496e7465726000103",
+    "name": null,
+    "original_name": "Door Opener",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Main Intercom",
+    "device_model": "Intercom"
   },
   {
     "domain": "button",
@@ -218,6 +262,28 @@
     "disabled": false,
     "device_name": "Terrace Jalousie",
     "device_model": "Jalousie"
+  },
+  {
+    "domain": "event",
+    "entity_id": "event.hall_entrance_intercom_doorbell",
+    "unique_id": "63746c3a-9c7d-96f2-ffff-e301696e743276000024/bell",
+    "name": null,
+    "original_name": "Doorbell",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entrance Intercom",
+    "device_model": "IntercomV2"
+  },
+  {
+    "domain": "event",
+    "entity_id": "event.hall_main_intercom_doorbell",
+    "unique_id": "63746c3a-0165-9696-ffff-0496e7465726000101/bell",
+    "name": null,
+    "original_name": "Doorbell",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Main Intercom",
+    "device_model": "Intercom"
   },
   {
     "domain": "fan",
@@ -1002,10 +1068,10 @@
   },
   {
     "domain": "switch",
-    "entity_id": "switch.hall_entrance_intercom_door_lock",
-    "unique_id": "7375623a-9c9d-9696-ffff-c74c6f6c6b3276000026",
+    "entity_id": "switch.hall_entrance_intercom_mute",
+    "unique_id": "63746c3a-9c7d-96f2-ffff-e301696e743276000024/mute",
     "name": null,
-    "original_name": "Door Lock",
+    "original_name": "Mute",
     "has_entity_name": true,
     "disabled": false,
     "device_name": "Entrance Intercom",

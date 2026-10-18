@@ -63,6 +63,19 @@ Thanks also to Pawel Pieczul of openHAB for the token authentication.
    to your `configuration.yaml`.
 3. Restart Home Assistant and add the integration as above.
 
+### Upgrading from 0.10
+
+Intercom outputs (door openers and the like) were `switch` entities up to
+0.10.9; they are `button` entities now, and a press sends a pulse instead of
+holding the output until a turn-off. The entity id keeps its name and
+changes its domain, for example `switch.hall_entrance_intercom_door_lock`
+becomes `button.hall_entrance_intercom_door_lock`. The old switch entries
+are removed on the first start, with a WARNING per entity in the log and a
+repair issue that lists them. Change automations, scripts and dashboards
+that used `switch.turn_on` / `switch.turn_off` on an old switch to
+`button.press` on the new button. Names, icons or areas you had set on the
+old switch are not carried over.
+
 ### Upgrading from JoDehli/PyLoxone
 
 Installing this fork over the upstream integration keeps your entities, but
@@ -185,7 +198,7 @@ Every supported control type and what it turns into:
 | Message Center | `sensor` + repairs | One diagnostic sensor per Message Center block whose state is the highest active severity; active entries appear as repair issues and disappear when they clear. Attribute: `status` (counts per severity). |
 | `Switch` | `switch` | On/off switch. |
 | `TimedSwitch` | `switch` | Switch with a deactivation timer; turning on sends `pulse`. Attributes: `delay_time_total`, and `delay` (seconds remaining) while it is on. |
-| `Intercom` / `IntercomV2` | `switch` | The intercom's sub-controls that report an `active` state, as switches on the intercom's device. The Loxone structure file describes these outputs (door openers, for example) as pushbuttons; see [Known limitations](#known-limitations). |
+| `Intercom` / `IntercomV2` | `button` + `event` + `switch` | All on the intercom's device: one button per output (door opener, gate, light) named after the output, whose press sends `pulse` so the output fires once; an `Answer` button that stops the bell; a `Doorbell` event entity (device class `doorbell`, event type `ring`) that fires when the bell starts ringing; and on an `IntercomV2` a `Mute` switch. The doorbell fires only for a ring it sees start: the first value after a start, reload or reconnect never fires, so a ring that begins and ends while the connection is down is missed. Up to 0.10.9 the outputs were switches; see [Upgrading from 0.10](#upgrading-from-010). |
 
 Loxone entities carry the attributes `uuid` (the control's `uuidAction`, usable
 with the [websocket command services](#services)), `platform` (`loxone`),
@@ -260,12 +273,6 @@ homeassistant:
   Reading the current speed works. A redesign is planned; the correct
   commands are not yet known (`docs/review/2026-09-remediation-plan.md`,
   "Ventilation fan model rework").
-- **Intercom door openers are switches, not buttons.** The Loxone
-  structure file describes the outputs of an `Intercom` and an `IntercomV2`
-  as pushbuttons, which are pulsed. Turning one of these switches on sends `on`, which
-  keeps the output active until the switch is turned off again. Do not
-  leave a door-opener switch on, and prefer a `turn_on` followed by a
-  `turn_off` in automations until this is changed.
 - Some commands were implemented from documentation and inference rather
   than observed on hardware (audio zone power/mute/source, `LightsceneRGB`
   writes, gate positioning, `UpDownDigital`, `Tracker` payloads, the legacy
@@ -351,7 +358,9 @@ documentation on the [Loxone website](https://www.loxone.com/dede/kb/api/).
 - **Repair issues** (Settings > System > Repairs): the Miniserver rejected
   the stored credentials (with a re-authentication prompt), the Miniserver
   firmware is below 7.0.0, a leftover `loxone:` block in `configuration.yaml`
-  (it was never read; remove it), and one issue per active Message Center
+  (it was never read; remove it), intercom output switches replaced by
+  buttons (lists the old and new entity ids; dismiss it once your
+  automations are updated), and one issue per active Message Center
   entry with the Loxone help link.
 - **Diagnostics download** (device page > three-dot menu > *Download
   diagnostics*) contains the structure file with the serial number, MAC,

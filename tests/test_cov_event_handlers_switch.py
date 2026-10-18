@@ -17,7 +17,6 @@ from types import SimpleNamespace
 
 from custom_components.loxone.const import SENDDOMAIN
 from custom_components.loxone.switch import (
-    LoxoneIntercomSubControl,
     LoxoneLightPresenceSwitch,
     LoxoneRoomControllerOverride,
     LoxoneSwitch,
@@ -166,7 +165,7 @@ class TestTimedSwitch:
 
 
 # --------------------------------------------------------------------------- #
-# LoxoneSwitch / LoxoneIntercomSubControl commands
+# LoxoneSwitch commands
 # --------------------------------------------------------------------------- #
 
 
@@ -203,37 +202,6 @@ class TestPlainSwitchCommands:
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-switch-sync", "value": "On"})
         await s.async_turn_off()
         assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-switch-sync", "value": "Off"})
-
-
-class TestIntercomSubControl:
-    def sub(self, **overrides):
-        kwargs = {
-            "uuidAction": "ctl-intercom-sub",
-            "name": "Bell",
-            "states": {"active": ACTIVE_UUID},
-        }
-        kwargs.update(overrides)
-        return _stub(LoxoneIntercomSubControl, **kwargs)
-
-    async def test_turn_on_uses_lowercase_on(self):
-        # The intercom sub-control takes "on", not the plain switch's "On".
-        s = self.sub()
-        await s.async_turn_on()
-        assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-intercom-sub", "value": "on"})
-        assert s._attr_is_on is True
-        await s.async_turn_on()
-        assert len(s.hass.bus.fired) == 1
-
-    async def test_turn_on_service_entrypoint_sends_command(self):
-        s = self.sub(uuidAction="ctl-intercom-sync")
-        await s.async_turn_on()
-        assert _last(s) == (SENDDOMAIN, {"uuid": "ctl-intercom-sync", "value": "on"})
-
-    def test_type_and_attributes(self):
-        s = self.sub()
-        assert s.type == "IntercomSubControl"
-        assert s._attr_name == "Bell"
-        assert s.extra_state_attributes["state_uuid"] == ACTIVE_UUID
 
 
 # --------------------------------------------------------------------------- #

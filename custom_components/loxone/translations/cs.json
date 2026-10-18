@@ -116,6 +116,10 @@
     "loxone_device_status": {
       "title": "{title}: {name}",
       "description": "{description}"
+    },
+    "intercom_switches_replaced": {
+      "title": "Výstupy interkomu Loxone jsou nyní tlačítka",
+      "description": "Výstupy interkomu (otvírače dveří a podobně) jsou ve struktuře Loxone tlačítka. Dříve to byly spínače, jejichž zapnutí drželo výstup sepnutý, dokud nenásledovalo vypnutí; nyní jsou to tlačítka a stisk odešle impuls. Zastaralé entity spínačů byly odstraněny: {entities}. Automatizace, skripty a dashboardy, které používaly starý spínač, musí místo toho stisknout nové tlačítko (`button.press`). Po jejich úpravě tuto zprávu ignorujte."
     }
   }
 }
