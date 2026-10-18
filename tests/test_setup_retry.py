@@ -196,7 +196,7 @@ async def test_transient_401_retries_and_recovers(hass, loxapp3, mock_connection
     open_calls = []
     close_calls = []
 
-    async def scripted_open(self, session=None):
+    async def scripted_open(self, session=None, **_kwargs):
         open_calls.append(1)
         if len(open_calls) <= 2:  # first two attempts: boot-window 401
             raise LoxoneUnauthorisedError("Unauthorized (401)")
@@ -283,7 +283,7 @@ async def test_persistent_401_escalates_to_reauth(
     open_calls = []
     seen = [0]  # attempts observed so far (for the fake-clock step)
 
-    async def failing_open(self, session=None):
+    async def failing_open(self, session=None, **_kwargs):
         open_calls.append(1)
         grown = len(open_calls) - seen[0]
         if grown > 0:
@@ -350,7 +350,7 @@ async def test_503_still_retries_and_closes(hass, loxapp3, mock_connection, mock
     open_calls = []
     close_calls = []
 
-    async def failing_open(self, session=None):
+    async def failing_open(self, session=None, **_kwargs):
         open_calls.append(1)
         raise LoxoneServiceUnAvailableError("Service Unavailable (503)")
 

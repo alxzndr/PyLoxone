@@ -423,7 +423,7 @@ async def test_a_plain_transport_failure_on_open_is_retried_and_logged(
     test's teardown.
     """
 
-    async def _failing_open(self, session=None):
+    async def _failing_open(self, session=None, **_kwargs):
         raise OSError("no route to host")
 
     mock_entry.add_to_hass(hass)

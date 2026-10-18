@@ -230,7 +230,7 @@ async def test_auth_failed_issue_until_reauth_completes(
     seen = [0]
     open_ok = [False]
 
-    async def scripted_open(api, session=None):
+    async def scripted_open(api, session=None, **_kwargs):
         open_calls.append(1)
         grown = len(open_calls) - seen[0]
         if grown > 0:

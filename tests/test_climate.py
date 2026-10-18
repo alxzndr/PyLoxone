@@ -58,7 +58,7 @@ def _fresh_loxapp3() -> dict:
 
 
 def _fake_open_with(config):
-    async def _fake_open(self, session=None):
+    async def _fake_open(self, session=None, **_kwargs):
         self.structure_file = config
         self.miniserver_version = config.get("softwareVersion")
         self.connected = True

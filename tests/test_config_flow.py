@@ -60,7 +60,7 @@ class _FakeLoxoneConnection:
         self.miniserver_serial = ""
         _FakeLoxoneConnection.instances.append(self)
 
-    async def open(self, session=None) -> None:
+    async def open(self, session=None, **_kwargs) -> None:
         if _FakeLoxoneConnection.fail is not None:
             raise _FakeLoxoneConnection.fail
         self.structure_file = {"msInfo": {"serialNr": SERIAL}}

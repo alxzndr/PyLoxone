@@ -118,7 +118,7 @@ async def test_two_miniservers_are_isolated(
 
     per_api_sent: dict[int, list] = {}
 
-    async def _open_patched(self, session=None):
+    async def _open_patched(self, session=None, **_kwargs):
         structure = next(structures)
         result = await orig_open(self, session=session)
         self.structure_file = structure

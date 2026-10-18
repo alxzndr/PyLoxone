@@ -195,7 +195,7 @@ async def test_unavailable_on_open_raises_not_ready_and_closes_api(
     open_calls: list[int] = []
     close_calls: list[int] = []
 
-    async def failing_open(self, session=None):
+    async def failing_open(self, session=None, **_kwargs):
         open_calls.append(1)
         raise LoxoneServiceUnAvailableError("Service Unavailable (503)")
 
@@ -319,7 +319,7 @@ async def test_empty_stored_token_is_not_sent_to_connection(
             self.structure_file = loxapp3
             self.connected = True
 
-        async def open(self, session=None):
+        async def open(self, session=None, **_kwargs):
             return self
 
     entry = MockConfigEntry(

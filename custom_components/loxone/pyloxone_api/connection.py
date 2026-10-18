@@ -446,6 +446,10 @@ class LoxoneBaseConnection:
         self.miniserver_version: list[int] = []
         self.miniserver_serial: str = ""
         self.structure_file: dict = {}
+        # Set by ``open(connect_websocket=False)``: the HTTP bootstrap is
+        # done and ``start_listening`` connects the websocket right before
+        # the key exchange (JoDehli/PyLoxone#527).
+        self._websocket_deferred: bool = False
 
         # Validate and initialize token
         try:
@@ -1137,7 +1141,12 @@ class LoxoneConnection(LoxoneBaseConnection):
         # method share exactly one socket. The fallback re-open only runs
         # for standalone users of the library who call start_listening
         # before open().
-        if self.connection is None:
+        if self.connection is None and self._websocket_deferred:
+            # The bootstrap ran in open(connect_websocket=False); connecting
+            # only now keeps the unauthenticated window short (see open()).
+            _LOGGER.debug("Opening the deferred websocket connection.")
+            await self._connect_websocket()
+        elif self.connection is None:
             _LOGGER.debug("No existing connection found. Opening a new connection.")
             await self.open(self._session)
         else:
@@ -1613,8 +1622,21 @@ class LoxoneConnection(LoxoneBaseConnection):
             _LOGGER.debug("Error in listening loop (traceback)", exc_info=True)
             raise
 
-    async def open(self, session: aiohttp.ClientSession | None = None) -> LoxoneClientConnection:
+    async def open(
+        self, session: aiohttp.ClientSession | None = None, *, connect_websocket: bool = True
+    ) -> LoxoneClientConnection | None:
+        """
+        Bootstrap a session: API key, LoxAPP3.json, public key, session key.
 
+        With ``connect_websocket`` (the default) the websocket is connected
+        as well. ``connect_websocket=False`` leaves that to
+        ``start_listening``, which then sends the key exchange immediately:
+        the Miniserver closes a websocket that is not authenticated within a
+        few seconds, and Home Assistant sets up every platform between the
+        coordinator's ``open()`` and the start of the session, so on a slow
+        start the key exchange went to a socket the Miniserver had already
+        closed (JoDehli/PyLoxone#527, ported from upstream 46c9f70).
+        """
         if self._closed:
             raise RuntimeError("Cannot open a closed connection")
 
@@ -1802,7 +1824,14 @@ class LoxoneConnection(LoxoneBaseConnection):
             _LOGGER.exception("Failed to generate initial salt: %s", e)
             raise
 
-        # Establish websocket connection
+        if not connect_websocket:
+            self._websocket_deferred = True
+            return None
+        return await self._connect_websocket()
+
+    async def _connect_websocket(self) -> LoxoneClientConnection:
+        """Connect the websocket of a session whose bootstrap already ran."""
+        self._websocket_deferred = False
         try:
             params = {"url": self.url}
             if self.scheme == "https":
@@ -1856,6 +1885,8 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         _LOGGER.debug("Closing connection...")
         self._closed = True
+        # A reconnect after this close runs the full bootstrap again.
+        self._websocket_deferred = False
         # API-09: an *explicit* close means "stop supervising", not
         # "tear down this session" — the distinction is what lets the
         # in-place reconnect reset ``_closed`` (for the retry) without

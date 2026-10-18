@@ -95,7 +95,7 @@ def mock_connection(hass, loxapp3, enable_custom_integrations):
     """
     from custom_components.loxone.pyloxone_api.connection import LoxoneConnection
 
-    async def _fake_open(self, session=None):
+    async def _fake_open(self, session=None, *, connect_websocket=True):
         # Skip all network: seed the structure file + a fake version, and
         # inject a mock websocket so `is_connected` reads True (the property
         # checks `connection.protocol.state.name == "OPEN"`).

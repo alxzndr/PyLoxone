@@ -106,7 +106,7 @@ def _make_scripted_connection(failure, *, immediate=False):
     async def on_state(connected: bool) -> None:
         state.append(connected)
 
-    async def fake_open(session=None):
+    async def fake_open(session=None, **_kwargs):
         counter["opens"] += 1
         conn.connection = object()
         return conn

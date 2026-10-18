@@ -640,7 +640,7 @@ async def test_standalone_picker_and_master_color_filter(hass, loxapp3, mock_con
     fake_connection = Mock()
     fake_connection.protocol.state.name = "OPEN"
 
-    async def _fake_open_with_config(self, session=None):
+    async def _fake_open_with_config(self, session=None, **_kwargs):
         self.structure_file = config
         self.miniserver_version = config.get("softwareVersion")
         self.connected = True

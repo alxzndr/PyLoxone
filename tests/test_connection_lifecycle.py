@@ -371,3 +371,64 @@ async def test_kill_token_noop_without_token():
     conn.connection = StubLoxoneConnection()
     await conn.kill_token()
     assert True
+
+
+# --------------------------------------------------------------------------- #
+# JoDehli/PyLoxone#527: connect the websocket right before the key exchange
+# --------------------------------------------------------------------------- #
+async def test_deferred_websocket_is_connected_by_start_listening_and_keyed_at_once(monkeypatch):
+    """After ``open(connect_websocket=False)`` the socket is dialled by
+    ``start_listening``, whose first frame is the key exchange; the full
+    bootstrap (``open``) does not run a second time."""
+    conn = make_connection()
+    conn._websocket_deferred = True
+    stub = StubLoxoneConnection()
+    calls: list[str] = []
+
+    async def fake_connect():
+        calls.append("connect")
+        conn._websocket_deferred = False
+        conn.connection = stub
+        return stub
+
+    async def unexpected_open(*_args, **_kwargs):
+        calls.append("open")
+
+    monkeypatch.setattr(conn, "_connect_websocket", fake_connect)
+    monkeypatch.setattr(conn, "open", unexpected_open)
+
+    with pytest.raises(LoxoneConnectionClosedOk):
+        await conn.start_listening(None)
+
+    assert calls == ["connect"]
+    assert stub.sent[0].startswith("jdev/sys/keyexchange/")
+
+
+async def test_close_resets_the_websocket_deferral():
+    """A reconnect after close() must run the full bootstrap again (the
+    structure file and public key are re-fetched), not just dial."""
+    conn = make_connection()
+    conn._websocket_deferred = True
+    await conn.close()
+    assert conn._websocket_deferred is False
+
+
+async def test_coordinator_defers_the_websocket(hass, mock_entry, loxapp3, enable_custom_integrations, monkeypatch):
+    seen: list[dict] = []
+
+    async def recording_open(self, session=None, **kwargs):
+        seen.append(kwargs)
+        self.structure_file = loxapp3
+        self.miniserver_version = loxapp3.get("softwareVersion")
+        self._session_key = b"\x00" * 32
+
+    async def idle_run(self, *_args, **_kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(LoxoneConnection, "open", recording_open)
+    monkeypatch.setattr(LoxoneConnection, "run", idle_run)
+    mock_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_entry.entry_id)
+    await hass.async_block_till_done()
+    assert seen == [{"connect_websocket": False}]
+    assert await hass.config_entries.async_unload(mock_entry.entry_id)

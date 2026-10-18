@@ -64,7 +64,7 @@ class _RejectingLoxoneConnection:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         self.structure_file: dict = {}
 
-    async def open(self, session=None) -> None:
+    async def open(self, session=None, **_kwargs) -> None:
         raise ConnectionRefusedError("refused")
 
     async def close(self) -> None:
