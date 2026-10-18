@@ -85,8 +85,10 @@ from .const import (
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
 from .helpers import (
     MINIMUM_SUPPORTED_FIRMWARE,
+    LOCKED_BY,
     InPlaceEntityIdChange,
     leading_loxone_id,
+    parse_control_lock,
     meets_minimum_firmware,
     structure_ids,
 )
@@ -1262,6 +1264,9 @@ class LoxoneEntity(InPlaceEntityIdChange, Entity):
     # diagnostic sensors and the device-less YAML entries keep an explicit
     # name.
     _attr_name: str | None = None
+    # (state key, attribute name) pairs of 0/1 states shown as boolean
+    # attributes, e.g. a Gate's ``preventOpen``; set by the platforms.
+    _flag_states: tuple[tuple[str, str], ...] = ()
 
     @property
     def name(self):
@@ -1351,6 +1356,69 @@ class LoxoneEntity(InPlaceEntityIdChange, Entity):
                     partial(self._on_scoped_state_value, uuid),
                 )
             )
+        lock_uuid = self._lock_state_uuid()
+        # Subscribed even when a platform also reads the lock itself (the
+        # Radio select): every entity must know it to refuse commands.
+        if lock_uuid is not None:
+            self.async_on_remove(
+                async_dispatcher_connect(self.hass, loxone_uuid_signal(entry_id, lock_uuid), self._on_lock_state)
+            )
+        states = getattr(self, "states", None)
+        for state_key, attribute in self._flag_states:
+            uuid = states.get(state_key) if isinstance(states, dict) else None
+            if isinstance(uuid, str) and uuid:
+                self.async_on_remove(
+                    async_dispatcher_connect(
+                        self.hass, loxone_uuid_signal(entry_id, uuid), partial(self._on_flag_state, attribute)
+                    )
+                )
+
+    @callback
+    def _on_flag_state(self, attribute: str, value) -> None:
+        """A 0/1 state a platform exposes as a boolean attribute (``_flag_states``)."""
+        try:
+            flag = bool(float(value))
+        except (TypeError, ValueError):
+            return
+        self._flag_attributes = {**getattr(self, "_flag_attributes", {}), attribute: flag}
+        self.async_write_ha_state()
+
+    def _lock_state_uuid(self) -> str | None:
+        states = getattr(self, "states", None)
+        uuid = states.get("jLocked") if isinstance(states, dict) else None
+        return uuid if isinstance(uuid, str) and uuid else None
+
+    @callback
+    def _on_lock_state(self, value) -> None:
+        """
+        The control's ``jLocked`` state: a locked control ignores commands
+        from the API (structure file v16), so the lock is shown as
+        attributes and commands to it are refused (see ``_send``).
+        """
+        locked, reason = parse_control_lock(value)
+        self._control_lock = (locked, reason)
+        self._lock_attributes = (
+            {"locked": True, "locked_by": LOCKED_BY[locked], "lock_reason": reason} if locked else {"locked": False}
+        )
+        self.async_write_ha_state()
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Platforms build their own attribute dicts; the lock attributes are
+        # merged into every one of them here, so no platform can miss them.
+        prop = cls.__dict__.get("extra_state_attributes")
+        if isinstance(prop, property) and prop.fget is not None and not getattr(prop.fget, "_merges_lock", False):
+
+            def extra_state_attributes(self, _fget=prop.fget):
+                attributes = _fget(self)
+                flags = getattr(self, "_flag_attributes", None)
+                lock = getattr(self, "_lock_attributes", None)
+                if not flags and not lock:
+                    return attributes
+                return {**(attributes or {}), **(flags or {}), **(lock or {})}
+
+            extra_state_attributes._merges_lock = True
+            cls.extra_state_attributes = property(extra_state_attributes)
 
     def _state_uuids(self) -> frozenset[str]:
         """
@@ -1392,6 +1460,14 @@ class LoxoneEntity(InPlaceEntityIdChange, Entity):
         listener executes.
         """
         target = uuid if uuid is not None else self.uuidAction
+        locked, reason = getattr(self, "_control_lock", (0, ""))
+        if locked and target == self.uuidAction:
+            # The Miniserver ignores commands to a locked control; say so
+            # instead of sending one that silently does nothing.
+            raise HomeAssistantError(
+                f"{self._lox_name or target} is locked by the Loxone {LOCKED_BY[locked]}"
+                + (f": {reason}" if reason else "")
+            )
         coordinator = self._connection_coordinator()
         api = getattr(coordinator, "api", None)
 

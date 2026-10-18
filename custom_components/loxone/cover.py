@@ -211,6 +211,9 @@ async def async_setup_entry(
 class LoxoneGate(LoxoneEntity, CoverEntity):
     """Loxone Gate"""
 
+    # Structure file v16: 1 while the gate is prevented from opening/closing.
+    _flag_states = (("preventOpen", "prevent_open"), ("preventClose", "prevent_close"))
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.hass = kwargs["hass"]
@@ -452,6 +455,10 @@ class LoxoneWindow(LoxoneEntity, CoverEntity):
 
 class LoxoneJalousie(LoxoneEntity, CoverEntity):
     """Loxone Jalousie"""
+
+    # Structure file v16, automatic blinds: the safety shutdown (wind, ...)
+    # and the QI lock output, which overrules even the safety position.
+    _flag_states = (("safetyActive", "safety_active"), ("locked", "movement_locked"))
 
     # pylint: disable=no-self-use
     def __init__(self, **kwargs):

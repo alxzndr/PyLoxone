@@ -14,7 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .helpers import device_info_for, get_or_create_device, iter_controls, jalousie_auto_state_uuid
+from .helpers import device_info_for, get_or_create_device, iter_controls, jalousie_auto_state_uuid, parse_control_lock
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -351,7 +351,9 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
         # into a single state write instead of two per event.
         lock_uuid = self.states.get("jLocked")
         if lock_uuid and lock_uuid in data:
-            self._locked = bool(data[lock_uuid])
+            # A JSON text state ({"locked": 0, ...} is *not* locked); bool()
+            # of the text read every non-empty value as locked.
+            self._locked = bool(parse_control_lock(data[lock_uuid])[0])
             request_update = True
 
         if request_update:

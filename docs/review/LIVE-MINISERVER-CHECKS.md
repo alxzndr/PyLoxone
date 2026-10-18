@@ -527,6 +527,21 @@ logger:
 - **Pass:** both are applied; nothing to change. **Fail:** switch the
   affected commands to the lower-case form.
 
+### 28. Control locks (`jLocked`)
+
+- **Where:** `parse_control_lock` in `custom_components/loxone/helpers.py`,
+  `LoxoneEntity._on_lock_state` / `_send` in `__init__.py`
+- **The doubt:** the structure file (v16) describes `jLocked` as a text
+  state with JSON `{"locked": 0|1|2, "reason": ...}` (empty = not locked);
+  no locked control has been observed live.
+- **Test:** lock a switch in the Loxone app (long press > lock, with a
+  reason), watch its `locked` / `locked_by` / `lock_reason` attributes,
+  try to switch it from Home Assistant, then unlock.
+- **Pass:** the attributes follow, the command fails with "locked by the
+  Loxone visualisation: <reason>", and works again after unlocking.
+  **Fail:** adjust the parser; if a lock blocks a control that the app
+  can still switch, drop the refusal in `_send`.
+
 ---
 
 ## Regression sweep

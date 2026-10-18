@@ -22,6 +22,13 @@ connection and security fixes below are ported from upstream 0.10.0 and
 
 ### Added
 
+- A control locked in Loxone (from the visualisation or by logic) shows
+  `locked`, `locked_by` and `lock_reason` attributes, and a command to it
+  fails with an error that names the lock instead of being silently
+  ignored by the Miniserver. Every control on the maintainer's Miniserver
+  publishes this state. Gates show `prevent_open` / `prevent_close`, and
+  automatic blinds `safety_active` and `movement_locked`.
+
 - The "Status" block (`TextState`) is a read-only text sensor (#529). The
   state is the block's text, cut to Home Assistant's 255-character limit
   with the full text in the `text` attribute; from Loxone 13.1 the icon and
@@ -177,6 +184,10 @@ connection and security fixes below are ported from upstream 0.10.0 and
   30 seconds is dropped instead of being sent late (ported from upstream).
 
 ### Fixed
+
+- The Radio select read every non-empty lock state as locked, so the
+  Miniserver's "not locked" JSON (`{"locked": 0}`) refused every
+  selection.
 
 - A temperature format with a bare degree sign (`%.1f°`, `%d°`, which is
   what Loxone Config itself writes) now reads as a temperature in the
