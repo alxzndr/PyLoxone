@@ -377,6 +377,16 @@ logger:
 A healthy session logs nothing at WARNING or above. A lost connection logs
 one WARNING when it drops and one INFO when it is back.
 
+To check the connection to a Miniserver without Home Assistant, run the
+protocol client on its own from a checkout of this repository (it needs
+`aiohttp`, `websockets` and `pycryptodome`). It asks for the password, or
+reads it from `LOXONE_PASSWORD`, and prints every state message;
+`LOXONE_DEBUG=1` adds the protocol log:
+
+```bash
+scripts/pyloxone-cli 192.168.1.10 80 admin
+```
+
 ## Recorder configuration
 
 A Loxone system generates a few thousand `loxone_event` events per day.

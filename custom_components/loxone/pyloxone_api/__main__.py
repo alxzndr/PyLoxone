@@ -1,43 +1,52 @@
 """
-A quick test of the pyloxone_api module
+Connect to a Miniserver and print every state message, without Home Assistant.
 
-From the command line, run:
+Run it through the launcher, which loads this package on its own::
 
-> python -m custom_components.loxone.pyloxone_api <host> <port> <username> <password>
+    scripts/pyloxone-cli <host> <port> <username>
 
-where host, port, username and password are your Loxone login credentials
-
+The password is asked for (or read from ``LOXONE_PASSWORD``), never taken
+from the command line, where other users could read it from the process
+list. ``python -m custom_components.loxone.pyloxone_api`` does not work: it
+imports the integration package, and with it Home Assistant.
 """
 
 import asyncio
+import getpass
 import logging
+import os
 import sys
 
 from .connection import LoxoneConnection
 
-_LOGGER = logging.getLogger("pyloxone_api")
-_LOGGER.setLevel(logging.DEBUG)
-_LOGGER.addHandler(logging.StreamHandler())
-# If you want to see what is going on at the websocket level, uncomment the following
-# lines:
+_LOGGER = logging.getLogger(__package__ or "pyloxone_api")
 
 
-async def call_back_loxone(data) -> None:
-    print("call_back_loxone", data)
+def _print_message(data) -> None:
+    print(data)  # noqa: T201 - printing is this tool's purpose
 
 
-async def main() -> None:
-    api = LoxoneConnection(
-        host=sys.argv[1],
-        port=int(sys.argv[2]),
-        username=sys.argv[3],
-        password=sys.argv[4],
-    )
-    await api.start_listening(callback=call_back_loxone)
+def _print_state(connected: bool) -> None:
+    print("connected" if connected else "disconnected")  # noqa: T201
+
+
+async def main(argv: list[str]) -> int:
+    if len(argv) != 3:
+        print("usage: pyloxone-cli <host> <port> <username>", file=sys.stderr)  # noqa: T201
+        return 2
+    host, port, username = argv
+    password = os.environ.get("LOXONE_PASSWORD") or getpass.getpass(f"Password for {username}@{host}: ")
+    api = LoxoneConnection(host=host, port=int(port), username=username, password=password)
+    try:
+        await api.run(_print_state, callback=_print_message)
+    finally:
+        await api.close()
+    return 0
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.DEBUG if os.environ.get("LOXONE_DEBUG") else logging.INFO)
     try:
-        asyncio.run(main())
+        sys.exit(asyncio.run(main(sys.argv[1:])))
     except KeyboardInterrupt:
-        sys.exit()
+        sys.exit(130)
