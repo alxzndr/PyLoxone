@@ -172,6 +172,22 @@ def device_info_for(config_entry, uuid, name, model, room=None, *, via_override=
     return _make_device_info(info)
 
 
+def jalousie_auto_state_uuid(states) -> str | None:
+    """The Jalousie's sun-automation *active* state uuid (upstream PR #530).
+
+    The Structure File names it ``autoActive``; ``autoState`` -- what this
+    integration read so far, not in the spec -- stays as the fallback.
+    """
+    states = states if isinstance(states, dict) else {}
+    return states.get("autoActive") or states.get("autoState")
+
+
+def jalousie_auto_text_uuid(states) -> str | None:
+    """The Jalousie's info-text state uuid: spec ``infoText``, else ``autoInfoText``."""
+    states = states if isinstance(states, dict) else {}
+    return states.get("infoText") or states.get("autoInfoText")
+
+
 def get_or_create_device(device_uuid, device_name, device_type, device_room, config_entry=None):
     """
     Return a fresh ``DeviceInfo`` (see :func:`device_info_for`).

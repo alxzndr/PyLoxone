@@ -704,8 +704,8 @@
         "shadePosition": "36333734-01c8-9336-ffff-d303137282d3000c02",
         "up": "36333734-01c8-9336-ffff-d303137282d3000c03",
         "down": "36333734-01c8-9336-ffff-d303137282d3000c04",
-        "autoState": "36333734-01c8-9336-ffff-d303137282d3000c05",
-        "autoInfoText": "36333734-01c8-9336-ffff-d303137282d3000c06",
+        "autoActive": "36333734-01c8-9336-ffff-d303137282d3000c05",
+        "infoText": "36333734-01c8-9336-ffff-d303137282d3000c06",
         "targetPosition": "36333734-01c8-9336-ffff-d303137282d3000c07"
       },
       "defaultRating": 2,

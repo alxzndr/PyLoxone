@@ -42,6 +42,12 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   cooling modes, and `heat_cool` is no longer offered because the
   controller has no such mode; `restrictedToMode` hides heat or cool. The
   command syntax still needs a check on real V1 hardware.
+- Jalousies read their sun-automation state from `autoActive` and the info
+  text from `infoText`, the names the Structure File uses (from upstream
+  PR #530). Only the non-standard `autoState` / `autoInfoText` were read
+  before, so on a Miniserver that sends the spec names every blind showed
+  its automation as off and got no `Sun auto` select. The old names are
+  still read when the spec ones are missing.
 
 ## 0.10.9 - 2026-09-16
 
