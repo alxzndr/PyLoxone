@@ -3,18 +3,28 @@
 Fork: `alxzndr/PyLoxone`, branch `master`
 Base: `JoDehli/PyLoxone` at `7561247` (release 0.9.23, the upstream HEAD when
 this work began on 2026-09-03)
-Last updated: 2026-09-16 (release 0.10.9)
+Last updated: 2026-10-18 (release 1.0.0)
 
 ---
 
 ## The short version
 
-Since branching, 131 commits changed 129 files (31,146 lines added, 4,528
-removed). The test suite went from 69 tests to 962 and whole-integration
+Since branching, 159 commits changed 135 files (33,409 lines added, 4,558
+removed). The test suite went from 69 tests to 1,049 and whole-integration
 coverage from 14 % to about 89 %.
 
 **Yes, you can run it**, with one caveat that is genuinely one-way. Read the
 rollback section before you install.
+
+---
+
+## Version numbers
+
+The fork released 0.10.0 to 0.10.9 between 2026-09-03 and 2026-09-16.
+Upstream then released its own, different 0.10.0 and 0.10.1 in October 2026.
+To keep the two apart, the fork continues at **1.0.0**; a version number
+starting with `0.10.` in a bug report therefore needs the repository it came
+from.
 
 ---
 
@@ -110,10 +120,11 @@ and #517 (control characters in notification texts).
 
 ## New control types supported
 
-Ten types that upstream ignores entirely:
+Twelve types that upstream ignores entirely:
 
 `InfoOnlyText`, `UpDownDigital`, `Tracker`, `EnergyManager`, `EnergyManager2`,
-`PowerUnit`, `Wallbox`, `IntercomV2`, `NfcCodeTouch`, `LightsceneRGB`
+`PowerUnit`, `Wallbox`, `IntercomV2`, `NfcCodeTouch`, `LightsceneRGB`,
+`TextState` (the Status block), `WindowMonitor`
 
 Plus a `text` platform that upstream shipped but never loaded (`Platform.TEXT`
 was missing from its platform list, so `text.py` was dead code), Message Center
@@ -211,7 +222,7 @@ to: inert brightness ranges, resetting counters fed to the energy dashboard as
 monotonic ones, entity churn on every reconnect, and a dead integration after
 a firmware update.
 
-The risks are the one-way migration, which a backup covers, and that 962
+The risks are the one-way migration, which a backup covers, and that 1,049
 passing tests prove internal consistency rather than agreement with the
 Loxone protocol. The parts of that protocol the maintainer's house exercises
 have been checked against real hardware. The parts it does not exercise have

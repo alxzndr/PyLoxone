@@ -13,6 +13,13 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+## 1.0.0 - 2026-10-18
+
+The fork continues at 1.0.0 because upstream has since released its own,
+different 0.10.0 and 0.10.1; see `docs/fork-vs-upstream.md`. Most of the
+connection and security fixes below are ported from upstream 0.10.0 and
+0.10.1, checked against this fork's code and tests.
+
 ### Added
 
 - The "Status" block (`TextState`) is a read-only text sensor (#529). The
