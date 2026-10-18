@@ -115,3 +115,18 @@ async def test_legacy_controller_settemp_uses_the_active_index(hass, mock_connec
     before = len(mock_connection.sent)
     await _call(hass, "set_temperature", {"entity_id": OFFICE_ENTITY, "temperature": 24})
     assert _sent_to(mock_connection, OFFICE, before) == ["settemp/2/24.0"]
+
+
+BEDROOM_OVERRIDE_REASON = "36333734-0135-9336-ffff-d303132362d3000053"
+OVERRIDE_REASON_ENTITY = "sensor.bedroom_bedroom_controller_override_reason"
+
+
+async def test_override_reason_codes_beyond_eight(hass, mock_connection, mock_entry) -> None:
+    """9-20 (upstream PR #530) are named; 14 is "low request", not "fixed"."""
+    await _setup(hass, mock_entry)
+    for code, slug in ((2, "window_open"), (14, "low_request"), (17, "load_shedding"), (21, "unknown")):
+        mock_connection.feed(BEDROOM_OVERRIDE_REASON, code)
+        await hass.async_block_till_done()
+        state = hass.states.get(OVERRIDE_REASON_ENTITY)
+        assert state.state == slug, code
+    assert "fixed" not in state.attributes["options"]

@@ -419,6 +419,19 @@ logger:
   consume it in `LoxoneLightsceneRGB.event_handler` instead of/alongside
   the channels (one place).
 
+### 23. `IRoomControllerV2` override reasons 9-20 (upstream #530)
+
+- **Helper:** `OVERRIDE_REASON_SLUGS` in `custom_components/loxone/sensor.py`
+- **The doubt:** the Structure File (v16) lists `overrideEntries.reason`
+  0-8 only. Codes 9-20 (cooling/heating forbidden, manual, no cooling/heating
+  available, low request = 14, pause timer, different mode, load shedding,
+  locked, device offline, different mode than central) are taken from
+  upstream PR #530 without a cited source; 14 used to be read as "fixed".
+- **Test:** watch the `Override Reason` sensor while forcing a reason the
+  Loxone app names (e.g. start a pause timer, or take a room's device
+  offline) and compare the app's wording with the sensor state.
+- **Fail / adjust:** remap the code in the one table.
+
 ---
 
 ## Regression sweep

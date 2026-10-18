@@ -26,7 +26,18 @@
           "prepare_heat_up": "Prepare State Heat Up",
           "prepare_cool_down": "Prepare State Cool Down",
           "overridden_by_source": "Overridden by source",
-          "fixed": "Fixed Setpoint",
+          "cooling_forbidden": "Cooling Forbidden",
+          "heating_forbidden": "Heating Forbidden",
+          "manual": "Manual",
+          "no_cooling_available": "No Cooling Available",
+          "no_heating_available": "No Heating Available",
+          "low_request": "Low Request",
+          "pause_timer": "Pause Timer",
+          "different_mode": "Different Mode",
+          "load_shedding": "Load Shedding",
+          "locked": "Locked",
+          "device_offline": "Device Offline",
+          "different_mode_than_central": "Different Mode than Central",
           "unknown": "Unknown"
         }
       }

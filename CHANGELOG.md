@@ -49,6 +49,21 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   its automation as off and got no `Sun auto` select. The old names are
   still read when the spec ones are missing.
 
+### Changed
+
+- **Breaking for automations on the `Override Reason` sensor:** code 14
+  now reads `low_request` ("Low Request") instead of `fixed` ("Fixed
+  Setpoint"), and codes 9-20 get names of their own (`cooling_forbidden`,
+  `heating_forbidden`, `manual`, `no_cooling_available`,
+  `no_heating_available`, `low_request`, `pause_timer`, `different_mode`,
+  `load_shedding`, `locked`, `device_offline`,
+  `different_mode_than_central`) where they read `unknown` before (from
+  upstream PR #530). `fixed` confused the override reason with the
+  room controller's fixed-setpoint *active mode*, which also uses 14. An
+  automation that compared the sensor with `fixed` should compare with
+  `low_request`; the slugs for 0-8 are unchanged. The Structure File (v16)
+  documents only 0-8, so the names of 9-20 still need a live check.
+
 ## 0.10.9 - 2026-09-16
 
 ### Fixed
