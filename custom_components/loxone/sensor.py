@@ -64,6 +64,7 @@ from .const import (
     loxone_message_signal,
 )
 from .helpers import (
+    InPlaceEntityIdChange,
     add_room_and_cat_to_value_values,
     clean_unit,
     device_info_for,
@@ -1635,7 +1636,7 @@ class LoxoneMeterSensor(LoxoneSensor, SensorEntity):
     """
 
 
-class LoxoneRoomControllerTemperatureSensor(SensorEntity):
+class LoxoneRoomControllerTemperatureSensor(InPlaceEntityIdChange, SensorEntity):
     """Sensor for IRoomControllerV2 comfort temperature states."""
 
     _attr_has_entity_name = True
@@ -1670,7 +1671,7 @@ class LoxoneRoomControllerTemperatureSensor(SensorEntity):
             self.async_write_ha_state()
 
 
-class LoxoneRoomControllerOverrideSensor(SensorEntity):
+class LoxoneRoomControllerOverrideSensor(InPlaceEntityIdChange, SensorEntity):
     """
     Sensor for IRoomControllerV2 override reason.
 

@@ -13,6 +13,29 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+### Added
+
+- Entities of blocks deleted in Loxone Config are removed at setup, with
+  the devices this leaves empty. They used to stay forever as "no longer
+  provided". An entity counts as stale only when its unique id starts with
+  a Loxone id that occurs nowhere in the structure file, and if more than
+  half of the entities would go, the structure file is treated as
+  incomplete and nothing is removed. A device whose block still exists can
+  no longer be deleted by hand, because it came straight back at the next
+  setup.
+- On Home Assistant 2026.11, changing an entity id renames the entity in
+  place instead of removing and re-adding it.
+- `scripts/pyloxone-cli` runs the protocol client without Home Assistant
+  to check the connection to a Miniserver. It asks for the password
+  instead of taking it on the command line.
+
+### Changed
+
+- Entity names no longer repeat their device's name: an output called
+  "home cinema led achter" on the controller "Home Cinema" is now shown as
+  "Home Cinema led achter" instead of "Home Cinema home cinema led
+  achter". Entity ids of existing entities do not change.
+
 ## 1.0.0 - 2026-10-18
 
 The fork continues at 1.0.0 because upstream has since released its own,
