@@ -29,6 +29,15 @@ def _seed(hass, mock_entry, unique_id: str, *, with_device: bool = True) -> str:
     )
 
 
+def _device(hass, mock_entry, ident: str):
+    # Looked up within the entry: device identifiers are no longer unique
+    # across config entries, and the global lookup is deprecated from 2026.9.
+    for device in dr.async_entries_for_config_entry(dr.async_get(hass), mock_entry.entry_id):
+        if (DOMAIN, ident) in device.identifiers:
+            return device
+    return None
+
+
 async def _setup(hass, mock_entry) -> None:
     assert await hass.config_entries.async_setup(mock_entry.entry_id)
     await hass.async_block_till_done()
@@ -51,7 +60,7 @@ async def test_entities_of_removed_blocks_are_removed(hass, mock_connection, moc
     # The fixture's own entities stay.
     assert ent_reg.async_get_entity_id("switch", DOMAIN, PRESENT) is not None
     # The emptied device of the removed block goes too.
-    assert dr.async_get(hass).async_get_device(identifiers={(DOMAIN, GONE)}) is None
+    assert _device(hass, mock_entry, GONE) is None
 
 
 async def test_nothing_is_removed_when_most_entities_look_stale(hass, mock_connection, mock_entry, loxapp3) -> None:
@@ -70,7 +79,7 @@ async def test_a_device_whose_block_exists_cannot_be_deleted(hass, mock_connecti
     mock_entry.add_to_hass(hass)
     await _setup(hass, mock_entry)
     dev_reg = dr.async_get(hass)
-    present = dev_reg.async_get_device(identifiers={(DOMAIN, PRESENT)})
+    present = _device(hass, mock_entry, PRESENT)
     assert present is not None
     assert await async_remove_config_entry_device(hass, mock_entry, present) is False
 
