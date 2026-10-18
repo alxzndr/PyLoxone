@@ -571,3 +571,18 @@ async def test_stop_after_entry_removed_is_silent(hass, mock_connection, mock_en
 
     # Must not raise even though the entry is gone.
     await _persist_token_and_close(hass, mock_entry, coordinator, None)
+
+
+async def test_reload_does_not_kill_the_persisted_token(
+    hass, mock_connection, mock_entry, enable_custom_integrations
+) -> None:
+    """Unload runs for every reload; the token the next setup authenticates
+    with must survive it. Killing it there forced a password login after
+    every options change, reauth or safety reload."""
+    await _setup_entry(hass, mock_entry)
+    with patch.object(LoxoneConnection, "kill_token", new=AsyncMock()) as kill:
+        assert await hass.config_entries.async_reload(mock_entry.entry_id)
+        await hass.async_block_till_done()
+        assert await hass.config_entries.async_unload(mock_entry.entry_id)
+        await hass.async_block_till_done()
+    kill.assert_not_awaited()

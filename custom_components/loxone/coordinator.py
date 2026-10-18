@@ -21,7 +21,6 @@ from .const import (
 )
 from .miniserver import MiniServer
 from .pyloxone_api.connection import LoxoneConnection
-from .pyloxone_api.exceptions import SESSION_TRANSPORT_ERRORS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -308,12 +307,10 @@ class LoxoneCoordinator(DataUpdateCoordinator):
         self.api = None
         if api is None:
             return
-        # API-17: kill the token on the Miniserver *before* the socket
-        # goes away (entry removal/unload) so it does not linger
-        # server-side. kill_token() is best-effort and a no-op without
-        # a live connection.
-        try:
-            await api.kill_token()
-        except SESSION_TRANSPORT_ERRORS as e:
-            _LOGGER.debug("kill_token on cleanup failed: %s", e)
+        # The token is deliberately NOT killed here. Unload also runs for
+        # every reload (options change, reauth, the 30 s safety reload), and
+        # the token persisted in the entry is what the next setup
+        # authenticates with; killing it forced a password login after
+        # every reload. On removal the entry, and with it the only copy of
+        # the token, is deleted, and the token expires on the Miniserver.
         await api.close()
