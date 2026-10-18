@@ -661,6 +661,17 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.office_heating_status",
+    "unique_id": "63746c3a-0200-96d7-ffff-f746578747374000200",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Heating Status",
+    "device_model": "TextState"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.office_status_input",
     "unique_id": "63746c3a-0116-9617-ffff-57320496e707000022",
     "name": null,

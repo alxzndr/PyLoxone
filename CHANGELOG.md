@@ -13,6 +13,17 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+### Added
+
+- The "Status" block (`TextState`) is a read-only text sensor (#529). The
+  state is the block's text, cut to Home Assistant's 255-character limit
+  with the full text in the `text` attribute; from Loxone 13.1 the icon and
+  colour arrive as the `loxone_icon` and `color` attributes. A missing or
+  malformed icon payload leaves the attributes out. The README now also
+  explains that memory flags (Merker) appear once "Use" is ticked in
+  Loxone Config, as the already supported `InfoOnlyDigital`,
+  `InfoOnlyAnalog` and `InfoOnlyText` controls.
+
 ## 0.10.9 - 2026-09-16
 
 ### Fixed

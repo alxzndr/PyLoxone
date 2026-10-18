@@ -901,6 +901,14 @@ async def async_setup_entry(
         except Exception:
             _LOGGER.exception("Skipping %s control %s", sensor.get("type", "TextInput"), sensor.get("name", "?"))
 
+    # #529: the "Status" block (TextState) — read-only text with icon/colour.
+    for sensor in iter_controls(hass, config_entry, "TextState"):
+        try:
+            sensor.update({"config_entry": config_entry})
+            entities.append(LoxoneTextStateSensor(**sensor))
+        except Exception:
+            _LOGGER.exception("Skipping TextState control %s", sensor.get("name", "?"))
+
     # WP-6.5: the Meter family (Meter + EnergyManager/EnergyManager2/
     # PowerUnit/Wallbox) all expose the same register set, so one loop
     # over ``METER_FAMILY_TYPES`` and the pure ``meter_sub_sensor_kwargs``
@@ -1300,6 +1308,98 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
             **self._attr_extra_state_attributes,
             "device_type": self.type,
         }
+
+
+# HA rejects a state longer than 255 characters (MAX_LENGTH_STATE_STATE).
+TEXT_STATE_MAX_LENGTH = 255
+
+
+def text_state_icon_and_color(raw: Any) -> dict[str, str]:
+    """
+    Parse a TextState ``iconAndColor`` payload (#529).
+
+    Structure file v16, p. 145: a text state holding JSON such as
+    ``{"icon": "Icons/xxxx.svg", "color": "#45864A"}``, since Loxone 13.1.
+    Older firmware has no such state, and anything that is not a JSON object
+    with string values yields ``{}`` instead of an exception.
+    """
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return {}
+    if not isinstance(raw, dict):
+        return {}
+    parsed = {}
+    for key in ("icon", "color"):
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            parsed[key] = value.strip()
+    return parsed
+
+
+class LoxoneTextStateSensor(LoxoneTextSensor):
+    """
+    The "Status" block (``TextState``, #529): a read-only text sensor.
+
+    The text arrives as a text event on ``textAndIcon`` and goes through the
+    same decoding as ``InfoOnlyText``.  A text longer than Home Assistant's
+    255-character state limit is cut, with the full text in the ``text``
+    attribute.  The block's icon and colour (``iconAndColor``) become the
+    ``loxone_icon`` and ``color`` attributes; the icon is a Loxone SVG path,
+    not an ``mdi:`` name, so it is kept out of the ``icon`` attribute the
+    frontend renders.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = "TextState"
+        states = self.states if isinstance(getattr(self, "states", None), dict) else {}
+        self._state_uuid = states.get("textAndIcon") or self.uuidAction
+        self._icon_color_uuid = states.get("iconAndColor")
+        self._icon_and_color: dict[str, str] = {}
+        self._attr_device_info = device_info_for(
+            kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, kwargs.get("room", "")
+        )
+
+    def _state_uuids(self) -> frozenset[str]:
+        uuids = {self._state_uuid, self.uuidAction}
+        if isinstance(self._icon_color_uuid, str) and self._icon_color_uuid:
+            uuids.add(self._icon_color_uuid)
+        return frozenset(uuids)
+
+    @callback
+    def event_handler(self, e):
+        if self._icon_color_uuid and self._icon_color_uuid in e:
+            self._icon_and_color = text_state_icon_and_color(e[self._icon_color_uuid])
+            if self._state_uuid not in e:
+                self.async_write_ha_state()
+        super().event_handler(e)
+
+    @property
+    def native_value(self):
+        text = self._state
+        if isinstance(text, str) and len(text) > TEXT_STATE_MAX_LENGTH:
+            return text[: TEXT_STATE_MAX_LENGTH - 1] + "…"
+        return text
+
+    async def async_set_value(self, _value):
+        """The Status block is an output; it takes no value."""
+        _LOGGER.warning("Ignoring write to read-only TextState '%s'", self._lox_name)
+
+    @property
+    def extra_state_attributes(self):
+        attributes = {
+            **super().extra_state_attributes,
+            "state_uuid": self._state_uuid,
+        }
+        if "icon" in self._icon_and_color:
+            attributes["loxone_icon"] = self._icon_and_color["icon"]
+        if "color" in self._icon_and_color:
+            attributes["color"] = self._icon_and_color["color"]
+        if isinstance(self._state, str) and len(self._state) > TEXT_STATE_MAX_LENGTH:
+            attributes["text"] = self._state
+        return attributes
 
 
 def tracker_entries(raw: Any) -> list[str] | None:

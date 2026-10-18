@@ -174,6 +174,7 @@ Every supported control type and what it turns into:
 | `Radio` | `select` | Radio-button block as a select. Selecting while the block is locked in Loxone raises an error; a block without outputs is skipped. Attributes: `state_uuid`, `locked`. |
 | `InfoOnlyAnalog` | `sensor` | Analog value with automatic device-class detection from unit, category and name (see below). The Miniserver's error value (`-1`) reads as `unknown`. |
 | `InfoOnlyText` | `sensor` | Read-only text value. |
+| `TextState` ("Status" block) | `sensor` | Read-only status text. Texts longer than 255 characters are cut in the state and kept whole in the `text` attribute. From Loxone 13.1 the block's icon and colour are the attributes `loxone_icon` (a Loxone SVG path, not an `mdi:` icon) and `color`. |
 | `TextInput` | `text` + `sensor` | A text VI as a settable `text` entity (values longer than 255 characters are truncated) and as a read-only sensor. Attribute: `state_uuid`. |
 | `Meter`, `EnergyManager`, `EnergyManager2`, `PowerUnit`, `Wallbox` | `sensor` | One sensor per register the control reports, on one device: `Actual` (power, measurement), `Total` and `Total Neg` (energy, total increasing), `Level` (energy, measurement). Units and precision come from the control's format details. |
 | `Tracker` | `sensor` | The tracker's entries as a comma-joined string, also when nested under another control such as an alarm. Attributes: `entries`, `count`, `state_uuid`. |
@@ -190,6 +191,15 @@ with the [websocket command services](#services)), `platform` (`loxone`),
 platforms `device_type` (the Loxone control family) and `state_uuid` (the
 state stream the entity reads). These bookkeeping attributes are excluded from
 the recorder; see [Recorder configuration](#recorder-configuration).
+
+### Memory flags and other values without a block
+
+The Miniserver only publishes what its own user interface shows. A memory
+flag (Merker), a sensor input or a block output becomes visible once
+"Use" (in the user interface) is ticked for it in Loxone Config. It then
+appears as an `InfoOnlyDigital`, `InfoOnlyAnalog` or `InfoOnlyText` control,
+depending on its type, and turns into a `binary_sensor` or `sensor` like any
+other control of that type.
 
 ### Enabling LightControllerV2 sub-controls
 

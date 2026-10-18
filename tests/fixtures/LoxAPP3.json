@@ -1163,6 +1163,21 @@
         "blue": "1d6c95a2-00b6-e47a-ffff0d3a09848c7c",
         "color": "1d6c95a2-00b6-e47c-ffff0d3a09848c7c"
       }
+    },
+    "63746c3a-0200-96d7-ffff-f746578747374000200": {
+      "name": "Heating Status",
+      "type": "TextState",
+      "uuidAction": "63746c3a-0200-96d7-ffff-f746578747374000200",
+      "room": "726f6f6d-0102-9666-ffff-96365726f6f6000002",
+      "cat": "6361743a-0182-96d6-ffff-f72746361743000130",
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false,
+      "details": {},
+      "states": {
+        "textAndIcon": "36333734-0201-9336-ffff-d303230302d3000201",
+        "iconAndColor": "36333734-0202-9336-ffff-d303230302d3000202"
+      }
     }
   }
 }
