@@ -22,6 +22,46 @@ from homeassistant.util import dt as dt_util
 from .const import DOMAIN, cfmt
 
 
+# A Loxone object id: 8-4-4-16 hex digits on real Miniservers (35 characters,
+# not RFC 4122's 36). The test fixture's synthetic ids are 8-4-4-4-18; both
+# shapes are accepted, the longer one first.
+LOXONE_ID_RE: Final = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-(?:[0-9a-f]{4}-[0-9a-f]{18}|[0-9a-f]{16})", re.IGNORECASE
+)
+
+
+def structure_ids(lox_config: dict | None) -> frozenset[str]:
+    """
+    Every Loxone object id that occurs anywhere in a structure file.
+
+    Keys and values, at any depth: control and state uuids, but also ids
+    that are only data, such as the contacts of a ``WindowMonitor``. Lower
+    case, for comparison.
+    """
+    ids: set[str] = set()
+
+    def walk(node) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if isinstance(key, str):
+                    ids.update(m.lower() for m in LOXONE_ID_RE.findall(key))
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, str):
+            ids.update(m.lower() for m in LOXONE_ID_RE.findall(node))
+
+    walk(lox_config or {})
+    return frozenset(ids)
+
+
+def leading_loxone_id(value: str) -> str | None:
+    """The Loxone id a unique id or device identifier starts with, if any."""
+    match = LOXONE_ID_RE.match(value) if isinstance(value, str) else None
+    return match.group(0).lower() if match else None
+
+
 # The entity methods after whose override Home Assistant 2026.11 removes and
 # re-adds an entity when its entity_id changes, unless the same class (or a
 # subclass) also implements ``async_entity_id_changed``.

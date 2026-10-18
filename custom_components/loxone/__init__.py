@@ -83,7 +83,13 @@ from .const import (
     loxone_uuid_signal,
 )
 from .coordinator import LoxoneCoordinator, loxone_connected_signal
-from .helpers import MINIMUM_SUPPORTED_FIRMWARE, InPlaceEntityIdChange, meets_minimum_firmware
+from .helpers import (
+    MINIMUM_SUPPORTED_FIRMWARE,
+    InPlaceEntityIdChange,
+    leading_loxone_id,
+    meets_minimum_firmware,
+    structure_ids,
+)
 from .pyloxone_api.exceptions import (
     LoxoneServiceUnAvailableError,
     LoxoneUnauthorisedError,
@@ -1002,6 +1008,7 @@ async def async_setup_entry(hass, config_entry):
     # where a YAML dict was expected and created no entities at all, and
     # its DomainPlatform was never unloaded (CORE-14).
     await hass.config_entries.async_forward_entry_setups(config_entry, LOXONE_PLATFORMS)
+    _async_remove_stale_entries(hass, config_entry, coordinator.api.structure_file)
 
     async def run_loxone_session() -> None:
         """
@@ -1150,10 +1157,73 @@ async def async_setup_entry(hass, config_entry):
     return True
 
 
+# Above this share of stale entries, the structure file is more likely
+# incomplete (a Miniserver mid-upload) than the house rebuilt: nothing is removed.
+STALE_ENTRY_MAX_SHARE = 0.5
+
+
+@callback
+def _async_remove_stale_entries(hass: HomeAssistant, config_entry: ConfigEntry, lox_config: dict | None) -> None:
+    """
+    Remove entities and devices whose Loxone object is gone.
+
+    A block deleted in Loxone Config left its entities behind for good,
+    shown as "no longer provided" (and its device, empty). Only registry
+    entries whose unique id or device identifier starts with a Loxone id
+    are judged; one that occurs nowhere in the structure file is stale.
+    Entities created later at run time (scenes, WindowMonitor lock
+    entities) reuse ids from the structure file, so they are kept.
+    """
+    present = structure_ids(lox_config)
+    ent_reg = er.async_get(hass)
+    entries = er.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
+    judged = [e for e in entries if leading_loxone_id(e.unique_id)]
+    stale = [e for e in judged if leading_loxone_id(e.unique_id) not in present]
+    if not stale:
+        return
+    if len(stale) > STALE_ENTRY_MAX_SHARE * len(judged):
+        _LOGGER.warning(
+            "%d of %d Loxone entities are not in the structure file; not removing any, "
+            "the structure file looks incomplete",
+            len(stale),
+            len(judged),
+        )
+        return
+    for entry in stale:
+        _LOGGER.info("Removing %s: its Loxone object is no longer in the structure file", entry.entity_id)
+        ent_reg.async_remove(entry.entity_id)
+
+    dev_reg = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(dev_reg, config_entry.entry_id):
+        ids = [leading_loxone_id(ident) for domain, ident in device.identifiers if domain == DOMAIN]
+        if not ids or not all(ids) or any(i in present for i in ids):
+            continue
+        if er.async_entries_for_device(ent_reg, device.id, include_disabled_entities=True):
+            continue
+        _LOGGER.info("Removing device %s: its Loxone object is no longer in the structure file", device.name)
+        dev_reg.async_update_device(device.id, remove_config_entry_id=config_entry.entry_id)
+
+
 async def async_remove_config_entry_device(
-    _hass: HomeAssistant, _config_entry: ConfigEntry, _device_entry: DeviceEntry
+    _hass: HomeAssistant, config_entry: ConfigEntry, device_entry: DeviceEntry
 ) -> bool:
-    """Remove a config entry from a device."""
+    """
+    Allow deleting a device only when its Loxone object is gone.
+
+    A device whose object is still in the structure file (or the Miniserver
+    itself) would come straight back at the next setup.
+    """
+    coordinator = getattr(config_entry, "runtime_data", None)
+    api = getattr(coordinator, "api", None)
+    if api is None:
+        return True
+    present = structure_ids(api.structure_file)
+    serial = getattr(getattr(coordinator, "miniserver", None), "serial", None)
+    for domain, ident in device_entry.identifiers:
+        if domain != DOMAIN:
+            continue
+        if ident == serial or leading_loxone_id(ident) in present:
+            return False
     return True
 
 
