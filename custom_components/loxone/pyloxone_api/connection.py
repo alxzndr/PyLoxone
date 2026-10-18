@@ -123,6 +123,28 @@ def command_for_log(command: str) -> str:
     return f"{path}/…" if len(parts) > keep else path
 
 
+# Websocket close codes after which reconnecting cannot succeed ("Communicating
+# with the Miniserver", Websocket Close Codes). Retrying them only hammers the
+# Miniserver, and while a user is blocked every attempt can extend the block.
+FATAL_CLOSE_CODES: Final = {
+    4003: "the user is blocked after too many failed login attempts",
+    4006: "the user is disabled",
+}
+
+
+def raise_if_fatal_close(exc: websockets.exceptions.ConnectionClosed) -> None:
+    """Turn a close code from :data:`FATAL_CLOSE_CODES` into LoxoneUnauthorisedError.
+
+    ``run()`` does not retry that error; the integration starts reauth
+    instead of reconnecting forever (ported from upstream eea3580).
+    """
+    code = getattr(getattr(exc, "rcvd", None), "code", None)
+    if code in FATAL_CLOSE_CODES:
+        raise LoxoneUnauthorisedError(
+            f"Miniserver closed the connection: {FATAL_CLOSE_CODES[code]} (close code {code})"
+        ) from exc
+
+
 # Commands whose responses carry authentication material: the raw token
 # (getjwt/gettoken/refreshjwt), the token HMAC key and user salt (getkey2,
 # getkey), the visual-password key and salt (getvisusalt). Their responses
@@ -700,6 +722,9 @@ class LoxoneBaseConnection:
             await self.connection.send(command)
         except websockets.ConnectionClosedOK as e:
             raise LoxoneConnectionClosedOk("Connection closed normally while sending command") from e
+        except websockets.exceptions.ConnectionClosed:
+            # An outage, not a send bug: the supervisor reports it once.
+            raise
         except Exception as e:
             _LOGGER.exception("Error while sending command: %s", e)
             raise
@@ -1276,6 +1301,13 @@ class LoxoneConnection(LoxoneBaseConnection):
                 raise RuntimeError("Session key not initialized")
 
             await self.connection.send(f"{CMD_KEY_EXCHANGE}{self._session_key.decode()}")
+        except websockets.exceptions.ConnectionClosed as e:
+            # A blocked user (4003) is closed right after the socket opens,
+            # so this send is where it shows up first. Any other close is an
+            # ordinary reconnect, reported once by the supervisor.
+            raise_if_fatal_close(e)
+            _LOGGER.debug("Websocket closed before the key exchange: %s", e)
+            raise
         except Exception as e:
             _LOGGER.exception("Failed to send key exchange: %s", e)
             raise
@@ -1362,10 +1394,12 @@ class LoxoneConnection(LoxoneBaseConnection):
                         _LOGGER.debug("Token error (control flow): %s", e)
                         raise
                     except websockets.exceptions.ConnectionClosedError as e:
+                        raise_if_fatal_close(e)
                         self._note_connection_lost(f"websocket closed with error: {e}")
                         _LOGGER.debug("Connection closed with error: %s", e, exc_info=True)
                         raise LoxoneConnectionError from e
-                    except websockets.exceptions.ConnectionClosed:
+                    except websockets.exceptions.ConnectionClosed as e:
+                        raise_if_fatal_close(e)
                         self._note_connection_lost("websocket closed by server")
                         _LOGGER.debug("Connection closed by websocket, converting to LoxoneConnectionError")
                         raise LoxoneConnectionError("Connection closed") from None

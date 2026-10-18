@@ -432,3 +432,58 @@ async def test_coordinator_defers_the_websocket(hass, mock_entry, loxapp3, enabl
     await hass.async_block_till_done()
     assert seen == [{"connect_websocket": False}]
     assert await hass.config_entries.async_unload(mock_entry.entry_id)
+
+
+# --------------------------------------------------------------------------- #
+# Close codes 4003 (user blocked) / 4006 (user disabled) are not retried
+# --------------------------------------------------------------------------- #
+class _ClosingOnSend(StubLoxoneConnection):
+    def __init__(self, code: int):
+        super().__init__()
+        self._code = code
+
+    async def send(self, message, **kwargs):
+        from websockets.exceptions import ConnectionClosedError
+        from websockets.frames import Close
+
+        raise ConnectionClosedError(Close(self._code, "closed"), None)
+
+
+@pytest.mark.parametrize("code", [4003, 4006])
+async def test_fatal_close_code_on_key_exchange_is_unauthorised(code):
+    conn = make_connection()
+    conn.connection = _ClosingOnSend(code)
+    with pytest.raises(LoxoneUnauthorisedError, match=f"close code {code}"):
+        await conn.start_listening(None)
+
+
+@pytest.mark.parametrize("code", [1006, 4007, 4008])
+async def test_other_close_codes_stay_retryable(code):
+    from websockets.exceptions import ConnectionClosed
+
+    from custom_components.loxone.pyloxone_api.connection import RETRYABLE_SESSION_ERRORS
+
+    conn = make_connection()
+    conn.connection = _ClosingOnSend(code)
+    with pytest.raises(ConnectionClosed) as excinfo:
+        await conn.start_listening(None)
+    assert isinstance(excinfo.value, RETRYABLE_SESSION_ERRORS)
+
+
+async def test_fatal_close_code_from_a_running_session_is_unauthorised():
+    """The block can also arrive later, as the close of a live session
+    (the listen loop's ``async for`` raises it)."""
+    from websockets.exceptions import ConnectionClosedError
+    from websockets.frames import Close
+
+    class _Feed(StubLoxoneConnection):
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise ConnectionClosedError(Close(4003, "blocked"), None)
+
+    conn = make_connection()
+    conn.connection = _Feed()
+    with pytest.raises(LoxoneUnauthorisedError, match="blocked after too many failed login attempts"):
+        await conn.start_listening(None)
