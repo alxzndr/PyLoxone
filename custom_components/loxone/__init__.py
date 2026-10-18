@@ -1227,6 +1227,14 @@ async def async_remove_config_entry_device(
     return True
 
 
+def _device_info_name(device_info) -> str | None:
+    """The ``name`` of a DeviceInfo: a dict before 2026.11, a dataclass from then."""
+    if device_info is None:
+        return None
+    name = device_info.get("name") if isinstance(device_info, dict) else getattr(device_info, "name", None)
+    return name if isinstance(name, str) and name.strip() else None
+
+
 class LoxoneEntity(InPlaceEntityIdChange, Entity):
     """
     @DynamicAttrs
@@ -1249,6 +1257,26 @@ class LoxoneEntity(InPlaceEntityIdChange, Entity):
     # diagnostic sensors and the device-less YAML entries keep an explicit
     # name.
     _attr_name: str | None = None
+
+    @property
+    def name(self):
+        """
+        The entity's own name, without a leading copy of its device's name.
+
+        Loxone installers name an output after its controller ("home cinema
+        led achter" on the controller "Home Cinema"); with
+        ``has_entity_name`` the UI showed "Home Cinema home cinema led
+        achter". A name that equals the device name is kept as it is: as a
+        second unnamed entity it would only collide with the main one.
+        """
+        name = super().name
+        device_name = _device_info_name(getattr(self, "_attr_device_info", None))
+        if not isinstance(name, str) or not device_name:
+            return name
+        prefix = f"{device_name.casefold()} "
+        if name.casefold().startswith(prefix) and (rest := name[len(prefix) :].strip()):
+            return rest
+        return name
 
     def __init__(self, **kwargs):
         # The control's raw name from the structure file.  With
