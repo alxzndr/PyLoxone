@@ -23,6 +23,16 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   arrives, and a zero step is ignored. They join the `Loxone Numbers`
   group, and the control's `increaseOnly` detail is the `increase_only`
   attribute.
+- Ready for Home Assistant 2026.11, while 2026.7 stays the floor. The
+  climate entities implement the renamed `native_current_temperature`,
+  `native_target_temperature(_high/_low)` and `native_temperature_unit`
+  members, so 2026.11 logs no deprecation for them (the old names keep
+  being served on 2026.7-2026.10), and the integration leaves the new
+  `temperature_unit` state attribute to Home Assistant. Device info is
+  built as the release's own `DeviceInfo`, which is a dataclass from
+  2026.11 and still the plain dict before; the `via_device_id` link to the
+  Miniserver is unchanged. A CI job runs the suite against the newest
+  Home Assistant beta and may fail without blocking.
 
 ### Fixed
 
@@ -48,6 +58,13 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   before, so on a Miniserver that sends the spec names every blind showed
   its automation as off and got no `Sun auto` select. The old names are
   still read when the spec ones are missing.
+- Two things that broke on the Home Assistant 2026.11 development branch
+  are fixed in advance: setting up an entry failed because the group
+  integration no longer re-exports `async_get_component`, and
+  `loxone.sync_areas` raised for every entity that is its device's main
+  entity (no name of its own), which 2026.11 no longer allows an area of
+  its own. `sync_areas` now gives such an entity's device the area
+  instead, and still never overwrites an area the user set.
 
 ### Changed
 

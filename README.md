@@ -311,7 +311,7 @@ which is also what Home Assistant's Developer Tools render.
 |---|---|---|---|
 | `loxone.event_websocket_command` | any loaded Miniserver | `uuid` **or** `device` (exactly one), `value` (default `""`) | Send an arbitrary websocket command (`value`) to a control, addressed by Loxone UUID or by one of the integration's own entities. Raises when the target belongs to no loaded Miniserver. |
 | `loxone.event_secured_websocket_command` | any loaded Miniserver | `uuid` **or** `device`, `value`, `code` | As above, through the secured channel; `code` is the control's visual password. |
-| `loxone.sync_areas` | all entries | `create_areas` (bool, default `false`) | Move every Loxone entity to the area named after its `room` attribute. Missing areas are created only when `create_areas` is true; otherwise such entities are left untouched. |
+| `loxone.sync_areas` | all entries | `create_areas` (bool, default `false`) | Move every Loxone entity without an area to the area named after its `room` attribute; a device's main entity (no name of its own) gets the area through its device instead. Missing areas are created only when `create_areas` is true; otherwise such entities are left untouched. |
 | `loxone.reload` | all entries or one | `entry_id` (optional) | Reload the integration, safely, through Home Assistant's own unload-then-load. Without `entry_id` every Loxone entry reloads. |
 | `loxone.enable_sun_automation` | `Jalousie` covers with sun automation | | Enable the Loxone sun automation on the targeted cover. |
 | `loxone.disable_sun_automation` | `Jalousie` covers with sun automation | | Disable the Loxone sun automation on the targeted cover. |
