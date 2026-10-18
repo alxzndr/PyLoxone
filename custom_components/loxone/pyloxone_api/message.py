@@ -81,7 +81,10 @@ class LLResponse:
             )
             self.control: str = self._parsed["LL"]["control"]
             self.value: str = str(self._parsed["LL"]["value"])
-        except (ValueError, KeyError, TypeError) as exc:
+        # AttributeError: valid JSON that is not an object ("12345678",
+        # "null", {"LL": []}) has no .get(); before it was caught here it
+        # slipped past the listener's ValueError guard and ended the session.
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
             raise ValueError(exc) from exc
 
     @property

@@ -360,6 +360,21 @@ async def test_unparseable_text_frame_is_skipped_not_fatal(caplog) -> None:
     assert "Skipping unparseable TEXT frame (15 bytes)" in caplog.text
 
 
+async def test_non_object_json_text_frame_is_skipped_not_fatal(caplog) -> None:
+    # A TEXT frame that is valid JSON but not an object raised AttributeError
+    # inside LLResponse, which the ValueError guard above did not catch, so
+    # the session ended for good. Same contract as a malformed frame: skip it.
+    bad_body = b"12345678"
+    u = uuid.UUID("12345678-9abc-def0-1234-56789abcdef0")
+    record = _value_state_record(u, 4.5)
+
+    with caplog.at_level(logging.WARNING):
+        seen = await _run_listening([_header(0, 8), bad_body, _header(2, 24), record])
+
+    assert seen == [{"12345678-9abc-def0-123456789abcdef0": 4.5}]
+    assert "Skipping unparseable TEXT frame (8 bytes)" in caplog.text
+
+
 async def test_keepalive_header_is_handled_inline() -> None:
     seen = await _run_listening([_header(6, 0)])
     assert seen == [{"keep_alive": "received"}]

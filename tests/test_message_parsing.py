@@ -136,6 +136,15 @@ def test_llresponse_missing_control_raises() -> None:
         LLResponse('{"LL": {"code": 0, "value": 5}}')  # no 'control' key
 
 
+# Valid JSON that is not an LL object has no ``.get``: the AttributeError
+# used to escape the ValueError contract and end the session (found by
+# running upstream's 0.10.1 parsing tests against this fork).
+@pytest.mark.parametrize("payload", ["12345678", "null", '"text"', "[1, 2]", '{"LL": []}', '{"LL": null}'])
+def test_llresponse_non_object_json_raises_value_error(payload: str) -> None:
+    with pytest.raises(ValueError):
+        LLResponse(payload)
+
+
 # --------------------------------------------------------------------------- #
 # Raw control characters in LL payloads
 # (JoDehli/PyLoxone#517, fixed upstream by PR #519)
