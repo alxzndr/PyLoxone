@@ -29,6 +29,13 @@
           "fixed": "Fester Sollwert",
           "unknown": "Unbekannt"
         }
+      },
+      "window_state": {
+        "state": {
+          "closed": "Geschlossen",
+          "tilted": "Gekippt",
+          "open": "Offen"
+        }
       }
     }
   },

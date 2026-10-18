@@ -73,6 +73,12 @@ from .helpers import (
     software_version_string,
 )
 from .miniserver import get_miniserver_from_hass
+from .window_monitor import (
+    LoxoneWindowPositionSensor,
+    window_contacts,
+    window_monitor_controls,
+    window_monitor_count_sensors,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -908,6 +914,15 @@ async def async_setup_entry(
             entities.append(LoxoneTextStateSensor(**sensor))
         except Exception:
             _LOGGER.exception("Skipping TextState control %s", sensor.get("name", "?"))
+
+    # #524: WindowMonitor — a three-way position sensor per contact and the
+    # monitor's counters (the window/lock binary sensors live on the
+    # binary_sensor platform).
+    try:
+        entities.extend(LoxoneWindowPositionSensor(contact, config_entry) for contact in window_contacts(loxconfig))
+        entities.extend(window_monitor_count_sensors(window_monitor_controls(loxconfig), config_entry))
+    except Exception:
+        _LOGGER.exception("Skipping WindowMonitor controls")
 
     # WP-6.5: the Meter family (Meter + EnergyManager/EnergyManager2/
     # PowerUnit/Wallbox) all expose the same register set, so one loop

@@ -10,12 +10,22 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass, Bina
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .const import DEVICE_TYPE_BINARY_SENSOR
+from .const import DEVICE_TYPE_BINARY_SENSOR, DOMAIN, loxone_uuid_signal
 from .helpers import device_info_for, iter_controls
+from .miniserver import get_miniserver_from_hass
+from .window_monitor import (
+    LoxoneWindowContactSensor,
+    LoxoneWindowLockSensor,
+    WindowContact,
+    has_lock_info,
+    window_contacts,
+)
 
 _LOGGER = logging.getLogger(__name__)
 DEFAULT_NAME = "Loxone Binary Sensor"
@@ -169,6 +179,16 @@ async def async_setup_entry(
         except Exception:
             _LOGGER.exception("Skipping SmokeAlarm control %s", sensor.get("name", "?"))
 
+    # #524: one window binary sensor per WindowMonitor contact, plus a lock
+    # binary sensor for the contacts that turn out to have a lock input.
+    try:
+        contacts = window_contacts(get_miniserver_from_hass(hass, config_entry).lox_config.json)
+        window_entities = [LoxoneWindowContactSensor(contact, config_entry) for contact in contacts]
+        window_entities.extend(_setup_window_locks(hass, config_entry, contacts, async_add_entities))
+        entities.extend(window_entities)
+    except Exception:
+        _LOGGER.exception("Skipping WindowMonitor controls")
+
     # CORE-17: the old code connected each platform to an
     # ``async_signal_new_device`` dispatcher signal that was never sent
     # (``async_dispatcher_send`` had no callers) and appended the
@@ -176,6 +196,54 @@ async def async_setup_entry(
     # so the subscriptions leaked on every reload.  Entities are created
     # exclusively from the structure file; there is nothing to subscribe to.
     async_add_entities(entities)
+
+
+def _setup_window_locks(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    contacts: list[WindowContact],
+    async_add_entities: AddEntitiesCallback,
+) -> list[LoxoneWindowLockSensor]:
+    """
+    Lock binary sensors for WindowMonitor contacts (#524).
+
+    The structure file does not say which contacts have a lock input, so a
+    lock entity is added the first time a contact reports a lock bit (8/16)
+    in its monitor's ``windowStates``.  Contacts whose lock entity is already
+    in the entity registry (seen in an earlier run) get it immediately, so a
+    restart does not leave it "unavailable" until the first value.
+    """
+    registry = er.async_get(hass)
+    created: set[str] = set()
+    immediate: list[LoxoneWindowLockSensor] = []
+    by_stream: dict[str, list[WindowContact]] = {}
+    for contact in contacts:
+        by_stream.setdefault(contact.feed.states_uuid, []).append(contact)
+        if registry.async_get_entity_id("binary_sensor", DOMAIN, f"{contact.uuid}-lock"):
+            created.add(contact.uuid)
+            immediate.append(LoxoneWindowLockSensor(contact, config_entry))
+
+    for states_uuid, group in by_stream.items():
+
+        @callback
+        def _on_window_states(raw, group: list[WindowContact] = group) -> None:
+            values = group[0].feed.values(raw)
+            if not values:
+                return
+            new = []
+            for contact in group:
+                if contact.uuid in created or contact.index >= len(values):
+                    continue
+                if has_lock_info(values[contact.index]):
+                    created.add(contact.uuid)
+                    new.append(LoxoneWindowLockSensor(contact, config_entry, initial=values))
+            if new:
+                async_add_entities(new)
+
+        config_entry.async_on_unload(
+            async_dispatcher_connect(hass, loxone_uuid_signal(config_entry.entry_id, states_uuid), _on_window_states)
+        )
+    return immediate
 
 
 class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):

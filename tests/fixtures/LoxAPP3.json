@@ -1178,6 +1178,90 @@
         "textAndIcon": "36333734-0201-9336-ffff-d303230302d3000201",
         "iconAndColor": "36333734-0202-9336-ffff-d303230302d3000202"
       }
+    },
+    "63746c3a-0210-96d7-ffff-f77696e646f77000210": {
+      "name": "Bathroom Windows",
+      "type": "WindowMonitor",
+      "uuidAction": "63746c3a-0210-96d7-ffff-f77696e646f77000210",
+      "room": "726f6f6d-0107-9617-ffff-8726f6f6d726000007",
+      "cat": "6361743a-0164-9637-ffff-269747963617000100",
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false,
+      "details": {
+        "jLockable": false,
+        "windows": [
+          {
+            "name": "Fenster Bad",
+            "installPlace": "",
+            "uuid": "1efaa31b-0013-66fe-ffffed57184a0001",
+            "room": "726f6f6d-0107-9617-ffff-8726f6f6d726000007"
+          }
+        ]
+      },
+      "states": {
+        "numOpen": "1efaa7ad-0211-edee-08ff5b41adbf0211",
+        "numClosed": "1efaa7ad-0212-edf0-0aff5b41adbf0212",
+        "numTilted": "1efaa7ad-0213-edef-09ff5b41adbf0213",
+        "numOffline": "1efaa7ad-0214-edf1-0bff5b41adbf0214",
+        "numLocked": "1efaa7ad-0215-edf2-0cff5b41adbf0215",
+        "numUnlocked": "1efaa7ad-0216-edf3-0dff5b41adbf0216",
+        "windowStates": "1efaa7ad-0217-ede4-ffff5b41adbf0217"
+      }
+    },
+    "63746c3a-0220-96d7-ffff-f77696e646f77000220": {
+      "name": "Window and Door Monitoring",
+      "type": "WindowMonitor",
+      "uuidAction": "63746c3a-0220-96d7-ffff-f77696e646f77000220",
+      "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005",
+      "cat": "6361743a-0164-9637-ffff-269747963617000100",
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false,
+      "details": {
+        "jLockable": false,
+        "windows": [
+          {
+            "name": "Fenster Bad",
+            "installPlace": "",
+            "uuid": "1efaa31b-0013-66fe-ffffed57184a0001",
+            "room": "726f6f6d-0107-9617-ffff-8726f6f6d726000007"
+          },
+          {
+            "name": "Office Window",
+            "installPlace": "North wall",
+            "uuid": "1efaa623-0370-7089-ffffed57184a0002",
+            "room": "726f6f6d-0102-9666-ffff-96365726f6f6000002"
+          },
+          {
+            "name": "Kitchen Window",
+            "installPlace": "",
+            "uuid": "63746c3a-017b-9746-ffff-8656e2057696000123",
+            "room": "726f6f6d-0103-9697-ffff-368656e726f6000003"
+          },
+          {
+            "name": "Main Door",
+            "installPlace": "",
+            "uuid": "63746c3a-0301-96d7-ffff-572617475726000098",
+            "room": "726f6f6d-0105-9616-ffff-c726f6f6d3a4000005"
+          },
+          {
+            "name": "Garden Door",
+            "installPlace": "",
+            "uuid": "1f263a35-017e-1ac2-ffff8a31785a0003",
+            "room": "726f6f6d-0106-9617-ffff-4656e726f6f6000006"
+          }
+        ]
+      },
+      "states": {
+        "numOpen": "1efaa7ad-0221-edee-08ff5b41adbf0221",
+        "numClosed": "1efaa7ad-0222-edf0-0aff5b41adbf0222",
+        "numTilted": "1efaa7ad-0223-edef-09ff5b41adbf0223",
+        "numOffline": "1efaa7ad-0224-edf1-0bff5b41adbf0224",
+        "numLocked": "1efaa7ad-0225-edf2-0cff5b41adbf0225",
+        "numUnlocked": "1efaa7ad-0226-edf3-0dff5b41adbf0226",
+        "windowStates": "1efaa7ad-0227-ede4-ffff5b41adbf0227"
+      }
     }
   }
 }

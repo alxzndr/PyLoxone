@@ -23,6 +23,21 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   explains that memory flags (Merker) appear once "Use" is ticked in
   Loxone Config, as the already supported `InfoOnlyDigital`,
   `InfoOnlyAnalog` and `InfoOnlyText` controls.
+- The window and door monitor (`WindowMonitor`) is supported (#524). Its
+  contacts did not appear in Home Assistant at all, because the monitor is
+  the only place the Miniserver publishes them. Each contact gets its own
+  device in its own room, with a `window` binary sensor (tilted counts as
+  open), a `State` sensor that keeps `tilted` apart from `open`, and a
+  `Lock` binary sensor that appears once the contact has reported a lock
+  state, since the structure file does not say which contacts have one.
+  The values are decoded as the bitmask the structure file describes, so a
+  lockable door's `8` and `16` read as closed, as the reporter observed. A
+  contact listed by a room monitor and the central monitor appears once,
+  and motorised windows and gates stay covers. The unique ids carry a
+  suffix (`-window`, `-state`, `-lock`), because a contact can be a control
+  that already has an entity of its own. The monitor's counters are
+  sensors on the monitor's device; only `Open` and `Tilted` are enabled by
+  default.
 
 ## 0.10.9 - 2026-09-16
 
