@@ -826,6 +826,17 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.hall_entry_nfc_last_access",
+    "unique_id": "13a9fb56-01bb-fda5-ffff47167370ed09-history_date",
+    "name": null,
+    "original_name": "Last Access",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Entry NFC",
+    "device_model": "NfcCodeTouch"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.hall_hallway_presence_illuminance",
     "unique_id": "36333734-014e-9336-ffff-d303134632d3000078",
     "name": null,

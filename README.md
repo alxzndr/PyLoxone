@@ -193,7 +193,7 @@ Every supported control type and what it turns into:
 | `TextInput` | `text` + `sensor` | A text VI as a settable `text` entity (values longer than 255 characters are truncated) and as a read-only sensor. Attribute: `state_uuid`. |
 | `Meter`, `EnergyManager`, `EnergyManager2`, `PowerUnit`, `Wallbox` | `sensor` | One sensor per register the control reports, on one device: `Actual` (power, measurement), `Total` and `Total Neg` (energy, total increasing), `Level` (energy, measurement). Units and precision come from the control's format details. |
 | `Tracker` | `sensor` | The tracker's entries as a comma-joined string, also when nested under another control such as an alarm. Attributes: `entries`, `count`, `state_uuid`. |
-| `NfcCodeTouch` | `sensor` | Access reader: a `lastuser` sensor plus diagnostic `Code Date` and `Device State` sensors on one device, and a `loxone_nfc_auth` bus event per authentication (see [Events](#events)). The `lastcode` and `lasttag` credentials are never exposed. |
+| `NfcCodeTouch` | `sensor` | Access reader: a `lastuser` sensor plus `Last Access`, and diagnostic `Code Date` (when a code was last changed) and `Device State` sensors on one device, and a `loxone_nfc_auth` bus event per authentication (see [Events](#events)). The `lastcode` and `lasttag` credentials are never exposed. |
 | `ClimateController` | `sensor` | Summary of the rooms demanding heat or cold (`Heating (n)`, `Cooling (n)`, `Idle`); it also feeds the `demand` attribute of each room controller. Attributes: `heat_demand`, `cool_demand`. |
 | Message Center | `sensor` + repairs | One diagnostic sensor per Message Center block whose state is the highest active severity; active entries appear as repair issues and disappear when they clear. Attribute: `status` (counts per severity). |
 | `Switch` | `switch` | On/off switch. |
@@ -312,9 +312,11 @@ automation:
 
 ### `loxone_nfc_auth`
 
-Fired once per authentication on an `NfcCodeTouch` reader, with `uuid` and
-`name` of the reader, `user` (who authenticated), `code_date` (ISO 8601, UTC)
-and `entry_id`. The code or tag used is never part of the event.
+Fired once per access logged by an `NfcCodeTouch` reader (its `historyDate`
+changes), with `uuid` and `name` of the reader, `user` (who authenticated),
+`code_date` (the time of the access, ISO 8601, UTC) and `entry_id`. The
+first value after a start or reconnect only sets the baseline, so a restart
+fires nothing. The code or tag used is never part of the event.
 
 ### Outbound bus events (legacy)
 

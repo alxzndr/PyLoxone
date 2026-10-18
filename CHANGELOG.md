@@ -13,6 +13,32 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+## 1.0.1 - 2026-10-18
+
+### Fixed
+
+- The NFC Code Touch `Code Date` sensor showed a date 39 years in the
+  future (2065 instead of 2026). The reader's `codeDate` and `historyDate`
+  are Unix timestamps in milliseconds (structure file v16); they were read
+  against the 2009 Loxone epoch. Found on the maintainer's reader right
+  after installing 1.0.0; the bug dates from 0.10.0.
+- **Changed for automations on `loxone_nfc_auth`:** the event now fires
+  when the reader logs an access (`historyDate` changes). It used to fire
+  when `codeDate` changed, which per the structure file means a code was
+  *edited*, and once at every start of Home Assistant. The first value
+  after a start or reconnect is now a baseline. `code_date` in the event
+  is the time of the access. A reader without `historyDate` keeps the old
+  trigger.
+- Removing the device of a block deleted in Loxone Config logged a
+  deprecation on Home Assistant 2026.10 (a device now belongs to one
+  config entry); it now uses `async_remove_device`.
+
+### Added
+
+- NFC Code Touch readers get a `Last Access` timestamp sensor
+  (`historyDate`). `Code Date` is now described as what it is: when a code
+  was last changed.
+
 ## 1.0.0 - 2026-10-18
 
 The fork continues at 1.0.0 because upstream has since released its own,

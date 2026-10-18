@@ -50,6 +50,7 @@ from custom_components.loxone.select import (
 NFC_ACTION = "13a9fb56-01bb-fda5-ffff47167370ed09"
 NFC_LASTUSER = "1cf8a1de-01ff-c0ee-ffff47167370ed09"
 NFC_CODEDATE = "1cf8a1de-01ff-c0e9-ffff47167370ed09"
+NFC_HISTORY = "1cf8a1de-01ff-c0e8-ffff47167370ed09"
 NFC_DEVSTATE = "1cf8a1de-01ff-c0ea-ffff47167370ed09"
 # credential states — present in the fixture, and must be used by nothing:
 NFC_LASTCODE = "1cf8a1de-01ff-c0f0-ffff47167370ed09"
@@ -93,15 +94,16 @@ def _nfc_kwargs(**overrides) -> dict:
 # nf_code_date (pure helper)
 # --------------------------------------------------------------------------- #
 def test_nfc_code_date_literals():
-    # Loxone epoch: 1230768000 s = 2009-01-01T00:00:00Z (helper constant
-    # ``LOXONE_EPOCH_SECONDS``).  0 ms therefore parses to the epoch date,
-    # 86400000 ms (= 24 h) one day later — hand-derived, no arithmetic
-    # from the code under test.
-    assert nfc_code_date(0) == datetime(2009, 1, 1, tzinfo=UTC)
-    assert nfc_code_date(86400000) == datetime(2009, 1, 2, tzinfo=UTC)
+    # Structure file v16: codeDate / historyDate are *Unix* milliseconds.
+    # 1789289768000 ms = 2026-09-08T08:56:08Z, the maintainer's reader's real
+    # codeDate, which up to 1.0.0 showed as 2065-09-13 (read against the 2009
+    # Loxone epoch). 0 ms is the Unix epoch.
+    assert nfc_code_date(1789289768000) == datetime(2026, 9, 13, 8, 56, 8, tzinfo=UTC)
+    assert nfc_code_date(0) == datetime(1970, 1, 1, tzinfo=UTC)
+    assert nfc_code_date(86400000) == datetime(1970, 1, 2, tzinfo=UTC)
     # numeric-string form of the same counter
-    assert nfc_code_date("0") == datetime(2009, 1, 1, tzinfo=UTC)
-    # the second documented possibility: a datetime string, naive = UTC
+    assert nfc_code_date("1789289768000") == datetime(2026, 9, 13, 8, 56, 8, tzinfo=UTC)
+    # a datetime string, naive = UTC
     assert nfc_code_date("2026-09-10 12:34:56") == datetime(2026, 9, 10, 12, 34, 56, tzinfo=UTC)
     # an explicit offset is honoured (01:02:03+02:00 == 23:02:03Z the day before)
     assert nfc_code_date("2026-09-10T01:02:03+02:00") == datetime(2026, 9, 9, 23, 2, 3, tzinfo=UTC)
@@ -111,6 +113,7 @@ def test_nfc_code_date_literals():
     assert nfc_code_date(True) is None
     assert nfc_code_date("garbage") is None
     assert nfc_code_date(["2026-09-10"]) is None
+    assert nfc_code_date(float("inf")) is None
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +127,7 @@ def _nfc_hass(entity) -> list:
 
 
 def test_nfc_last_user_sensor_updates_and_fires_event():
+    # This fixture reader has no historyDate state: codeDate is the trigger.
     e = LoxoneNfcCodeTouchSensor(**_nfc_kwargs())
     _stub_write(e)
     fired = _nfc_hass(e)
@@ -134,27 +138,47 @@ def test_nfc_last_user_sensor_updates_and_fires_event():
     assert e.native_value == "Alice"
     assert fired == []
 
-    # when: a codeDate change fires exactly one authentication event
-    e.event_handler({NFC_CODEDATE: 0})
+    # the first value after (re)connecting is a baseline: the last access
+    # before Home Assistant was listening, not a new one
+    e.event_handler({NFC_CODEDATE: 1789289768000})
+    assert fired == []
+
+    # a change fires exactly one authentication event
+    e.event_handler({NFC_CODEDATE: 1789289828000})
     assert len(fired) == 1
     event, payload = fired[0]
     assert event == EVENT_NFC_AUTH
     assert payload["uuid"] == NFC_ACTION
     assert payload["name"] == "Entry NFC"
     assert payload["user"] == "Alice"
-    # 0 Loxone-epoch ms = 2009-01-01T00:00:00Z (hand-derived, see above)
-    assert payload["code_date"] == "2009-01-01T00:00:00+00:00"
+    assert payload["code_date"] == "2026-09-13T08:57:08+00:00"
 
-    # the same codeDate arriving again does not re-fire (a change, not a
-    # message, is an authentication)
-    e.event_handler({NFC_CODEDATE: 0})
+    # the same value again does not re-fire (a change, not a message)
+    e.event_handler({NFC_CODEDATE: 1789289828000})
     assert len(fired) == 1
 
-    # a newer codeDate fires again with the current user
-    e.event_handler({NFC_CODEDATE: 86400000})
-    assert len(fired) == 2
-    assert fired[1][1]["code_date"] == "2009-01-02T00:00:00+00:00"
-    assert fired[1][1]["user"] == "Alice"
+    # a reconnect replays the current value: a new baseline, no event
+    e._on_connection_state(False)
+    e.event_handler({NFC_CODEDATE: 1789289888000})
+    assert len(fired) == 1
+
+
+def test_nfc_auth_event_follows_history_date_when_present():
+    """historyDate is the latest access; codeDate only changes when a code
+    is edited, so it must not fire an authentication event."""
+    history = "1cf643a3-0099-7c30-09ff494c2b0681a0"
+    kwargs = _nfc_kwargs()
+    kwargs["states"] = {**kwargs["states"], "historyDate": history}
+    e = LoxoneNfcCodeTouchSensor(**kwargs)
+    _stub_write(e)
+    fired = _nfc_hass(e)
+    e.event_handler({NFC_LASTUSER: "Bob"})
+    e.event_handler({history: 1789289768000})  # baseline
+    e.event_handler({NFC_CODEDATE: 1789289768000})
+    e.event_handler({NFC_CODEDATE: 1788949999000})  # a code was edited
+    assert fired == []
+    e.event_handler({history: 1788950000000})  # an access
+    assert [p["user"] for _, p in fired] == ["Bob"]
 
 
 def test_nfc_last_user_empty_maps_to_unknown():
@@ -209,11 +233,11 @@ def test_nfc_code_date_sensor_updates():
     e = LoxoneNfcCodeDateSensor(**_nfc_kwargs())
     _stub_write(e)
     assert e.native_value is None
-    e.event_handler({NFC_CODEDATE: 86400000})
-    assert e.native_value == datetime(2009, 1, 2, tzinfo=UTC)
+    e.event_handler({NFC_CODEDATE: 1789289768000})
+    assert e.native_value == datetime(2026, 9, 13, 8, 56, 8, tzinfo=UTC)
     # an unparseable value keeps the last known instant
     e.event_handler({NFC_CODEDATE: "garbage"})
-    assert e.native_value == datetime(2009, 1, 2, tzinfo=UTC)
+    assert e.native_value == datetime(2026, 9, 13, 8, 56, 8, tzinfo=UTC)
     # the credential streams are not subscribed to at all
     assert NFC_LASTCODE not in e._state_uuids()
     assert NFC_LASTTAG not in e._state_uuids()
@@ -464,20 +488,33 @@ async def test_wp610_controls_appear_and_update(hass, mock_connection, mock_entr
     assert hass.states.get(nfc_user.entity_id).state == "Alice"
     assert auth_events == []
 
-    # when: a codeDate change updates the timestamp sensor AND fires the
-    # event (86400000 Loxone-epoch ms = 2009-01-02T00:00:00Z, hand-derived)
-    mock_connection.feed(NFC_CODEDATE, "86400000")
+    # codeDate (a code was edited) updates the Code Date sensor, never the
+    # event (Unix ms, 1789289768000 = 2026-09-13T08:56:08Z)
+    mock_connection.feed(NFC_CODEDATE, "1789289768000")
+    mock_connection.feed(NFC_CODEDATE, "1789289770000")
     await hass.async_block_till_done()
-    assert hass.states.get(nfc_date.entity_id).state == "2009-01-02T00:00:00+00:00"
+    assert hass.states.get(nfc_date.entity_id).state == "2026-09-13T08:56:10+00:00"
+    assert auth_events == []
+
+    # historyDate is the access: the first value is a baseline, a change
+    # fires the event, and Last Access follows it
+    nfc_access = by_unique_id.get(f"{NFC_ACTION}-history_date")
+    assert nfc_access is not None, "the Last Access sensor was not set up"
+    mock_connection.feed(NFC_HISTORY, "1789289768000")
+    await hass.async_block_till_done()
+    assert auth_events == []
+    mock_connection.feed(NFC_HISTORY, "1789289828000")
+    await hass.async_block_till_done()
+    assert hass.states.get(nfc_access.entity_id).state == "2026-09-13T08:57:08+00:00"
     assert len(auth_events) == 1
     assert auth_events[0]["user"] == "Alice"
-    assert auth_events[0]["code_date"] == "2009-01-02T00:00:00+00:00"
+    assert auth_events[0]["code_date"] == "2026-09-13T08:57:08+00:00"
     assert auth_events[0]["uuid"] == NFC_ACTION
     for forbidden in ("lastcode", "lasttag", "code", "tag"):
         assert forbidden not in auth_events[0], f"credential {forbidden!r} leaked into the event"
 
     # the repeated identical value fires nothing
-    mock_connection.feed(NFC_CODEDATE, "86400000")
+    mock_connection.feed(NFC_HISTORY, "1789289828000")
     await hass.async_block_till_done()
     assert len(auth_events) == 1
 
@@ -491,7 +528,7 @@ async def test_wp610_controls_appear_and_update(hass, mock_connection, mock_entr
     mock_connection.feed(NFC_LASTCODE, "deadbeef")
     await hass.async_block_till_done()
     assert "deadbeef" not in hass.states.get(nfc_user.entity_id).state
-    assert hass.states.get(nfc_date.entity_id).state == "2009-01-02T00:00:00+00:00"
+    assert hass.states.get(nfc_date.entity_id).state == "2026-09-13T08:56:10+00:00"
     assert len(auth_events) == 1
     unsub()
 

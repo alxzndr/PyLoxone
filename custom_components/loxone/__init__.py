@@ -1207,8 +1207,13 @@ def _async_remove_stale_entries(hass: HomeAssistant, config_entry: ConfigEntry, 
             continue
         if er.async_entries_for_device(ent_reg, device.id, include_disabled_entities=True):
             continue
+        if set(device.config_entries) != {config_entry.entry_id}:
+            continue  # shared with another integration: not ours to delete
         _LOGGER.info("Removing device %s: its Loxone object is no longer in the structure file", device.name)
-        dev_reg.async_update_device(device.id, remove_config_entry_id=config_entry.entry_id)
+        # async_remove_device, not async_update_device(remove_config_entry_id=...):
+        # from 2026.10 a device belongs to one config entry and the latter
+        # logs a deprecation (removed in 2027.8).
+        dev_reg.async_remove_device(device.id)
 
 
 async def async_remove_config_entry_device(

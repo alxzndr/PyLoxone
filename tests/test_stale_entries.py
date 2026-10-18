@@ -44,7 +44,7 @@ async def _setup(hass, mock_entry) -> None:
     assert mock_entry.state is ConfigEntryState.LOADED
 
 
-async def test_entities_of_removed_blocks_are_removed(hass, mock_connection, mock_entry) -> None:
+async def test_entities_of_removed_blocks_are_removed(hass, mock_connection, mock_entry, caplog) -> None:
     mock_entry.add_to_hass(hass)
     stale = _seed(hass, mock_entry, GONE)
     stale_suffixed = _seed(hass, mock_entry, f"{GONE}-777", with_device=False)
@@ -59,8 +59,10 @@ async def test_entities_of_removed_blocks_are_removed(hass, mock_connection, moc
     assert ent_reg.async_get(not_judged) is not None
     # The fixture's own entities stay.
     assert ent_reg.async_get_entity_id("switch", DOMAIN, PRESENT) is not None
-    # The emptied device of the removed block goes too.
+    # The emptied device of the removed block goes too, without the
+    # 2026.10 "a device now belongs to a single config entry" deprecation.
     assert _device(hass, mock_entry, GONE) is None
+    assert "remove_config_entry_id" not in caplog.text
 
 
 async def test_nothing_is_removed_when_most_entities_look_stale(hass, mock_connection, mock_entry, loxapp3) -> None:

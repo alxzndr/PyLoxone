@@ -7,6 +7,7 @@ https://github.com/JoDehli/PyLoxone
 
 import json
 import logging
+import math
 import re
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -625,32 +626,31 @@ NFC_DEVICE_MODEL = "NfcCodeTouch"
 
 def nfc_code_date(value: Any) -> datetime | None:
     """
-    Normalise a raw NfcCodeTouch ``codeDate`` stream value to an aware UTC datetime.
+    Normalise a raw NfcCodeTouch ``codeDate`` / ``historyDate`` value to an aware UTC datetime.
 
-    Intended semantics (**VERIFY** — live check #21 in
-    ``docs/review/LIVE-MINISERVER-CHECKS.md``): ``codeDate`` carries the
-    moment the last code was entered.  The wire format is not documented
-    in anything we hold, so the parse tries, in order:
-
-    1. a Loxone-epoch millisecond counter (the same epoch family the
-       Message Center's ``changed`` stream uses —
-       :func:`loxone_timestamp`), also as an all-digit string;
-    2. a ``2026-09-10 12:34:56`` / ISO-8601 string, read as UTC when
-       it carries no offset.
-
-    Anything unparseable returns ``None`` so the caller keeps its last
-    known value instead of going silent on a corrupt feed.
+    Structure file v16: both are **Unix** timestamps in milliseconds
+    (``codeDate``: the latest change of a code; ``historyDate``: the latest
+    history entry, i.e. access). Up to 1.0.0 they were read as milliseconds
+    since the 2009 Loxone epoch, which put a code change of September 2026
+    into 2065. A ``2026-09-10 12:34:56`` / ISO-8601 string is still
+    accepted (UTC when it carries no offset). Anything unparseable returns
+    ``None`` so the caller keeps its last known value.
     """
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, (int, float)):
-        return loxone_timestamp(value)
+        if not math.isfinite(value):
+            return None
+        try:
+            return dt_util.utc_from_timestamp(value / 1000)
+        except (OverflowError, OSError, ValueError):
+            return None
     if isinstance(value, str):
         text = value.strip()
         if not text:
             return None
         if text.lstrip("-").isdigit():
-            return loxone_timestamp(int(text))
+            return nfc_code_date(int(text))
         parsed = dt_util.parse_datetime(text)
         if parsed is None:
             return None
@@ -690,10 +690,18 @@ class LoxoneNfcCodeTouchSensor(LoxoneEntity, SensorEntity):
     NfcCodeTouch (PS-27): who last authenticated, and the per-authentication
     ``loxone_nfc_auth`` bus event.
 
-    The state is the ``lastuser`` value (a credential-free "who").  The
-    entity also subscribes to ``codeDate``: every *change* of it fires
-    the authentication event with the current ``lastuser``.  The
-    ``lastcode`` / ``lasttag`` states are never consumed.
+    The state is the ``lastuser`` value (a credential-free "who"). The
+    event fires when ``historyDate`` (structure file v16: the latest history
+    entry, i.e. an access) changes; up to 1.0.0 it fired on ``codeDate``,
+    which changes when a *code is edited*. ``codeDate`` remains the trigger
+    only on a structure file without ``historyDate``. The first value after
+    a start or reconnect is a baseline and never fires: it is the last
+    access before Home Assistant was listening. The ``lastcode`` /
+    ``lasttag`` states are never consumed.
+
+    VERIFY: ``lastuser`` (a text state) and ``historyDate`` (a value state)
+    arrive in different frames; the event carries whichever user was last
+    received.
     """
 
     _attr_icon = "mdi:identifier"
@@ -704,9 +712,11 @@ class LoxoneNfcCodeTouchSensor(LoxoneEntity, SensorEntity):
         states = kwargs.get("states")
         states = states if isinstance(states, dict) else {}
         self._lastuser_uuid = states.get("lastuser") if isinstance(states.get("lastuser"), str) else None
-        self._code_date_uuid = states.get("codeDate") if isinstance(states.get("codeDate"), str) else None
+        trigger = states.get("historyDate") or states.get("codeDate")
+        self._code_date_uuid = trigger if isinstance(trigger, str) and trigger else None
         self._attr_native_value: str | None = None
         self._last_code_date_raw = None
+        self._baseline_seen = False
         self._attr_device_info = device_info_for(
             kwargs.get("config_entry"), self.uuidAction, self._lox_name, self.type, self.room
         )
@@ -727,7 +737,17 @@ class LoxoneNfcCodeTouchSensor(LoxoneEntity, SensorEntity):
             self.async_write_ha_state()
         if self._code_date_uuid and self._code_date_uuid in e and e[self._code_date_uuid] != self._last_code_date_raw:
             self._last_code_date_raw = e[self._code_date_uuid]
+            if not self._baseline_seen:
+                self._baseline_seen = True
+                return
             self._fire_auth_event(e[self._code_date_uuid])
+
+    @callback
+    def _on_connection_state(self, connected: bool) -> None:
+        # A reconnect replays the current value: a new baseline, not an access.
+        if not connected:
+            self._baseline_seen = False
+        super()._on_connection_state(connected)
 
     def _fire_auth_event(self, code_date_raw: Any) -> None:
         if self.hass is None:
@@ -755,7 +775,7 @@ class LoxoneNfcCodeTouchSensor(LoxoneEntity, SensorEntity):
 
 class LoxoneNfcCodeDateSensor(LoxoneEntity, SensorEntity):
     """
-    NfcCodeTouch (PS-27): when the last code was entered (diagnostic).
+    NfcCodeTouch (PS-27): when a code was last changed (diagnostic).
 
     A TIMESTAMP sensor fed by the ``codeDate`` stream through
     :func:`nfc_code_date`; unparseable values keep the last known instant.
@@ -806,6 +826,30 @@ class LoxoneNfcCodeDateSensor(LoxoneEntity, SensorEntity):
             **self._attr_extra_state_attributes,
             "device_type": self.type,
         }
+
+
+class LoxoneNfcLastAccessSensor(LoxoneNfcCodeDateSensor):
+    """NfcCodeTouch: when the reader last logged an access (``historyDate``)."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._attr_name = "Last Access"
+        self._attr_unique_id = f"{self.uuidAction}-history_date"
+        states = kwargs.get("states")
+        states = states if isinstance(states, dict) else {}
+        self._code_date_uuid = states["historyDate"]
+
+    def _state_uuids(self) -> frozenset[str]:
+        return frozenset({self._code_date_uuid})
+
+    @callback
+    def event_handler(self, e: dict) -> None:
+        parsed = nfc_code_date(e[self._code_date_uuid]) if self._code_date_uuid in e else None
+        # 0 means "no history yet" (structure file v16).
+        if parsed is None or e[self._code_date_uuid] in (0, "0"):
+            return
+        self._attr_native_value = parsed
+        self.async_write_ha_state()
 
 
 class LoxoneNfcDeviceStateSensor(LoxoneEntity, SensorEntity):
@@ -1013,6 +1057,8 @@ async def async_setup_entry(
             sensor.update({"config_entry": config_entry})
             entities.append(LoxoneNfcCodeTouchSensor(**sensor))
             entities.append(LoxoneNfcCodeDateSensor(**sensor))
+            if isinstance((sensor.get("states") or {}).get("historyDate"), str):
+                entities.append(LoxoneNfcLastAccessSensor(**sensor))
             entities.append(LoxoneNfcDeviceStateSensor(**sensor))
         except Exception:
             _LOGGER.exception("Skipping NfcCodeTouch control %s", sensor.get("name", "?"))
