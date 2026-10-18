@@ -31,7 +31,14 @@ from .const import (
     SUPPORT_QUICK_SHADE,
     SUPPORT_SUN_AUTOMATION,
 )
-from .helpers import add_room_and_cat_to_value_values, device_info_for, get_all, map_range
+from .helpers import (
+    add_room_and_cat_to_value_values,
+    device_info_for,
+    get_all,
+    jalousie_auto_state_uuid,
+    jalousie_auto_text_uuid,
+    map_range,
+)
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -457,8 +464,10 @@ class LoxoneJalousie(LoxoneEntity, CoverEntity):
         self._shade_position_uuid = _state_uuid(self.states, "shadePosition")
         self._up_uuid = _state_uuid(self.states, "up")
         self._down_uuid = _state_uuid(self.states, "down")
-        self._auto_info_text_uuid = _state_uuid(self.states, "autoInfoText")
-        self._auto_state_uuid = _state_uuid(self.states, "autoState")
+        # Structure File: ``autoActive`` / ``infoText``; the pre-0.11 names
+        # ``autoState`` / ``autoInfoText`` stay as fallback (upstream #530).
+        self._auto_info_text_uuid = jalousie_auto_text_uuid(self.states)
+        self._auto_state_uuid = jalousie_auto_state_uuid(self.states)
         self._target_position_uuid = _state_uuid(self.states, "targetPosition")
         self._position = 0
         self._position_loxone = -1

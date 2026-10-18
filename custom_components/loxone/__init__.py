@@ -14,6 +14,10 @@ import time
 from functools import partial
 
 from homeassistant.components import group
+
+# 2026.11 dropped the ``async_get_component`` re-export from the group package;
+# ``group.entity`` has defined it since well before the 2026.7 floor.
+from homeassistant.components.group.entity import async_get_component as async_get_group_component
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, UnknownEntry, ConfigEntryAuthFailed, ConfigEntryState
 from homeassistant.const import (
@@ -30,6 +34,7 @@ from homeassistant.core import (
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntry
@@ -65,6 +70,7 @@ from .const import (
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_TEXT_INPUT,
     DEVICE_TYPE_TIMED_SWITCH,
+    DEVICE_TYPE_VALUE_SELECTOR,
     DEVICE_TYPE_VENTILATION,
     DEVICE_TYPE_WINDOW,
     DOMAIN,
@@ -336,6 +342,13 @@ def _async_register_domain_services(hass: HomeAssistant) -> None:
     hass.services.async_register(DOMAIN, "reload", handle_reload, schema=RELOAD_SCHEMA)
 
 
+def _registry_entity_name(entry) -> str:
+    """The entity's own name (``RegistryEntry.entity_name`` from HA 2026.11)."""
+    if (name := getattr(entry, "entity_name", None)) is not None:
+        return name
+    return entry.name or entry.original_name or ""
+
+
 async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
     """Sync HA areas from Loxone room attributes (``sync_areas`` service)."""
     data = data or {}
@@ -343,7 +356,9 @@ async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
     if create_areas not in [True, False]:
         create_areas = False
     lox_items = []
+    device_items = {}
     er_registry = er.async_get(hass)
+    dr_registry = dr.async_get(hass)
     ar_registry = ar.async_get(hass)
     for _id, entry in er_registry.entities.items():
         if entry.platform == DOMAIN:
@@ -352,8 +367,20 @@ async def sync_areas_with_loxone(hass: HomeAssistant, data: dict) -> None:
                 area = ar_registry.async_get_area_by_name(state.attributes["room"])
                 if area is None and create_areas:
                     area = ar_registry.async_get_or_create(state.attributes["room"])
-                if area and entry.area_id is None:
-                    lox_items.append((entry.entity_id, area.id))
+                if not area or entry.area_id is not None:
+                    continue
+                if entry.device_id is not None and not _registry_entity_name(entry):
+                    # The device's main entity (``has_entity_name`` with no
+                    # name of its own) follows its device's area; HA 2026.11
+                    # rejects an own area for it ("set the area on its device
+                    # instead").  Fill the device in instead, never overwrite.
+                    device = dr_registry.async_get(entry.device_id)
+                    if device is not None and device.area_id is None:
+                        device_items.setdefault(device.id, area.id)
+                    continue
+                lox_items.append((entry.entity_id, area.id))
+    for device_id, area_id in device_items.items():
+        dr_registry.async_update_device(device_id, area_id=area_id)
     for _ in lox_items:
         er_registry.async_update_entity(_[0], area_id=_[1])
 
@@ -473,7 +500,7 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
     # So: when the group entity still exists on the platform, always
     # (re)point it at the freshly discovered members; only create fresh
     # when no such entity exists at all.
-    component = group.async_get_component(hass)
+    component = async_get_group_component(hass)
     entity = component.get_entity(entity_id)
     if entity is not None and hasattr(entity, "async_update_tracked_entity_ids"):
         if tuple(sorted(entity.tracking)) != tuple(sorted(entities)):
@@ -525,7 +552,7 @@ LOXONE_GROUPS_BY_OBJECT_ID: dict[str, tuple[str, tuple[str, ...]]] = {
     "loxone_climates": ("Loxone Room Controllers", (DEVICE_TYPE_IRC, DEVICE_TYPE_AC)),
     "loxone_ventilations": ("Loxone Ventilation Controllers", (DEVICE_TYPE_VENTILATION,)),
     "loxone_accontrollers": ("Loxone AC Controllers", (DEVICE_TYPE_AC,)),
-    "loxone_numbers": ("Loxone Numbers", (DEVICE_TYPE_SLIDER,)),
+    "loxone_numbers": ("Loxone Numbers", (DEVICE_TYPE_SLIDER, DEVICE_TYPE_VALUE_SELECTOR)),
     "loxone_texts": ("Loxone Texts", (DEVICE_TYPE_TEXT_INPUT,)),
 }
 

@@ -105,34 +105,61 @@ HVAC_TO_LOXONE_V2: dict[HVACMode, int] = {
     HVACMode.COOL: 5,
 }
 
-# Legacy (IRoomController) table.  VERIFY: the pre-WP-4.1 code claimed
-# 0=Auto,1=Heat,2=Cool,3=Heat/Cool,4=Off; keep that as the single shared
-# source for both reading and writing until confirmed against a live V1
-# structure (PC-26).
+# Legacy (IRoomController, "Intelligent Room Controller") ``mode`` state per
+# the Structure File: 0 = automatic (heating or cooling by period), 1/2 =
+# automatic, currently heating/cooling (state only: "not manually
+# selectable ... use 3 & 4 instead"), 3/4 = automatic heating/cooling, 5/6 =
+# manual heating/cooling.  There is no "off" mode: service mode 1 ("heating
+# and cooling off") is OFF.  The pre-0.11 table (0 auto, 1 heat, 2 cool,
+# 3 heat/cool, 4 off) was a guess and sent ``setMode/4`` -- automatic
+# cooling -- for OFF (upstream PR #530).  VERIFY on a V1 controller.
 LEGACY_ROOM_CONTROLLER_MODES: dict[int, HVACMode] = {
     0: HVACMode.AUTO,
-    1: HVACMode.HEAT,
-    2: HVACMode.COOL,
-    3: HVACMode.HEAT_COOL,
-    4: HVACMode.OFF,
+    1: HVACMode.AUTO,
+    2: HVACMode.AUTO,
+    3: HVACMode.HEAT,
+    4: HVACMode.COOL,
+    5: HVACMode.HEAT,
+    6: HVACMode.COOL,
 }
+# The write side: the selectable code per mode (OFF goes through the service
+# mode, see ``LoxoneRoomController.async_set_hvac_mode``).
+HVAC_TO_LEGACY_ROOM_CONTROLLER_MODE: dict[HVACMode, int] = {
+    HVACMode.AUTO: 0,
+    HVACMode.HEAT: 3,
+    HVACMode.COOL: 4,
+}
+LEGACY_COOLING_MODES = (2, 4, 6)
+LEGACY_SERVICE_NORMAL = 0
+LEGACY_SERVICE_HEATING_COOLING_OFF = 1
+# details.restrictedToMode: 0 = heating and cooling, 1 = cooling only,
+# 2 = heating only.
+LEGACY_RESTRICTED_COOLING_ONLY = 1
+LEGACY_RESTRICTED_HEATING_ONLY = 2
 
 
-def legacy_mode_to_hvac(code: int | None) -> HVACMode:
+def _as_int(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def legacy_mode_to_hvac(code: int | None, service_mode: int | None = None) -> HVACMode:
     """
-    Map a legacy IRoomController mode code to an HVAC mode (PC-26).
+    Map a legacy IRoomController ``mode`` (and ``serviceMode``) to an HVAC mode.
 
+    Service mode 1 switches heating and cooling off whatever the mode says.
     Unknown codes fall back to OFF rather than raising so the read side
-    never aborts a state update.
+    never aborts a state update (PC-26).
     """
-    return LEGACY_ROOM_CONTROLLER_MODES.get(code, HVACMode.OFF)
+    if _as_int(service_mode) == LEGACY_SERVICE_HEATING_COOLING_OFF:
+        return HVACMode.OFF
+    return LEGACY_ROOM_CONTROLLER_MODES.get(_as_int(code), HVACMode.OFF)
 
 
 def _hvac_to_legacy(hvac_mode: HVACMode) -> int | None:
-    for lox, hvac in LEGACY_ROOM_CONTROLLER_MODES.items():
-        if hvac == hvac_mode:
-            return lox
-    return None
+    return HVAC_TO_LEGACY_ROOM_CONTROLLER_MODE.get(hvac_mode)
 
 
 def hvac_to_legacy_mode(hvac_mode: HVACMode) -> int | None:
@@ -251,16 +278,17 @@ def plan_set_temperature(op_mode: int, active: int, kwargs: dict, state: dict) -
                 if frost_protect is None or new_temp != frost_protect:
                     commands.append(f"setecoplusmintemperature/{new_temp}")
         return commands
-    # Everything else (auto single target, manual single heat/cool …) offsets
-    # the comfort temperature.
+    # Everything else (auto single target …) temporarily adopts the comfort
+    # temperature.  Structure File (IRoomControllerV2): ``setComfortModeTemp/
+    # {temp}`` takes the new *absolute* temperature ("states.comfortTemperature
+    # + states.comfortTemperatureOffset ± step(0.5)"), not an offset: sending
+    # ``temperature - comfort`` asked for e.g. 1 °C instead of 22 °C
+    # (upstream PR #530).
     if "temperature" in kwargs:
         if active == ActiveMode.FIXED_DYNAMIC.value:
             commands.append(f"override/{(kwargs['temperature'] * 2560) + 112}/{kwargs['temperature']}")
         else:
-            comfort = values.get(_COMFORT_C)
-            if comfort is not None:
-                offset = kwargs["temperature"] - comfort
-                commands.append(f"setComfortModeTemp/{offset}")
+            commands.append(f"setComfortModeTemp/{kwargs['temperature']}")
     return commands
 
 
@@ -303,6 +331,59 @@ class OperatingMode(Enum):
             if member.value[0] == mode:
                 return member
         raise ValueError(f"{mode} is not a valid number for {cls.__name__}")
+
+
+# Home Assistant 2026.11 renamed the temperature members a climate entity
+# implements to ``native_*`` (the old names warn until their removal in
+# 2027.11) and owns the new ``temperature_unit`` state attribute itself.
+# The entities below implement only the ``native_*`` names.  Releases before
+# 2026.11 (the floor is 2026.7) know only the old names, so there this mixin
+# serves them from the native ones.  On 2026.11+ it is empty: defining the
+# old names there too would be pointless, and defining only *some* of them
+# would make HA's migration shim route a native name back to its alias.
+CLIMATE_HAS_NATIVE_TEMPERATURES = hasattr(ClimateEntity, "native_current_temperature")
+
+
+class NativeTemperatureCompat:
+    """Serve the pre-2026.11 climate temperature names from the ``native_*`` ones."""
+
+    if not CLIMATE_HAS_NATIVE_TEMPERATURES:
+
+        @property
+        def native_current_temperature(self) -> float | None:
+            return None
+
+        @property
+        def native_target_temperature(self) -> float | None:
+            return None
+
+        @property
+        def native_target_temperature_high(self) -> float | None:
+            return None
+
+        @property
+        def native_target_temperature_low(self) -> float | None:
+            return None
+
+        @property
+        def current_temperature(self) -> float | None:
+            return self.native_current_temperature
+
+        @property
+        def target_temperature(self) -> float | None:
+            return self.native_target_temperature
+
+        @property
+        def target_temperature_high(self) -> float | None:
+            return self.native_target_temperature_high
+
+        @property
+        def target_temperature_low(self) -> float | None:
+            return self.native_target_temperature_low
+
+        @property
+        def temperature_unit(self) -> str:
+            return self.native_temperature_unit
 
 
 async def async_setup_entry(
@@ -349,7 +430,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
+class LoxoneRoomController(LoxoneEntity, NativeTemperatureCompat, ClimateEntity, ABC):
     """Loxone room controller (legacy, non-V2)"""
 
     def __init__(self, **kwargs):
@@ -415,12 +496,12 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         }
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
         """Return the current temperature."""
         return self.get_state_value("tempActual")
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         return self.get_state_value("tempTarget")
 
@@ -430,20 +511,22 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         if temp is None:
             return
 
-        # IRoomController uses setTemp with current temperature index
-        # Get the current active temperature index based on mode
-        mode = self.get_state_value("mode")
+        # ``settemp`` "changes the value of a temperature with a temperature
+        # id and the new value" (Structure File): the temperature the
+        # controller currently uses -- the cooling index in the cooling modes
+        # (2, 4, 6), otherwise the heating index.  VERIFY: the spec names the
+        # command but not its separator syntax; ``settemp/<id>/<value>`` as
+        # the other ``/``-separated commands.
+        mode = _as_int(self.get_state_value("mode"))
 
-        # Determine which temperature index to use
         temp_idx = self.get_state_value("currHeatTempIx")
-        if mode == 2:  # Cooling mode
+        if mode in LEGACY_COOLING_MODES:
             cool_idx = self.get_state_value("currCoolTempIx")
             if cool_idx is not None:
                 temp_idx = cool_idx
 
         if temp_idx is not None:
-            # Command format: setTemp/<index>/<value>
-            self._send(f"setTemp/{int(temp_idx)}/{temp}")
+            self._send(f"settemp/{int(temp_idx)}/{temp}")
             self.async_write_ha_state()
 
     @property
@@ -465,21 +548,23 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
     @property
     def hvac_mode(self) -> HVACMode | None:
         """Return hvac operation mode (PC-26: single shared legacy table)."""
-        return legacy_mode_to_hvac(self.get_state_value("mode"))
+        return legacy_mode_to_hvac(self.get_state_value("mode"), self.get_state_value("serviceMode"))
 
     @property
     def hvac_modes(self) -> list[HVACMode]:
-        """Return the list of available hvac operation modes."""
-        return [
-            HVACMode.OFF,
-            HVACMode.AUTO,
-            HVACMode.HEAT,
-            HVACMode.COOL,
-            HVACMode.HEAT_COOL,
-        ]
+        """Return the available hvac modes (``details.restrictedToMode`` limits heat/cool)."""
+        details = getattr(self, "details", None)
+        details = details if isinstance(details, dict) else {}
+        restricted = _as_int(details.get("restrictedToMode"))
+        modes = [HVACMode.OFF, HVACMode.AUTO]
+        if restricted != LEGACY_RESTRICTED_COOLING_ONLY:
+            modes.append(HVACMode.HEAT)
+        if restricted != LEGACY_RESTRICTED_HEATING_ONLY:
+            modes.append(HVACMode.COOL)
+        return modes
 
     @property
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform (PC-23)."""
         return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
 
@@ -499,18 +584,30 @@ class LoxoneRoomController(LoxoneEntity, ClimateEntity, ABC):
         return 35.0
 
     async def async_set_hvac_mode(self, hvac_mode: str):
-        """Set new target hvac mode (PC-26: dispatch through the shared table)."""
+        """
+        Set new target hvac mode (PC-26: dispatch through the shared table).
+
+        OFF is service mode 1 ("heating and cooling off"; the controller has
+        no off mode); any other mode first leaves that service mode, then
+        selects ``mode/<n>``.  VERIFY: the spec names the ``mode`` and
+        ``service`` commands without their separator syntax.
+        """
+        if hvac_mode == HVACMode.OFF:
+            self._send(f"service/{LEGACY_SERVICE_HEATING_COOLING_OFF}")
+            self.async_write_ha_state()
+            return
         target_mode = hvac_to_loxone(hvac_mode, table="legacy")
         if target_mode is None:
             _LOGGER.debug("No legacy IRoomController mode for hvac mode %r", hvac_mode)
             return
-
-        self._send(f"setMode/{target_mode}")
+        if _as_int(self.get_state_value("serviceMode")) == LEGACY_SERVICE_HEATING_COOLING_OFF:
+            self._send(f"service/{LEGACY_SERVICE_NORMAL}")
+        self._send(f"mode/{target_mode}")
 
         self.async_write_ha_state()
 
 
-class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
+class LoxoneRoomControllerV2(LoxoneEntity, NativeTemperatureCompat, ClimateEntity, ABC):
     """Loxone room controller V2 with demand tracking and dynamic capabilities."""
 
     _attr_translation_key = "room_controller_v2"
@@ -676,7 +773,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         return self.active_state.mode
 
     @property
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         """
         Return the unit of measurement used by the platform (PC-23).
 
@@ -688,7 +785,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
         """Return the current temperature."""
         return self.get_state_value("tempActual")
 
@@ -709,7 +806,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         self.async_write_ha_state()
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """
         Return the temperature we try to reach.
 
@@ -727,7 +824,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
         return 0.5
 
     @property
-    def target_temperature_high(self) -> float | None:
+    def native_target_temperature_high(self) -> float | None:
         """Return the highbound target temperature we try to reach."""
         mode = self.operating_mode
         active = self.active_mode
@@ -746,7 +843,7 @@ class LoxoneRoomControllerV2(LoxoneEntity, ClimateEntity, ABC):
                 return None
 
     @property
-    def target_temperature_low(self) -> float | None:
+    def native_target_temperature_low(self) -> float | None:
         """Return the lowbound target temperature we try to reach."""
         mode = self.operating_mode
         active = self.active_mode
@@ -906,7 +1003,7 @@ def ac_hvac_action(status, mode):
     return HVACAction.IDLE
 
 
-class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
+class LoxoneAcControl(LoxoneEntity, NativeTemperatureCompat, ClimateEntity, ABC):
     """Representation of a ACControl Loxone device."""
 
     def __init__(self, **kwargs):
@@ -981,7 +1078,7 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         return features
 
     @property
-    def current_temperature(self):
+    def native_current_temperature(self):
         """Return the current temperature."""
         return self.get_state_value("temperature")
 
@@ -1055,12 +1152,12 @@ class LoxoneAcControl(LoxoneEntity, ClimateEntity, ABC):
         ]
 
     @property
-    def temperature_unit(self) -> str:
+    def native_temperature_unit(self) -> str:
         """Return the unit of measurement used by the platform (PC-23)."""
         return temperature_unit_from_format(self.details.get("format") if isinstance(self.details, dict) else None)
 
     @property
-    def target_temperature(self) -> float | None:
+    def native_target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         return self.get_state_value("targetTemperature")
 

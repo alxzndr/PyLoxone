@@ -179,14 +179,14 @@ def test_all_platforms_use_the_shared_unit_helper(cls_name):
 def test_accontrol_temperature_unit_celsius_not_found():
     """PC-23: '°C' at index 0 must read as Celsius (old find('°') == 0 -> F)."""
     e, _ = _ac_make({"temperature": "st1"}, details={"format": "°C"})
-    assert e.temperature_unit == UnitOfTemperature.CELSIUS
+    assert e.native_temperature_unit == UnitOfTemperature.CELSIUS
     e2, _ = _ac_make({"temperature": "st1"}, details={"format": "°F"})
-    assert e2.temperature_unit == UnitOfTemperature.FAHRENHEIT
+    assert e2.native_temperature_unit == UnitOfTemperature.FAHRENHEIT
 
 
 def test_v2_temperature_unit_bare_c():
     e, _ = _v2_make({"activeMode": "st1"}, details={"timerModes": [], "format": "C"})
-    assert e.temperature_unit == UnitOfTemperature.CELSIUS
+    assert e.native_temperature_unit == UnitOfTemperature.CELSIUS
 
 
 # ---------------------------------------------------------------------------
@@ -215,14 +215,28 @@ def test_legacy_mode_table_roundtrip():
     (old: `set_hvac_mode(OFF)` sent code 1 = manual heat)."""
     for lox, hvac in LEGACY_ROOM_CONTROLLER_MODES.items():
         assert legacy_mode_to_hvac(lox) == hvac
-        assert hvac_to_loxone(hvac, table="legacy") == lox
-    # The legacy V1 table keeps the codes the legacy controller documented:
-    # 0=Auto, 1=Manual/Heat, 2=Manual/Cool, 3=Auto/Heat-Cool, 4=Off.
-    assert legacy_mode_to_hvac(0) == HVACMode.AUTO
-    assert legacy_mode_to_hvac(1) == HVACMode.HEAT
-    assert legacy_mode_to_hvac(2) == HVACMode.COOL
-    assert legacy_mode_to_hvac(3) == HVACMode.HEAT_COOL
-    assert legacy_mode_to_hvac(4) == HVACMode.OFF
+        # every mode the writer can send reads back as itself
+        assert legacy_mode_to_hvac(hvac_to_loxone(hvac, table="legacy")) == hvac
+    # Structure File "Intelligent Room Controller" mode state: 0 automatic,
+    # 1/2 automatic currently heating/cooling, 3/4 automatic heating/cooling,
+    # 5/6 manual heating/cooling (upstream PR #530).
+    assert [legacy_mode_to_hvac(code) for code in range(7)] == [
+        HVACMode.AUTO,
+        HVACMode.AUTO,
+        HVACMode.AUTO,
+        HVACMode.HEAT,
+        HVACMode.COOL,
+        HVACMode.HEAT,
+        HVACMode.COOL,
+    ]
+    # 1/2 are not selectable: the writer uses 0/3/4.
+    assert hvac_to_loxone(HVACMode.AUTO, table="legacy") == 0
+    assert hvac_to_loxone(HVACMode.HEAT, table="legacy") == 3
+    assert hvac_to_loxone(HVACMode.COOL, table="legacy") == 4
+    # There is no off mode: service mode 1 ("heating and cooling off") is OFF.
+    assert hvac_to_loxone(HVACMode.OFF, table="legacy") is None
+    assert legacy_mode_to_hvac(3, service_mode=1) == HVACMode.OFF
+    assert legacy_mode_to_hvac(3, service_mode=0) == HVACMode.HEAT
 
 
 async def test_legacy_set_hvac_mode_read_write_agreement():
@@ -248,18 +262,21 @@ async def test_legacy_set_hvac_mode_read_write_agreement():
     e.hass.bus.async_fire = _rec
     e.schedule_update_ha_state = lambda *a, **k: None
 
+    assert e.hvac_modes == [HVACMode.OFF, HVACMode.AUTO, HVACMode.HEAT, HVACMode.COOL]
     for hvac in e.hvac_modes:
+        if hvac == HVACMode.OFF:
+            continue
         out.clear()
         await e.async_set_hvac_mode(hvac)
         assert len(out) == 1
+        assert out[0].startswith("mode/")
         code = int(out[0].rsplit("/", 1)[1])
         assert legacy_mode_to_hvac(code) == hvac
 
-    # Explicit OFF regression: sends the table's OFF code, never manual heat.
+    # OFF is service mode 1; the old table sent setMode/4 (automatic cooling).
     out.clear()
     await e.async_set_hvac_mode(HVACMode.OFF)
-    assert out == ["setMode/4"]
-    assert legacy_mode_to_hvac(1) == HVACMode.HEAT  # code 1 stays "heat", not off
+    assert out == ["service/1"]
 
 
 def test_capabilities_to_hvac_modes_table():
@@ -321,12 +338,19 @@ _OFFSTATE = {
         # MANUAL_HEAT / MANUAL_COOL also route to the manual command
         pytest.param(4, 3, {"temperature": 19.0}, {}, ["setManualTemperature/19.0"], id="manual_heat"),
         pytest.param(5, 1, {"temperature": 25.0}, {}, ["setManualTemperature/25.0"], id="manual_cool"),
-        # AUTOMATIC single target: offset relative to comfort (hand: 20.5-21.0 = -0.5)
-        pytest.param(1, 1, {"temperature": 20.5}, {}, ["setComfortModeTemp/-0.5"], id="auto_comfort_user"),
+        # AUTOMATIC single target: setComfortModeTemp takes the ABSOLUTE
+        # temperature (Structure File; the old code sent 20.5 - 21.0 = -0.5)
+        pytest.param(1, 1, {"temperature": 20.5}, {}, ["setComfortModeTemp/20.5"], id="auto_comfort_user"),
+        pytest.param(1, 1, {"temperature": 21.0}, {}, ["setComfortModeTemp/21.0"], id="auto_comfort_equal_still_sent"),
+        # ... so it no longer depends on the comfort state having arrived
         pytest.param(
-            1, 1, {"temperature": 21.0}, {}, ["setComfortModeTemp/0.0"], id="auto_comfort_zero_offset_still_sent"
+            1,
+            1,
+            {"temperature": 20.5},
+            {"comfort_temperature": None},
+            ["setComfortModeTemp/20.5"],
+            id="auto_comfort_unknown_state",
         ),
-        pytest.param(1, 1, {"temperature": 20.5}, {"comfort_temperature": None}, [], id="auto_comfort_unknown_state"),
         pytest.param(1, 1, {}, {}, [], id="auto_no_temp_key"),
         # DUAL-comfort high target (cool side)
         pytest.param(3, 1, {"target_temp_high": 23.0}, {}, ["setComfortTemperatureCool/23.0"], id="dual_comfort_high"),
@@ -461,7 +485,7 @@ def test_v2_target_temperature_in_dual_building_protect():
     -> None while TARGET_TEMPERATURE was advertised."""
     e, _ = _v2_make(_full_v2_states(), details={"timerModes": [], "possibleCapabilities": 3})
     feed(e, {"st_op": 3, "st_active": 2, "st_target": 21.5})
-    assert e.target_temperature == 21.5
+    assert e.native_target_temperature == 21.5
     # the feature advertisement is not TARGET + TARGET_RANGE at the same time
     feats = e.supported_features
     assert feats & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
@@ -472,13 +496,13 @@ def test_v2_target_temperature_falls_back_to_comfort():
     """Until tempTarget is seen, the fallback to comfort temperature keeps
     the property a number while it is advertised (never a bare fall-off)."""
     e, _ = _v2_make(_full_v2_states(), details={"timerModes": []})
-    assert e.target_temperature is None or isinstance(e.target_temperature, (int, float))
+    assert e.native_target_temperature is None or isinstance(e.native_target_temperature, (int, float))
     feed(e, {"st_c": 20.5})
-    assert e.target_temperature == 20.5
+    assert e.native_target_temperature == 20.5
     feed(e, {"st_op": 0, "st_active": 0, "st_target": 22.25})
-    assert e.target_temperature == 22.25
+    assert e.native_target_temperature == 22.25
     feed(e, {"st_c": 19.75})  # tempTarget wins once present
-    assert e.target_temperature == 22.25
+    assert e.native_target_temperature == 22.25
 
 
 def test_v2_single_target_still_advertised_in_dual_mode():
@@ -489,7 +513,7 @@ def test_v2_single_target_still_advertised_in_dual_mode():
     feats = e.supported_features
     assert feats & ClimateEntityFeature.TARGET_TEMPERATURE
     assert not (feats & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE)
-    assert e.target_temperature == 21.0
+    assert e.native_target_temperature == 21.0
 
 
 @pytest.mark.asyncio
@@ -644,13 +668,13 @@ def test_v2_legacy_rgc_still_builds_from_legacy_states():
     assert e.has_entity_name is True
     assert e._attr_name is None
     assert e._attr_device_info["name"] == "Foyer Climate"
-    assert e.target_temperature is None
-    assert e.current_temperature is None
+    assert e.native_target_temperature is None
+    assert e.native_current_temperature is None
     assert e.hvac_mode == HVACMode.OFF
-    feed(e, {"sM": 1, "sT": 21.0, "sA": 19.5})
+    feed(e, {"sM": 5, "sT": 21.0, "sA": 19.5})  # 5 = manual heating
     assert e.hvac_mode == HVACMode.HEAT
-    assert e.target_temperature == 21.0
-    assert e.current_temperature == 19.5
+    assert e.native_target_temperature == 21.0
+    assert e.native_current_temperature == 19.5
     # unknown mode code: falls back to OFF, not an exception
     feed(e, {"sM": 47})
     assert e.hvac_mode == HVACMode.OFF
@@ -668,8 +692,8 @@ def test_accontrol_missing_states_never_raise():
     assert e.swing_modes == []
     assert e.fan_mode is None
     assert e.swing_mode is None
-    assert e.target_temperature is None
-    assert e.current_temperature is None
+    assert e.native_target_temperature is None
+    assert e.native_current_temperature is None
 
 
 def test_accontrol_features_from_present_states():

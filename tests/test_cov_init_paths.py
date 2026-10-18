@@ -34,6 +34,7 @@ import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.loxone.const import DOMAIN, SECUREDSENDDOMAIN, SENDDOMAIN
@@ -73,6 +74,14 @@ def _entity_id(hass, domain: str, unique_id: str) -> str:
 
 
 def _area_id_of(hass, entity_id: str) -> str | None:
+    """The entity's *effective* area: its own, else its device's (HA's rule)."""
+    entry = er.async_get(hass).async_get(entity_id)
+    if entry.area_id is not None or entry.device_id is None:
+        return entry.area_id
+    return dr.async_get(hass).async_get(entry.device_id).area_id
+
+
+def _own_area_id_of(hass, entity_id: str) -> str | None:
     return er.async_get(hass).async_get(entity_id).area_id
 
 
@@ -108,7 +117,7 @@ async def test_sync_areas_creates_the_missing_area_and_assigns_entities(
     dev_status = _entity_id(hass, "sensor", DEV_STATUS_UUID)
     foreign = _register_foreign_entity(hass)
     assert _area_id_of(hass, jalousie) is None
-    assert _area_id_of(hass, window) is None
+    assert _own_area_id_of(hass, window) is None
 
     await hass.services.async_call(DOMAIN, "sync_areas", {"create_areas": True}, blocking=True)
     await hass.async_block_till_done()
@@ -117,6 +126,10 @@ async def test_sync_areas_creates_the_missing_area_and_assigns_entities(
     recreated = area_registry.async_get_area_by_name("Parlour")
     assert recreated is not None
     assert _area_id_of(hass, jalousie) == recreated.id
+    # The jalousie is its device's main entity (no name of its own): the area
+    # goes on the device, never on the entity — HA 2026.11 raises for the
+    # latter ("set the area on its device instead").
+    assert _own_area_id_of(hass, jalousie) is None
     # Reused: Kitchen still existed, so the entity joins it (no duplicate area).
     kitchen = area_registry.async_get_area_by_name("Kitchen")
     assert kitchen is not None
@@ -168,7 +181,9 @@ async def test_sync_areas_keeps_an_entity_that_already_has_an_area(
 
     studio = area_registry.async_create("Studio")
     jalousie = _entity_id(hass, "cover", JALOUSIE_UUID)
-    entity_registry.async_update_entity(jalousie, area_id=studio.id)
+    # A nameless main entity takes its area from its device (HA 2026.11
+    # rejects an own area for it), so that is where the user puts it.
+    dr.async_get(hass).async_update_device(entity_registry.async_get(jalousie).device_id, area_id=studio.id)
 
     await hass.services.async_call(DOMAIN, "sync_areas", {"create_areas": True}, blocking=True)
     await hass.async_block_till_done()

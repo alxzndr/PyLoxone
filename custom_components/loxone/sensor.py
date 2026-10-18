@@ -97,7 +97,11 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 # IRoomControllerV2 override-reason codes, as slugs for translation
 # (``entity.sensor.loxone.override_reason.state.<slug>``). A single ``unknown``
 # slug covers every other/odd code instead of minting a ``"Unknown (n)"``
-# display string per code (CORE-22).
+# display string per code (CORE-22).  0-8 are the Structure File's
+# ``overrideEntries.reason`` table (v16); 9-20 come from upstream PR #530
+# and are not in the v16 file (VERIFY on a live controller).  14 is "low
+# request", not "fixed": the old ``fixed`` slug confused it with the
+# *active mode* 14 (fixed setpoint, see climate.ActiveMode).
 OVERRIDE_REASON_SLUGS = {
     0: "none",
     1: "presence",
@@ -108,7 +112,18 @@ OVERRIDE_REASON_SLUGS = {
     6: "prepare_heat_up",
     7: "prepare_cool_down",
     8: "overridden_by_source",
-    14: "fixed",
+    9: "cooling_forbidden",
+    10: "heating_forbidden",
+    11: "manual",
+    12: "no_cooling_available",
+    13: "no_heating_available",
+    14: "low_request",
+    15: "pause_timer",
+    16: "different_mode",
+    17: "load_shedding",
+    18: "locked",
+    19: "device_offline",
+    20: "different_mode_than_central",
 }
 OVERRIDE_REASON_UNKNOWN = "unknown"
 

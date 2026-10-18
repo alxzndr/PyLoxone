@@ -39,7 +39,39 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   sensors on the monitor's device; only `Open` and `Tilted` are enabled by
   default.
 
+- `ValueSelector` controls (the Up-Down Buttons / push-button +/- blocks)
+  become `number` entities on a device of their own, ported from upstream
+  PR #522. Unlike a `Slider`, the Structure File publishes their min, max
+  and step as states rather than details, so the range follows the
+  Miniserver at runtime; the entity is unavailable until the first value
+  arrives, and a zero step is ignored. They join the `Loxone Numbers`
+  group, and the control's `increaseOnly` detail is the `increase_only`
+  attribute.
+- Ready for Home Assistant 2026.11, while 2026.7 stays the floor. The
+  climate entities implement the renamed `native_current_temperature`,
+  `native_target_temperature(_high/_low)` and `native_temperature_unit`
+  members, so 2026.11 logs no deprecation for them (the old names keep
+  being served on 2026.7-2026.10), and the integration leaves the new
+  `temperature_unit` state attribute to Home Assistant. Device info is
+  built as the release's own `DeviceInfo`, which is a dataclass from
+  2026.11 and still the plain dict before; the `via_device_id` link to the
+  Miniserver is unchanged. A CI job runs the suite against the newest
+  Home Assistant beta and may fail without blocking.
+
 ### Changed
+
+- **Breaking for automations on the `Override Reason` sensor:** code 14
+  now reads `low_request` ("Low Request") instead of `fixed` ("Fixed
+  Setpoint"), and codes 9-20 get names of their own (`cooling_forbidden`,
+  `heating_forbidden`, `manual`, `no_cooling_available`,
+  `no_heating_available`, `low_request`, `pause_timer`, `different_mode`,
+  `load_shedding`, `locked`, `device_offline`,
+  `different_mode_than_central`) where they read `unknown` before (from
+  upstream PR #530). `fixed` confused the override reason with the
+  room controller's fixed-setpoint *active mode*, which also uses 14. An
+  automation that compared the sensor with `fixed` should compare with
+  `low_request`; the slugs for 0-8 are unchanged. The Structure File (v16)
+  documents only 0-8, so the names of 9-20 still need a live check.
 
 - The documentation no longer claims support that was only ever tested
   against the synthetic test fixture. Checked against the Loxone structure
@@ -118,6 +150,37 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 - An encrypted send to a closed socket no longer rotates the salt.
 - Diagnostics include the session state and the date the token expires
   (never the token).
+
+- Setting a single target temperature on an automatic `IRoomControllerV2`
+  sent `setComfortModeTemp` the difference to the comfort temperature,
+  but the Structure File defines it as the new absolute comfort
+  temperature, so asking for 22 °C in a 21 °C room asked the Miniserver
+  for 1 °C. It now sends the temperature itself, and no longer waits for
+  the comfort temperature state to arrive first (from upstream PR #530).
+- The legacy `IRoomController` follows the Structure File's mode table
+  (from upstream PR #530): modes 0-2 read as auto, 3 and 5 as heat, 4 and
+  6 as cool, and the "heating and cooling off" service mode as off. The
+  old table was a guess that read mode 1 as heat and sent `setMode/4` —
+  automatic cooling — for off. Off now sends `service/1`, auto, heat and
+  cool send `mode/0`, `mode/3` and `mode/4` (leaving the off service mode
+  first), target temperatures use `settemp` with the cooling index in the
+  cooling modes, and `heat_cool` is no longer offered because the
+  controller has no such mode; `restrictedToMode` hides heat or cool. The
+  command syntax still needs a check on real V1 hardware.
+- Jalousies read their sun-automation state from `autoActive` and the info
+  text from `infoText`, the names the Structure File uses (from upstream
+  PR #530). Only the non-standard `autoState` / `autoInfoText` were read
+  before, so on a Miniserver that sends the spec names every blind showed
+  its automation as off and got no `Sun auto` select. The old names are
+  still read when the spec ones are missing.
+- Two things that broke on the Home Assistant 2026.11 development branch
+  are fixed in advance: setting up an entry failed because the group
+  integration no longer re-exports `async_get_component`, and
+  `loxone.sync_areas` raised for every entity that is its device's main
+  entity (no name of its own), which 2026.11 no longer allows an area of
+  its own. `sync_areas` now gives such an entity's device the area
+  instead, and still never overwrites an area the user set.
+
 
 ## 0.10.9 - 2026-09-16
 

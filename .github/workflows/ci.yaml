@@ -64,6 +64,30 @@ jobs:
         run: pytest -q
 
   # ---------------------------------------------------------------------------
+  # test-ha-beta: the suite against the newest Home Assistant pre-release.
+  # pytest-homeassistant-custom-component publishes a build per HA beta, so
+  # `--pre` picks the current beta during a beta period and the latest stable
+  # otherwise. Allowed to fail: it is an early warning for the next release,
+  # not a gate (the HACS floor and the pinned version are the `test` job).
+  # ---------------------------------------------------------------------------
+  test-ha-beta:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install (newest Home Assistant pre-release)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt ruff==0.15.20
+          pip install --pre --upgrade pytest-homeassistant-custom-component
+          python -c "import homeassistant.const as c; print('Home Assistant', c.__version__)"
+      - name: Run tests
+        run: pytest -q
+
+  # ---------------------------------------------------------------------------
   # docs-services: every top-level key of services.yaml must be documented
   # in the README (as loxone.<key>).  Mirrors tests/test_docs_readme.py.
   # ---------------------------------------------------------------------------

@@ -39,6 +39,7 @@ from custom_components.loxone.pyloxone_api.connection import LoxoneConnection
 from custom_components.loxone.scene import Loxonelightscene, parse_mood_list
 from custom_components.loxone.select import LoxoneSelect, build_option_maps
 from custom_components.loxone.sensor import (
+    OVERRIDE_REASON_SLUGS,
     LoxoneCustomSensor,
     LoxoneMeterSensor,
     LoxoneRoomControllerOverrideSensor,
@@ -452,12 +453,23 @@ async def test_override_reason_states_are_slugs(hass):
     e.event_handler(_event({"reason-uuid": 8.0}))
     assert e.native_value == "overridden_by_source"
 
+    # 14 is "low request" (upstream PR #530), not the active mode "fixed".
+    e.event_handler(_event({"reason-uuid": 14.0}))
+    assert e.native_value == "low_request"
+    assert "fixed" not in e.options
+
+    # 9-20 are known codes now (they used to read "unknown").
+    e.event_handler(_event({"reason-uuid": 19.0}))
+    assert e.native_value == "device_offline"
+    e.event_handler(_event({"reason-uuid": 20.0}))
+    assert e.native_value == "different_mode_than_central"
+
     # Unknown codes collapse to the single "unknown" slug instead of a
     # runtime-minted "Unknown (n)" display string.
-    e.event_handler(_event({"reason-uuid": 19.0}))
+    e.event_handler(_event({"reason-uuid": 47.0}))
     assert e.native_value == "unknown"
     assert "unknown" in e.options
-    assert "Unknown (19)" not in e.options
+    assert "Unknown (47)" not in e.options
 
     # Non-numeric values must not crash the handler.
     e.event_handler(_event({"reason-uuid": "garbage"}))
@@ -471,8 +483,9 @@ def test_override_reason_translations_carry_the_slug_path():
     for lang in ("en", "de", "cs"):
         data = json.loads((REPO_ROOT / "custom_components/loxone/translations" / f"{lang}.json").read_text())
         states = data["entity"]["sensor"]["override_reason"]["state"]
-        for slug in ("none", "eco_override", "fixed", "unknown"):
-            assert slug in states
+        for slug in OVERRIDE_REASON_SLUGS.values():
+            assert slug in states, (lang, slug)
+        assert "unknown" in states
 
 
 # ---------------------------------------------------------------------------

@@ -30,13 +30,15 @@ async def async_setup_entry(
     """Set up entry."""
     entities = []
 
-    for number_entity in iter_controls(hass, config_entry, "Slider"):
+    for number_entity in iter_controls(hass, config_entry, ["Slider", "ValueSelector"]):
+        cls = LoxoneValueSelector if number_entity.get("type") == "ValueSelector" else LoxoneNumber
         try:
-            new_number = LoxoneNumber(**number_entity)
-            entities.append(new_number)
+            entities.append(cls(**number_entity))
         except Exception:
             # One bad control must not abort the whole number platform.
-            _LOGGER.exception("Skipping Slider control %s", number_entity.get("name", "?"))
+            _LOGGER.exception(
+                "Skipping %s control %s", number_entity.get("type", "Slider"), number_entity.get("name", "?")
+            )
 
     async_add_entities(entities)
 
@@ -57,18 +59,12 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
         self._attr_native_value = None
         details = getattr(self, "details", None)
         details = details if isinstance(details, dict) else {}
-        self._min_value = details.get("min")
-        self._max_value = details.get("max")
-        if self._min_value is None or self._max_value is None:
-            # An entity without a (min, max) range cannot be set up at all.
-            raise ValueError(f"Slider {getattr(self, 'name', '?')} has no min/max details")
-        self._native_step = details.get("step", DEFAULT_SLIDER_STEP)
-
         # PS-15: listen on the *value* state (advertised in
         # extra_state_attributes), not on the action uuid.
         states = getattr(self, "states", None)
         states = states if isinstance(states, dict) else {}
         self._value_uuid = states.get("value") or self.uuidAction
+        self._init_range(details, states)
 
         # Unit / device class / precision follow the same rules as the
         # analog sensors (PS-15: before, details["format"] was ignored).
@@ -90,6 +86,15 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
 
         self.type = "Slider"
         self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
+
+    def _init_range(self, details: dict, states: dict) -> None:  # noqa: ARG002 - the ValueSelector reads states
+        """A Slider carries its range in the structure file's ``details``."""
+        self._min_value = details.get("min")
+        self._max_value = details.get("max")
+        if self._min_value is None or self._max_value is None:
+            # An entity without a (min, max) range cannot be set up at all.
+            raise ValueError(f"Slider {getattr(self, 'name', '?')} has no min/max details")
+        self._native_step = details.get("step", DEFAULT_SLIDER_STEP)
 
     @staticmethod
     def _parse_digits_after_decimal(format_string):
@@ -165,3 +170,65 @@ class LoxoneNumber(LoxoneEntity, NumberEntity):
         """Set new value."""
         self._send(f"{value}")
         self.async_schedule_update_ha_state()
+
+
+# Placeholder range of a ValueSelector until its ``min``/``max``/``step``
+# states arrive (HA needs a valid range from the first state write; the
+# entity stays unavailable until the value state has been seen anyway).
+VALUE_SELECTOR_DEFAULT_MIN = 0.0
+VALUE_SELECTOR_DEFAULT_MAX = 100.0
+
+
+class LoxoneValueSelector(LoxoneNumber):
+    """
+    A Loxone ValueSelector ("Up-Down Buttons" / "Push-button +/-") as a number.
+
+    Unlike a Slider, the Structure File publishes the range as *states*
+    (``min``, ``max``, ``step``, ``value``) and the details only carry
+    ``increaseOnly`` and ``format``; the command is the bare ``{value}``,
+    the same as the Slider's (upstream PR #522).
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.type = "ValueSelector"
+        self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
+
+    def _init_range(self, details: dict, states: dict) -> None:
+        self._min_value = VALUE_SELECTOR_DEFAULT_MIN
+        self._max_value = VALUE_SELECTOR_DEFAULT_MAX
+        self._native_step = DEFAULT_SLIDER_STEP
+        self._range_uuids: dict[str, str] = {}
+        for key in ("min", "max", "step"):
+            uuid = states.get(key)
+            if isinstance(uuid, str) and uuid:
+                self._range_uuids[uuid] = key
+        self._increase_only = bool(details.get("increaseOnly", False))
+
+    def _state_uuids(self) -> frozenset[str]:
+        return super()._state_uuids() | frozenset(self._range_uuids)
+
+    @callback
+    def event_handler(self, e):
+        changed = False
+        for uuid in self._range_uuids.keys() & e.keys():
+            value = e[uuid]
+            key = self._range_uuids[uuid]
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                _LOGGER.debug("Ignoring non-numeric ValueSelector %s %r", key, value)
+                continue
+            if key == "min":
+                self._min_value = value
+            elif key == "max":
+                self._max_value = value
+            elif value > 0:  # a zero/negative step would make the entity unsettable
+                self._native_step = value
+            changed = True
+        if self._value_uuid in e:
+            super().event_handler(e)  # writes the state
+        elif changed:
+            self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self):
+        return {**super().extra_state_attributes, "increase_only": self._increase_only}

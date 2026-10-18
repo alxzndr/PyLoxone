@@ -7,6 +7,7 @@ https://home-assistant.io/components/loxone/
 
 import ast
 import copy
+import dataclasses
 import json
 import math
 import re
@@ -90,14 +91,29 @@ def supports_via_device_id() -> bool:
     The key exists from Home Assistant 2026.8; 2026.9 deprecates the
     ``via_device`` tuple (removed in 2027.8).  On the 2026.7 floor the key
     is unknown and ``DeviceInfoError`` rejects any device info carrying it,
-    so the tuple has to stay there.  Probed on the ``DeviceInfo`` TypedDict
-    itself: the module-level key table that also listed it in 2026.8
-    (``DEVICE_INFO_TYPES``) is gone again in 2026.9.
+    so the tuple has to stay there.  Probed on ``DeviceInfo`` itself: the
+    module-level key table that also listed it in 2026.8
+    (``DEVICE_INFO_TYPES``) is gone again in 2026.9.  ``DeviceInfo`` is a
+    TypedDict up to 2026.10 and a dataclass from 2026.11, so the probe reads
+    the dataclass fields where there are some and the annotations otherwise.
     """
     try:
+        if dataclasses.is_dataclass(dr.DeviceInfo):
+            return "via_device_id" in {field.name for field in dataclasses.fields(dr.DeviceInfo)}
         return "via_device_id" in dr.DeviceInfo.__annotations__
     except (AttributeError, TypeError):
         return False
+
+
+def _make_device_info(fields: dict[str, Any]):
+    """The running release's ``DeviceInfo`` for ``fields``.
+
+    Up to 2026.10 ``DeviceInfo`` is a TypedDict, so the call returns the
+    plain dict.  From 2026.11 it is a keyword-only dataclass; a plain dict is
+    still accepted there but marked "to be deprecated", and the dataclass
+    keeps dict-style reads (``info["name"]``, ``.get``, ``in``) working.
+    """
+    return dr.DeviceInfo(**fields)
 
 
 def device_info_for(config_entry, uuid, name, model, room=None, *, via_override=None):
@@ -118,8 +134,9 @@ def device_info_for(config_entry, uuid, name, model, room=None, *, via_override=
         host device of ``config_entry`` (CORE-20, see PS-20), linked with
         ``via_device_id`` where Home Assistant supports it.
 
-    Returns a dict — ``homeassistant`` accepts plain dicts as device info —
-    freshly allocated on every call so no two entities share one object.
+    Returns a ``DeviceInfo`` (a dict up to HA 2026.10, a dataclass from
+    2026.11), freshly allocated on every call so no two entities share one
+    object.
 
     """
     if not isinstance(uuid, str) or not uuid:
@@ -146,18 +163,34 @@ def device_info_for(config_entry, uuid, name, model, room=None, *, via_override=
         # The Miniserver host device itself (keep-alive, version, traffic
         # sensors): a device cannot be its own via device.  The tuple form
         # used to be ignored silently; the id form raises from 2026.9.
-        return info
+        return _make_device_info(info)
     via_id = miniserver_via_device_id(config_entry) if via_override is None else None
     if via_id and supports_via_device_id():
         info["via_device_id"] = via_id
     elif via is not None:
         info["via_device"] = via
-    return info
+    return _make_device_info(info)
+
+
+def jalousie_auto_state_uuid(states) -> str | None:
+    """The Jalousie's sun-automation *active* state uuid (upstream PR #530).
+
+    The Structure File names it ``autoActive``; ``autoState`` -- what this
+    integration read so far, not in the spec -- stays as the fallback.
+    """
+    states = states if isinstance(states, dict) else {}
+    return states.get("autoActive") or states.get("autoState")
+
+
+def jalousie_auto_text_uuid(states) -> str | None:
+    """The Jalousie's info-text state uuid: spec ``infoText``, else ``autoInfoText``."""
+    states = states if isinstance(states, dict) else {}
+    return states.get("infoText") or states.get("autoInfoText")
 
 
 def get_or_create_device(device_uuid, device_name, device_type, device_room, config_entry=None):
     """
-    Return a fresh device-info dict (see :func:`device_info_for`).
+    Return a fresh ``DeviceInfo`` (see :func:`device_info_for`).
 
     Kept as the old call signature while the platform migration to
     ``device_info_for`` completes (switch/number/button/text/select and the

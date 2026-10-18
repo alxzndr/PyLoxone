@@ -14,7 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
-from .helpers import device_info_for, get_or_create_device, iter_controls
+from .helpers import device_info_for, get_or_create_device, iter_controls, jalousie_auto_state_uuid
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -136,10 +136,10 @@ async def async_setup_entry(
     # Jalousie sun automation (off / auto / shade): the cover entity carries
     # the *services*; this select gives automations and the Mushroom-style
     # UI a first-class switch to operate it (WP-6.8). Only Jalousies that
-    # report an ``autoState`` stream get one — the option display depends
-    # on that stream.
+    # report an ``autoActive`` (or legacy ``autoState``) stream get one — the
+    # option display depends on that stream.
     for jalousie in iter_controls(hass, config_entry, "Jalousie"):
-        if not (jalousie.get("states") or {}).get("autoState"):
+        if not jalousie_auto_state_uuid(jalousie.get("states")):
             continue
         jalousie.update({"hass": hass, "config_entry": config_entry})
         entities.append(LoxoneJalousieAuto(**jalousie))
@@ -409,7 +409,7 @@ class LoxoneJalousieAuto(LoxoneEntity, SelectEntity):
         # A distinct unique id keeps its own registry slot next to the
         # cover entity, which owns the bare control uuid.
         self._attr_unique_id = f"{kwargs.get('uuidAction')}/sun-auto"
-        self._auto_state_uuid = (self.states or {}).get("autoState")
+        self._auto_state_uuid = jalousie_auto_state_uuid(self.states)
         self._auto_state = None
         self._attr_current_option = "Off"
         self.type = "Jalousie"
