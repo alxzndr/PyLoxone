@@ -146,6 +146,10 @@ logger:
   shape (e.g. `sourceList` is a dict, `metadata` is absent). Adjust the
   helpers to the observed wiring (drop the `metadata` stream entirely if
   the server does not push it).
+- **Loxone Config, 2026-10:** the `AudioZoneV2` serializer in
+  `LoxoneConfig.exe` writes none of `favouriteList`, `favourites`,
+  `fadeIn`, `fadeOut` or `metadata` (reverse-engineering pass, see item
+  27), so those branches cannot fire on a Miniserver configured by it.
 - **Structure file (v16), 2026-10:** none of `mute`, `source`,
   `sourceList`, `favouriteList` or `metadata` is a documented state, and
   neither `mute` / `unmute` nor `source/<name>` is a documented command
@@ -508,6 +512,24 @@ logger:
   Loxone app names (e.g. start a pause timer, or take a room's device
   offline) and compare the app's wording with the sensor state.
 - **Fail / adjust:** remap the code in the one table.
+
+### 27. Climate command casing (`IRoomControllerV2`, `AcControl`)
+
+- **Where:** the `jdev/sps/io/<uuid>/<command>` words in
+  `custom_components/loxone/climate.py`
+- **The doubt:** Loxone Config itself writes these commands in lower case
+  (`setcomforttemperature/`, `setcomforttemperaturecool/`,
+  `setabsentmintemperature/`, `setabsentmaxtemperature/`,
+  `setmanualtemperature/`, `setoperatingmode/`, `setcomfortmodetemp/`;
+  found in `LoxoneConfig.exe` 2026-10 by a reverse-engineering pass,
+  `~/github/loxone-mac/docs/pyloxone/pyloxone-gaps.md` on the
+  maintainer's machine). The integration sends the camel-case spelling of
+  the Structure File for most of them and lower case for others. Harmless
+  if the Miniserver matches command words case-insensitively.
+- **Test:** send one setting both ways (e.g. `setComfortTemperature/21` and
+  `setcomforttemperature/21.5`) and read the state back.
+- **Pass:** both are applied; nothing to change. **Fail:** switch the
+  affected commands to the lower-case form.
 
 ---
 
