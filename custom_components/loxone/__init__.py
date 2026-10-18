@@ -70,6 +70,7 @@ from .const import (
     DEVICE_TYPE_SWITCH,
     DEVICE_TYPE_TEXT_INPUT,
     DEVICE_TYPE_TIMED_SWITCH,
+    DEVICE_TYPE_VALUE_SELECTOR,
     DEVICE_TYPE_VENTILATION,
     DEVICE_TYPE_WINDOW,
     DOMAIN,
@@ -545,7 +546,7 @@ LOXONE_GROUPS_BY_OBJECT_ID: dict[str, tuple[str, tuple[str, ...]]] = {
     "loxone_climates": ("Loxone Room Controllers", (DEVICE_TYPE_IRC, DEVICE_TYPE_AC)),
     "loxone_ventilations": ("Loxone Ventilation Controllers", (DEVICE_TYPE_VENTILATION,)),
     "loxone_accontrollers": ("Loxone AC Controllers", (DEVICE_TYPE_AC,)),
-    "loxone_numbers": ("Loxone Numbers", (DEVICE_TYPE_SLIDER,)),
+    "loxone_numbers": ("Loxone Numbers", (DEVICE_TYPE_SLIDER, DEVICE_TYPE_VALUE_SELECTOR)),
     "loxone_texts": ("Loxone Texts", (DEVICE_TYPE_TEXT_INPUT,)),
 }
 

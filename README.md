@@ -170,6 +170,7 @@ Every supported control type and what it turns into:
 | `LightsceneRGB` | `light` + `select` | An RGB light driven by the red, green and blue channel streams. When the control has a scene list, a `Scene` select is added on the same device. The write commands are unverified on real hardware. |
 | `AudioZoneV2` | `media_player` | Speaker zone: play, pause, stop, next, previous, volume set/step/mute, on/off and source selection. Attributes: `source`, `favourites`. Power, mute and source commands are unverified on real hardware. |
 | `Slider` | `number` | A number VI with the Miniserver's min, max and step; unit and precision come from the control's format string. Attribute: `state_uuid`. |
+| `ValueSelector` | `number` | Up-Down Buttons (push-button +/-) as a number. Min, max and step follow the control's states, so they can change at runtime; unit and precision come from the format string. Attributes: `state_uuid`, `increase_only`. |
 | `LightControllerV2` moods | `scene` | One scene per mood of each light controller, created when `generate_scenes` is on and the controller has pushed its mood list. Activating sends `changeTo/<moodId>`. |
 | `Radio` | `select` | Radio-button block as a select. Selecting while the block is locked in Loxone raises an error; a block without outputs is skipped. Attributes: `state_uuid`, `locked`. |
 | `InfoOnlyAnalog` | `sensor` | Analog value with automatic device-class detection from unit, category and name (see below). The Miniserver's error value (`-1`) reads as `unknown`. |

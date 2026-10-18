@@ -13,6 +13,17 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+### Added
+
+- `ValueSelector` controls (the Up-Down Buttons / push-button +/- blocks)
+  become `number` entities on a device of their own, ported from upstream
+  PR #522. Unlike a `Slider`, the Structure File publishes their min, max
+  and step as states rather than details, so the range follows the
+  Miniserver at runtime; the entity is unavailable until the first value
+  arrives, and a zero step is ignored. They join the `Loxone Numbers`
+  group, and the control's `increaseOnly` detail is the `increase_only`
+  attribute.
+
 ## 0.10.9 - 2026-09-16
 
 ### Fixed

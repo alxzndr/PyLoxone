@@ -330,6 +330,17 @@
     "device_model": "Slider"
   },
   {
+    "domain": "number",
+    "entity_id": "number.parlour_fan_level_selector",
+    "unique_id": "63746c3a-0230-9696-ffff-8746e6573732000230",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Fan Level Selector",
+    "device_model": "ValueSelector"
+  },
+  {
     "domain": "select",
     "entity_id": "select.kitchen_ventilation_radio",
     "unique_id": "63746c3a-016e-96e7-ffff-96c6174696f6000110",

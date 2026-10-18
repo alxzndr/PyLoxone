@@ -182,6 +182,7 @@ DEVICE_TYPE_AC = "AcControl"
 DEVICE_TYPE_VENTILATION = "Ventilation"
 DEVICE_TYPE_SLIDER = "Slider"
 DEVICE_TYPE_TEXT_INPUT = "TextInput"
+DEVICE_TYPE_VALUE_SELECTOR = "ValueSelector"
 
 r"""\
 cfmt description

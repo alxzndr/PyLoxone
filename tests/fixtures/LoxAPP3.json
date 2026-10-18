@@ -578,6 +578,26 @@
       "isFavorite": false,
       "isSecured": false
     },
+    "63746c3a-0230-9696-ffff-8746e6573732000230": {
+      "name": "Fan Level Selector",
+      "type": "ValueSelector",
+      "uuidAction": "63746c3a-0230-9696-ffff-8746e6573732000230",
+      "room": "726f6f6d-0101-9617-ffff-c6f7572726f6000001",
+      "cat": "6361743a-0169-96d6-ffff-f72746361743000105",
+      "details": {
+        "increaseOnly": false,
+        "format": "%.0f"
+      },
+      "states": {
+        "min": "36333734-0231-9336-ffff-d303136612d3000231",
+        "max": "36333734-0232-9336-ffff-d303136612d3000232",
+        "step": "36333734-0233-9336-ffff-d303136612d3000233",
+        "value": "36333734-0234-9336-ffff-d303136612d3000234"
+      },
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false
+    },
     "63746c3a-016e-96e7-ffff-96c6174696f6000110": {
       "name": "Ventilation Radio",
       "type": "Radio",
