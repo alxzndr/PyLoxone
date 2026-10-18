@@ -526,6 +526,19 @@ logger:
   `setcomforttemperature/21.5`) and read the state back.
 - **Pass:** both are applied; nothing to change. **Fail:** switch the
   affected commands to the lower-case form.
+- **Result (2026-10-18, read-only, fw 17.2.8.28):** the Miniserver matches
+  routes and command words case-insensitively: `getPublicKey`,
+  `getpublickey` and `GETPUBLICKEY`, and `getReadings` / `getreadings` /
+  `GETREADINGS`, return byte-identical replies (handoff brief from the
+  loxone-mac reverse-engineering project, §3). The camel-case spellings,
+  which are the Structure File's, stay; a lower-case patch would only be
+  cosmetic. **Not** case-insensitive: the user segment of
+  `getvisusalt/<user>` / `getkey2/<user>` (an unknown or mis-cased user
+  gets a fabricated SHA256 challenge, not an error).
+- **Caveat for any future check of a command name:** a command the
+  Miniserver does not know answers `Code 200` with value `"0"`, the same
+  as a real zero. A reply never proves a command exists; read the state
+  back. `Code 500` does show the name is known.
 
 ### 28. Control locks (`jLocked`)
 
