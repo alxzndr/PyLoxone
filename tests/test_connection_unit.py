@@ -648,3 +648,28 @@ async def test_setup_opens_exactly_one_websocket(hass, mock_entry, enable_custom
     # LoxAPP3.json was downloaded *and parsed* once (also protected by the
     # duplicate open).
     assert api.structure_file["softwareVersion"] == [7, 1, 0]
+
+
+async def test_unreachable_miniserver_logs_no_error_per_attempt(monkeypatch, caplog) -> None:
+    # While the Miniserver reboots, every reconnect attempt used to log an
+    # ERROR per HTTP try plus an ERROR with traceback "Failed to initialize
+    # connection" -- about four tracebacks per attempt. The outage is
+    # reported once by run() (and by Home Assistant's setup retry), so the
+    # attempt itself must stay at DEBUG.
+    import aiohttp
+
+    class _DownSession:
+        closed = False
+
+        async def get(self, *_args, **_kwargs):
+            raise aiohttp.ServerDisconnectedError()
+
+    async def _no_sleep(_delay):
+        return None
+
+    monkeypatch.setattr(connection_mod.asyncio, "sleep", _no_sleep)
+    conn = make_connection()
+    with caplog.at_level(logging.DEBUG), pytest.raises(ConnectionError):
+        await conn.open(_DownSession())
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []

@@ -107,6 +107,11 @@ class LoxoneAsyncHttpClient:
 
             response = await self.session.get(url, **request_kwargs)
 
+        # The connectivity failures below are expected while the Miniserver
+        # reboots or the network is down, and every retry hit them: they
+        # are logged at DEBUG and reported once by the caller (one WARNING
+        # per outage, or Home Assistant's own setup-retry message).
+        # Payload, response and unexpected errors keep their traceback.
         # Most specific first: ClientSSLError and ClientProxyConnectionError are
         # ClientConnectorError subclasses, ClientConnectorError and
         # ServerDisconnectedError are ClientConnectionError subclasses -- with the
@@ -116,23 +121,23 @@ class LoxoneAsyncHttpClient:
             raise ConnectionError(f"SSL/TLS error connecting to {url}: {err}") from err
 
         except aiohttp.ClientProxyConnectionError as err:
-            _LOGGER.exception("Proxy connection error for %s: %s", url, err)
+            _LOGGER.debug("Proxy connection error for %s: %s", url, err)
             raise ConnectionError(f"Proxy connection error: {err}") from err
 
         except aiohttp.ClientConnectorError as err:
-            _LOGGER.exception("Connector error to %s: %s", url, err)
+            _LOGGER.debug("Connector error to %s: %s", url, err)
             raise ConnectionError(f"Cannot resolve or connect to {url}: {err}") from err
 
         except aiohttp.ServerDisconnectedError as err:
-            _LOGGER.exception("Server disconnected for %s: %s", url, err)
+            _LOGGER.debug("Server disconnected for %s: %s", url, err)
             raise ConnectionError(f"Server disconnected unexpectedly: {err}") from err
 
         except aiohttp.ClientConnectionError as err:
-            _LOGGER.exception("Connection error to %s: %s", url, err)
+            _LOGGER.debug("Connection error to %s: %s", url, err)
             raise ConnectionError(f"Failed to connect to Loxone Miniserver at {url}: {err}") from err
 
         except TimeoutError as err:
-            _LOGGER.exception("Timeout error for %s", url)
+            _LOGGER.debug("Timeout error for %s", url)
             raise TimeoutError(f"Request to {url} timed out after {self.timeout} seconds") from err
 
         except aiohttp.ClientPayloadError as err:

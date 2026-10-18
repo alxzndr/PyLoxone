@@ -224,9 +224,10 @@ class LoxoneCoordinator(DataUpdateCoordinator):
             # (JoDehli/PyLoxone#527).
             await self.api.open(session, connect_websocket=False)
         except Exception:
-            # Log where it happened (host:port) and re-raise;
-            # ``__init__.py`` classifies it and closes the handle.
-            _LOGGER.exception("Could not connect to Loxone Miniserver at %s:%s", self._host, self._port)
+            # Re-raise; ``__init__.py`` classifies it, logs it once ("Will
+            # retry automatically") and closes the handle. A traceback here
+            # repeated at every setup retry while the Miniserver was down.
+            _LOGGER.debug("Could not connect to Loxone Miniserver at %s:%s", self._host, self._port, exc_info=True)
             raise
         self.miniserver = MiniServer(self.hass, self.api.structure_file, self.config_entry)
         self.known_uuids = _collect_structure_uuids(self.api.structure_file)

@@ -146,6 +146,14 @@ def raise_if_fatal_close(exc: websockets.exceptions.ConnectionClosed) -> None:
         ) from exc
 
 
+# Network failures while (re)connecting: expected while the Miniserver reboots
+# or is unreachable, and reported once per outage (``_note_connection_lost``) or
+# by Home Assistant's setup retry. Logged at DEBUG where they occur; anything
+# else keeps its ERROR with traceback. (ConnectionError and TimeoutError are
+# OSError subclasses.)
+_TRANSIENT_NETWORK_ERRORS = (OSError, LoxoneConnectionError, LoxoneServiceUnAvailableError)
+
+
 # Commands whose responses carry authentication material: the raw token
 # (getjwt/gettoken/refreshjwt), the token HMAC key and user salt (getkey2,
 # getkey), the visual-password key and salt (getvisusalt). Their responses
@@ -970,7 +978,7 @@ class LoxoneBaseConnection:
                 return await connector.get(endpoint)
             except (LoxoneServiceUnAvailableError, ConnectionError, OSError, TimeoutError) as e:
                 if attempt == CONNECT_TRIES:
-                    _LOGGER.warning("Giving up fetching %s after %d tries: %s", what, CONNECT_TRIES, e)
+                    _LOGGER.debug("Giving up fetching %s after %d tries: %s", what, CONNECT_TRIES, e)
                     raise
                 delay = base_delay * (2 ** (attempt - 1))
                 _LOGGER.debug(
@@ -1088,6 +1096,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                         await authenticated_task
                         if not available:
                             available = True
+                            self._note_connection_restored()
                             await _notify_state(on_state, True)
                     if listen_task in done:
                         if listen_task.cancelled():
@@ -1826,7 +1835,8 @@ class LoxoneConnection(LoxoneBaseConnection):
             self._public_key = pk.replace("-----BEGIN CERTIFICATE-----", "-----BEGIN PUBLIC KEY-----\n").replace(
                 "-----END CERTIFICATE-----", "\n-----END PUBLIC KEY-----\n"
             )
-        except LoxoneServiceUnAvailableError:
+        except _TRANSIENT_NETWORK_ERRORS as e:
+            _LOGGER.debug("Miniserver bootstrap failed: %s", e)
             raise
         except Exception as e:
             _LOGGER.error("Failed to initialize connection: %s", e, exc_info=True)
@@ -1929,13 +1939,15 @@ class LoxoneConnection(LoxoneBaseConnection):
             # websockets and leak one (Miniserver cap: error 901).
             self.connection = connection
 
-            # API-27: connection established -> the 'restored' half of the
-            # lost/restored pair (a no-op on the very first connection).
-            self._note_connection_restored()
-
+            # The 'restored' half of the lost/restored pair (API-27) is
+            # logged by run() once the Miniserver accepted the session, not
+            # here: an open socket that is closed before login is no recovery.
             _LOGGER.debug("Websocket connection established to %s", base_url)
             return connection
 
+        except _TRANSIENT_NETWORK_ERRORS as e:
+            _LOGGER.debug("Websocket connection failed: %s", e)
+            raise
         except Exception as e:
             _LOGGER.exception("Failed to establish websocket connection: %s", e)
             raise
