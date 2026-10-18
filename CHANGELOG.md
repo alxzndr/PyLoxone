@@ -13,6 +13,40 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+### Changed
+
+- **Breaking for automations on intercom outputs:** the outputs of an
+  `Intercom` or `IntercomV2` (door openers, gate releases and the like) are
+  `button` entities now, not switches. The Loxone structure file (v16)
+  describes them as pushbuttons; the switches sent `on`, which kept a door
+  strike energised until a `turn_off` followed, and if that never came
+  (an automation error, a dropped connection) the door stayed released. A
+  press of the new button sends `pulse`, so the output fires once. The
+  button keeps the output's name and unique id and sits on the intercom's
+  device, so the entity id changes only in its domain, for example
+  `switch.hall_entrance_intercom_door_lock` becomes
+  `button.hall_entrance_intercom_door_lock`. On the first start the old
+  switch entries are removed from the entity registry, each with a WARNING
+  in the log naming the new button, and a repair issue lists them.
+  Automations, scripts and dashboards that turned an old switch on or off
+  must call `button.press` on the new entity instead. Outputs without an
+  `active` state, which used to be skipped, are buttons now too.
+
+### Added
+
+- Intercoms get a doorbell. Each `Intercom` and `IntercomV2` has an event
+  entity `Doorbell` (device class `doorbell`, event type `ring`) that fires
+  when the intercom's `bell` state goes from 0 to 1. The first value after
+  Home Assistant starts, after a reload and after every reconnect is taken
+  as the starting point and never fires, so a bell that is already ringing
+  when the connection comes back, or a value the Miniserver merely
+  repeats, does not run a doorbell automation; a ring that starts and ends
+  while the connection is down is missed. An `Answer` button sends
+  `answer`, which stops the bell, and an `IntercomV2` also gets a `Mute`
+  switch that follows the block's `muted` state and sends `mute/1` and
+  `mute/0`. All of them sit on the intercom's device. The test fixture now
+  models both intercom blocks as the structure file describes them.
+
 ## 1.0.0 - 2026-10-18
 
 The fork continues at 1.0.0 because upstream has since released its own,

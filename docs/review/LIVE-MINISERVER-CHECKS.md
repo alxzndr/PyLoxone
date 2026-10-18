@@ -305,44 +305,40 @@ logger:
   a control with no matching states simply yields no sub-registers today, so the
   failure mode is missing data, never a crash.
 
-### 17. `IntercomV2` block shape and sub-control command names (WP-6.3, #466)
+### 17. Intercom outputs, doorbell and mute (WP-6.3, #466)
 
-- **Helper:** `intercom_sub_control_kwargs` / `INTERCOM_TYPES` in
-  `custom_components/loxone/switch.py` (the fixture entry
-  "Entrance Intercom" in `tests/fixtures/LoxAPP3.json` encodes the
-  assumed shape)
-- **The doubt:** no structure file from a Miniserver that reports
-  `IntercomV2` was held at the time of writing. The block is treated
-  as wire-compatible with the legacy `Intercom`: same
-  `subControls` fan-out, each sub-control needing one `active`
-  state stream to report state, master binds on the control's own
-  `uuidAction`. Turn-on sends `on` on the sub-control's action
-  uuid, turn-off sends `Off` (inherited from `LoxoneSwitch`) —
-  note the case mismatch with the lowercase `on`, which
-  pre-dates this WP and applies to legacy Intercoms too.
-- **Test:** with debug logging on, find an `IntercomV2` control in
-  the structure file and compare its `states`/`subControls` against
-  the fixture entry; then turn one sub-control on and off from HA
-  and watch the outgoing commands in the debug log.
-- **Pass:** the sub-controls appear the way the Loxone app sees them,
-  the switch reflects the sub-control's real state after each feed,
-  and both operands are executed on the Miniserver without a
-  `Message not handled`.
-- **Fail / adjust:** a V2 sub-control has a different state set
-  (no `active`) or different command names — adjust the fan-out in
-  `intercom_sub_control_kwargs` (one place) and, if the off
-  command is case-sensitive, give `LoxoneIntercomSubControl` an
-  explicit `turn_off` there (one place).
-- **Structure file (v16), 2026-10 — safety:** the sub-controls of both
-  intercom blocks are documented as outputs of type `Pushbutton`
-  ("0-3" for `Intercom`, p. 91, `pulse` handled since 8.0; "0-N" for
-  `IntercomV2`, p. 93). A `Pushbutton` has the `active` state and the
-  commands `pulse` (tap), `on` (pressed and held) and `off` (released).
-  The switch sends `on` and holds a door opener's output until a
-  `turn_off` arrives; if that never comes (automation error, connection
-  drop) the output stays active. Check on real hardware what the door
-  opener does on `on` without `off`, and plan a follow-up that exposes
-  these outputs as `button` entities sending `pulse`.
+- **Code:** `custom_components/loxone/intercom.py` (helpers, the 1.0.0
+  switch cleanup), `LoxoneIntercomOutputButton` / `LoxoneIntercomAnswerButton`
+  in `button.py`, `LoxoneIntercomDoorbell` in `event.py`,
+  `LoxoneIntercomMuteSwitch` in `switch.py`. The fixture entries "Main
+  Intercom" (`Intercom`) and "Entrance Intercom" (`IntercomV2`) in
+  `tests/fixtures/LoxAPP3.json` follow the structure file (v16, pp. 90-93).
+- **The doubt:** the shape comes from the structure file, not from a real
+  Miniserver. Outputs are documented as `Pushbutton` sub-controls (state
+  `active`, commands `pulse` / `on` / `off`; `Intercom` handles `pulse`
+  since 8.0); the doorbell reads `bell` (0/1); `answer` deactivates the
+  bell; `IntercomV2` mutes with `mute/1` / `mute/0` and reports `muted`.
+  Up to 1.0.0 the outputs were switches sending `on`, which held a door
+  strike until a `turn_off`.
+- **Test:** with debug logging on, compare the structure file's intercom
+  `states`/`subControls` against the fixture entries. Then: (a) press the
+  door-opener button once and watch the door: it must release once and
+  re-lock on its own, and the debug log shows one `pulse` on the output's
+  uuid; (b) ring the bell and check that the `Doorbell` event entity gets a
+  new timestamp with `event_type: ring` exactly once per ring, and that a
+  Miniserver reboot or reconnect while the bell is idle fires nothing;
+  (c) press `Answer` while it rings and check the bell stops; (d) on an
+  `IntercomV2`, toggle `Mute` and check that the block's Qb output follows
+  and the switch reflects `muted`; (e) on an install upgraded from 1.0.0,
+  check that the old output switches are gone, the log has one WARNING per
+  switch and the repair issue lists them.
+- **Pass:** each of (a)-(e) as described, no `Message not handled`.
+- **Fail / adjust:** if an output ignores `pulse` (firmware before 8.0 on
+  a legacy `Intercom`), the press needs `on` followed by `off` after a short
+  delay in `LoxoneIntercomOutputButton`; if `bell` stays at 1 between
+  rings or is replayed differently, adjust the edge rule in
+  `LoxoneIntercomDoorbell.event_handler` (one place); other state or
+  command names go into `intercom.py` / the three entity classes.
 
 ### 20. LoxLIVE broadcast discovery in the setup form (WP-6.9, CORE-19)
 
@@ -526,7 +522,7 @@ users will notice:
 | #501 | a Window without `targetPosition` sets up and reports position |
 | #512 | an RGB light can be turned on with brightness in one call |
 | #402 | sensors carry sensible device classes |
-| #466 | an intercom control of type `IntercomV2` creates its sub-control switches (e.g. a door lock) the way a legacy `Intercom` does |
+| #466 | an intercom control of type `IntercomV2` creates its output buttons (e.g. a door lock), `Answer`, `Doorbell` and `Mute` on the intercom's device |
 
 A practical way to exercise #475 and #486 together: reboot the Miniserver from the
 Loxone app and watch Home Assistant recover on its own.
