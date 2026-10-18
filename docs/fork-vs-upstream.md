@@ -116,10 +116,21 @@ Ten types that upstream ignores entirely:
 `PowerUnit`, `Wallbox`, `IntercomV2`, `NfcCodeTouch`, `LightsceneRGB`
 
 Plus a `text` platform that upstream shipped but never loaded (`Platform.TEXT`
-was missing from its platform list, so `text.py` was dead code), richer
-`PresenceDetector` support (illuminance and noise sub-sensors), Message Center
+was missing from its platform list, so `text.py` was dead code), Message Center
 entries as repair issues, and diagnostic sensors for the Miniserver version
 and websocket traffic.
+
+Correction (2026-10): earlier versions of this page also listed
+`PresenceDetector` illuminance and noise sub-sensors (#461), and the README
+described `AudioZoneV2` power, mute, source and metadata support and
+`IntercomV2` sub-controls as switches like the legacy intercom's. Those
+claims were tested only against the synthetic test fixture. The Loxone
+structure file (v16) documents no brightness or noise state on a
+`PresenceDetector` (they become `InfoOnlyAnalog` sensors once "Use" is
+ticked on the outputs), no `active`, `mute`, `source` or `metadata` state
+and no on/off, mute or source command on an `AudioZoneV2` (its power state
+is `power`), and describes intercom sub-controls as pushbuttons. The code
+paths are guarded and stay until a live check settles them.
 
 ---
 
@@ -185,7 +196,8 @@ its status. As of 2026-09-15:
 | Ventilation mode command and speed timer | **Confirmed wrong 2026-09-13.** `setMode/<id>` does nothing and `setTimer` is a self-reverting override. Needs a redesign (the "Ventilation fan model rework" follow-up in the remediation plan); the correct command verbs are still unknown. |
 | Legacy `IRoomController` mode table | Open. No V1 controller available; the V1 and V2 tables in the code disagree. |
 | `LightsceneRGB` write path | Inconclusive. Four candidate commands produced no reaction, but both available blocks have an empty `sceneList`. |
-| Audio zone power / mute / source commands, `Tracker` and `UpDownDigital` shapes, `IntercomV2` sub-controls | Open. No such hardware available. |
+| Audio zone power / mute / source commands, `Tracker` and `UpDownDigital` shapes, `IntercomV2` sub-controls | Open. No such hardware available. The structure file (v16) contradicts the audio zone states and commands the code assumes, and describes intercom sub-controls as pushbuttons, not switches. |
+| `PresenceDetector` illuminance / noise sub-sensors | Most likely dead code: the structure file lists no such states. Open until checked on a real detector. |
 
 None of these affect an installation without that hardware. They do matter
 before any of this is proposed upstream.

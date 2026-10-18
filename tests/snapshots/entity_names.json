@@ -34,6 +34,17 @@
   },
   {
     "domain": "binary_sensor",
+    "entity_id": "binary_sensor.bathroom_fenster_bad",
+    "unique_id": "1efaa31b-0013-66fe-ffffed57184a0001-window",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Fenster Bad",
+    "device_model": "Window contact"
+  },
+  {
+    "domain": "binary_sensor",
     "entity_id": "binary_sensor.bedroom_breaker_1",
     "unique_id": "63746c3a-0112-9656-ffff-b657220313a4000018",
     "name": null,
@@ -42,6 +53,17 @@
     "disabled": false,
     "device_name": "Breaker 1",
     "device_model": "digital"
+  },
+  {
+    "domain": "binary_sensor",
+    "entity_id": "binary_sensor.garden_garden_door",
+    "unique_id": "1f263a35-017e-1ac2-ffff8a31785a0003-window",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Garden Door",
+    "device_model": "Window contact"
   },
   {
     "domain": "binary_sensor",
@@ -64,6 +86,28 @@
     "disabled": false,
     "device_name": "Main Door",
     "device_model": "digital"
+  },
+  {
+    "domain": "binary_sensor",
+    "entity_id": "binary_sensor.hall_main_door_contact",
+    "unique_id": "63746c3a-0301-96d7-ffff-572617475726000098-window",
+    "name": null,
+    "original_name": "Contact",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Main Door",
+    "device_model": "digital"
+  },
+  {
+    "domain": "binary_sensor",
+    "entity_id": "binary_sensor.office_office_window",
+    "unique_id": "1efaa623-0370-7089-ffffed57184a0002-window",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Office Window",
+    "device_model": "Window contact"
   },
   {
     "domain": "button",
@@ -364,6 +408,83 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.bathroom_bathroom_windows_closed",
+    "unique_id": "1efaa7ad-0212-edf0-0aff5b41adbf0212",
+    "name": null,
+    "original_name": "Closed",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Bathroom Windows",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.bathroom_bathroom_windows_locked",
+    "unique_id": "1efaa7ad-0215-edf2-0cff5b41adbf0215",
+    "name": null,
+    "original_name": "Locked",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Bathroom Windows",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.bathroom_bathroom_windows_offline",
+    "unique_id": "1efaa7ad-0214-edf1-0bff5b41adbf0214",
+    "name": null,
+    "original_name": "Offline",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Bathroom Windows",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.bathroom_bathroom_windows_open",
+    "unique_id": "1efaa7ad-0211-edee-08ff5b41adbf0211",
+    "name": null,
+    "original_name": "Open",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Bathroom Windows",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.bathroom_bathroom_windows_tilted",
+    "unique_id": "1efaa7ad-0213-edef-09ff5b41adbf0213",
+    "name": null,
+    "original_name": "Tilted",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Bathroom Windows",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.bathroom_bathroom_windows_unlocked",
+    "unique_id": "1efaa7ad-0216-edf3-0dff5b41adbf0216",
+    "name": null,
+    "original_name": "Unlocked",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Bathroom Windows",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.bathroom_fenster_bad_state",
+    "unique_id": "1efaa31b-0013-66fe-ffffed57184a0001-state",
+    "name": null,
+    "original_name": "State",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Fenster Bad",
+    "device_model": "Window contact"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.bedroom_bedroom_controller_comfort_temperature",
     "unique_id": "36333734-0129-9336-ffff-d303132362d3000041",
     "name": null,
@@ -460,6 +581,17 @@
     "disabled": false,
     "device_name": "Energy Manager",
     "device_model": "EnergyManager"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.garden_garden_door_state",
+    "unique_id": "1f263a35-017e-1ac2-ffff8a31785a0003-state",
+    "name": null,
+    "original_name": "State",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Garden Door",
+    "device_model": "Window contact"
   },
   {
     "domain": "sensor",
@@ -639,6 +771,83 @@
   },
   {
     "domain": "sensor",
+    "entity_id": "sensor.hall_main_door_state",
+    "unique_id": "63746c3a-0301-96d7-ffff-572617475726000098-state",
+    "name": null,
+    "original_name": "State",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Main Door",
+    "device_model": "digital"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_window_and_door_monitoring_closed",
+    "unique_id": "1efaa7ad-0222-edf0-0aff5b41adbf0222",
+    "name": null,
+    "original_name": "Closed",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Window and Door Monitoring",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_window_and_door_monitoring_locked",
+    "unique_id": "1efaa7ad-0225-edf2-0cff5b41adbf0225",
+    "name": null,
+    "original_name": "Locked",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Window and Door Monitoring",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_window_and_door_monitoring_offline",
+    "unique_id": "1efaa7ad-0224-edf1-0bff5b41adbf0224",
+    "name": null,
+    "original_name": "Offline",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Window and Door Monitoring",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_window_and_door_monitoring_open",
+    "unique_id": "1efaa7ad-0221-edee-08ff5b41adbf0221",
+    "name": null,
+    "original_name": "Open",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Window and Door Monitoring",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_window_and_door_monitoring_tilted",
+    "unique_id": "1efaa7ad-0223-edef-09ff5b41adbf0223",
+    "name": null,
+    "original_name": "Tilted",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Window and Door Monitoring",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.hall_window_and_door_monitoring_unlocked",
+    "unique_id": "1efaa7ad-0226-edf3-0dff5b41adbf0226",
+    "name": null,
+    "original_name": "Unlocked",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Window and Door Monitoring",
+    "device_model": "WindowMonitor"
+  },
+  {
+    "domain": "sensor",
     "entity_id": "sensor.kitchen_energy_kitchenv2",
     "unique_id": "63746c3a-010d-9657-ffff-779204b69746000013",
     "name": null,
@@ -658,6 +867,28 @@
     "disabled": false,
     "device_name": "Message Center",
     "device_model": "MessageCenter"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.office_heating_status",
+    "unique_id": "63746c3a-0200-96d7-ffff-f746578747374000200",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Heating Status",
+    "device_model": "TextState"
+  },
+  {
+    "domain": "sensor",
+    "entity_id": "sensor.office_office_window_state",
+    "unique_id": "1efaa623-0370-7089-ffffed57184a0002-state",
+    "name": null,
+    "original_name": "State",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Office Window",
+    "device_model": "Window contact"
   },
   {
     "domain": "sensor",

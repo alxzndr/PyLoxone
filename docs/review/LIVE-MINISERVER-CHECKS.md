@@ -91,6 +91,16 @@ logger:
   `off` while powered off.
 - **Fail:** the app does not change the zone. Capture what the Loxone
   app sends for the same action and correct the helper.
+- **Structure file (v16, p. 41-44), 2026-10:** the documented
+  `AudioZoneV2` states are `serverState`, `playState`, `clientState`,
+  `power`, `volumeStep`, `defaultVolume`, `volume`, the alarm / bell /
+  buzzer / TTS volumes, `presenceFrom`, `presenceTo`, `isLocked` and
+  `bluetooth`; the commands are `volUp`, `volDown`, `volume/{v}`,
+  `tts/{text}/{volume}`, `playZoneFav/{id}`, `prev`, `next`, `play`,
+  `pause`, `bluetooth/{0,1}`, `resetbluetoothpairings` and
+  `presence/{on,off}`. There is no `active` state and no `on` / `off`
+  command. Expect this check to fail; the likely fix reads power from
+  `power` and turns the zone on with `play`.
 
 ### 6. Audio zone mute / unmute commands (WP-6.7, PC-43)
 
@@ -125,6 +135,15 @@ logger:
   shape (e.g. `sourceList` is a dict, `metadata` is absent). Adjust the
   helpers to the observed wiring (drop the `metadata` stream entirely if
   the server does not push it).
+- **Structure file (v16), 2026-10:** none of `mute`, `source`,
+  `sourceList`, `favouriteList` or `metadata` is a documented state, and
+  neither `mute` / `unmute` nor `source/<name>` is a documented command
+  (item 6 applies too). `details` documents no `sources` or `favourites`
+  either. The fixture entry "Parlour Audio Zone" encodes these keys, so the
+  tests pass against a shape no real Miniserver is known to send. Record
+  the real `states` / `details` keys of a live zone first; favourites are
+  probably played with `playZoneFav/{id}`, and track metadata comes from
+  the Audio Server, not the Miniserver.
 
 ---
 
@@ -303,6 +322,16 @@ logger:
   `intercom_sub_control_kwargs` (one place) and, if the off
   command is case-sensitive, give `LoxoneIntercomSubControl` an
   explicit `turn_off` there (one place).
+- **Structure file (v16), 2026-10 — safety:** the sub-controls of both
+  intercom blocks are documented as outputs of type `Pushbutton`
+  ("0-3" for `Intercom`, p. 91, `pulse` handled since 8.0; "0-N" for
+  `IntercomV2`, p. 93). A `Pushbutton` has the `active` state and the
+  commands `pulse` (tap), `on` (pressed and held) and `off` (released).
+  The switch sends `on` and holds a door opener's output until a
+  `turn_off` arrives; if that never comes (automation error, connection
+  drop) the output stays active. Check on real hardware what the door
+  opener does on `on` without `off`, and plan a follow-up that exposes
+  these outputs as `button` entities sending `pulse`.
 
 ### 20. LoxLIVE broadcast discovery in the setup form (WP-6.9, CORE-19)
 
@@ -407,6 +436,54 @@ logger:
   (one place each); the `color` stream is the one that actually moves →
   consume it in `LoxoneLightsceneRGB.event_handler` instead of/alongside
   the channels (one place).
+
+### 23. `PresenceDetector` illuminance / noise sub-sensors (WP-6.1, #461)
+
+- **Helper:** `PRESENCE_SUB_SENSOR_SPECS` / `presence_sub_sensor_kwargs`
+  in `custom_components/loxone/sensor.py`
+- **The doubt:** the structure file (v16, p. 124) lists only
+  `activeSince`, `active`, `locked`, `infoText` and `time`, and the
+  upstream discussion of #461 says the block does not publish brightness
+  or noise. The `illuminance` / `noise` states exist only in the
+  synthetic fixture.
+- **Test:** look at the `states` of a real `PresenceDetector` in
+  `LoxAPP3.json` (diagnostics download).
+- **Pass:** neither key is present, as expected; delete the sub-sensor
+  path and its tests. Users get the values by ticking "Use" on the
+  detector's outputs (they arrive as `InfoOnlyAnalog`), as the README says.
+- **Fail:** a firmware does publish them; keep the path and record the
+  firmware version and the value format.
+
+### 24. `WindowMonitor` decoding (#524)
+
+- **Helpers:** `parse_window_states`, `window_position`,
+  `window_unlocked`, `window_contacts` in
+  `custom_components/loxone/window_monitor.py`
+- **The doubts:** (1) the order of `windowStates` matches
+  `details.windows` (structure file and reporter agree); (2) a lockable
+  door reports single values `8` / `16` / `4` (reporter-observed) rather
+  than combinations such as `9` / `17`; both are decoded as closed; (3)
+  a window entry whose uuid is a motorised `Window` / `Gate` is skipped
+  in favour of the cover; (4) the lock entity only appears after a
+  lock bit has been seen.
+- **Test:** open, tilt and close a window and unlock / open / lock a
+  lockable door while watching the `raw_state` attribute and the three
+  entities of the contact; compare with the Loxone app.
+- **Pass:** `State` follows closed / tilted / open, the window binary
+  sensor is on for tilted and open, `Lock` is on while unlocked or open.
+- **Fail / adjust:** change the decoding in the two helpers (one place
+  each).
+
+### 25. `TextState` icon payload (#529)
+
+- **Helper:** `text_state_icon_and_color` / `LoxoneTextStateSensor` in
+  `custom_components/loxone/sensor.py`
+- **The doubt:** `iconAndColor` is documented as a text state holding
+  `{"icon": "Icons/xxxx.svg", "color": "#45864A"}` since 13.1; no real
+  payload was held at the time of writing.
+- **Test:** change the status of a "Status" block and watch the
+  `loxone_icon` and `color` attributes.
+- **Pass:** both follow the Loxone app. **Fail:** adjust the parser.
 
 ---
 

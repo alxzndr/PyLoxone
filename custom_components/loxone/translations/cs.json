@@ -29,6 +29,13 @@
           "fixed": "Pevná žádaná hodnota",
           "unknown": "Neznámý"
         }
+      },
+      "window_state": {
+        "state": {
+          "closed": "Zavřeno",
+          "tilted": "Vyklopeno",
+          "open": "Otevřeno"
+        }
       }
     }
   },

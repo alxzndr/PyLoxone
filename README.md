@@ -153,8 +153,9 @@ Every supported control type and what it turns into:
 |---|---|---|
 | `Alarm` | `alarm_control_panel` | Arm home, away, night, vacation and disarm. Night uses the same Loxone command as home (interior motion suppressed), vacation the same as away. A secured alarm asks for a numeric code when arming. Attributes: `level`, `armed_at`, `next_level_at`, `armed_delay`, `armed_delay_total_delay` (seconds). |
 | `InfoOnlyDigital` | `binary_sensor` | On/off sensor. The device class is guessed from the control's own on/off text and its category (door, window, motion, smoke, gas, moisture, vibration, plug, opening) and stays unset when nothing matches. |
-| `PresenceDetector` | `binary_sensor` + `sensor` | Presence binary sensor, plus `Illuminance` (lx) and `Noise` (dB) sensors on the same device when the detector reports them. |
+| `PresenceDetector` | `binary_sensor` | Presence binary sensor. The block does not publish the detector's brightness or noise level; to get them, tick "Use" (in the user interface) on the sensor's brightness and noise outputs in Loxone Config, and they arrive as `InfoOnlyAnalog` sensors (brightness gets the `illuminance` class from its `lx` unit). |
 | `SmokeAlarm` | `binary_sensor` | Smoke alarm, on when the alarm level is above 0. |
+| `WindowMonitor` (window and door monitor) | `binary_sensor` + `sensor` | One device per monitored contact, in the contact's own room: a `window` binary sensor (on when tilted or open), a `State` sensor (`closed` / `tilted` / `open`), and a `Lock` binary sensor (on = unlocked) once the contact has reported a lock state. A contact listed by several monitors (room and central) appears once; an offline contact is unavailable. Contacts that are motorised `Window`, `Gate` or `Jalousie` controls are left to their cover. On the monitor's device: `Open` and `Tilted` counters, plus `Closed`, `Locked`, `Unlocked` and `Offline` (disabled by default). Attributes: `monitor`, `install_place`, `raw_state`. |
 | `Pushbutton` | `button` | Pressing sends `pulse`. Home Assistant shows the time of the last press; the Miniserver's own press echo is the `last_pressed` attribute. A pushbutton has no state, so it cannot reliably *trigger* automations (see [Known limitations](#known-limitations)). |
 | `UpDownDigital` | `button` | Two buttons, `Up` and `Down`, on one device; pressing sends `UpOn` / `DownOn`. The control publishes no state. |
 | `IRoomControllerV2` | `climate` + `switch` + `sensor` | Room controller V2: presets (the Loxone timer modes), a target temperature, or a target range when the room heats and cools, on/off. Attributes: `is_overridden`, `demand` (1 heating, -1 cooling, 0 idle, fed by the room's `ClimateController`), `operating_mode`, `active_mode`, `current_mode`, `op_mode`, `active_state`. On the same device: a `Comfort Override` switch (configuration category) and diagnostic sensors `Override Reason`, `Comfort Temperature` and `Comfort Temperature (Cool)` for the states the controller reports. |
@@ -168,12 +169,13 @@ Every supported control type and what it turns into:
 | `Dimmer` / `EIBDimmer` | `light` | Standalone dimmers: on/off and brightness, scaled to the dimmer's own min/max range. |
 | `ColorPickerV2` | `light` | Colour pickers, standalone or inside a light controller. `Rgb` pickers give colour and colour temperature, `TunableWhite` pickers colour temperature only (2700-6500 K), `Lumitech` behaves like RGB. |
 | `LightsceneRGB` | `light` + `select` | An RGB light driven by the red, green and blue channel streams. When the control has a scene list, a `Scene` select is added on the same device. The write commands are unverified on real hardware. |
-| `AudioZoneV2` | `media_player` | Speaker zone: play, pause, stop, next, previous, volume set/step/mute, on/off and source selection. Attributes: `source`, `favourites`. Power, mute and source commands are unverified on real hardware. |
+| `AudioZoneV2` | `media_player` | Speaker zone: play, pause, stop (sent as pause), next, previous, volume set and step. The entity also offers on/off, mute and source selection and reads source, track metadata and favourites, but the Loxone structure file documents none of those commands or states for this block (its power state is `power`, favourites are played with `playZoneFav`), so expect them to do nothing until they are checked on real hardware. The `source` and `favourites` attributes are only filled from those undocumented states and details. |
 | `Slider` | `number` | A number VI with the Miniserver's min, max and step; unit and precision come from the control's format string. Attribute: `state_uuid`. |
 | `LightControllerV2` moods | `scene` | One scene per mood of each light controller, created when `generate_scenes` is on and the controller has pushed its mood list. Activating sends `changeTo/<moodId>`. |
 | `Radio` | `select` | Radio-button block as a select. Selecting while the block is locked in Loxone raises an error; a block without outputs is skipped. Attributes: `state_uuid`, `locked`. |
 | `InfoOnlyAnalog` | `sensor` | Analog value with automatic device-class detection from unit, category and name (see below). The Miniserver's error value (`-1`) reads as `unknown`. |
 | `InfoOnlyText` | `sensor` | Read-only text value. |
+| `TextState` ("Status" block) | `sensor` | Read-only status text. Texts longer than 255 characters are cut in the state and kept whole in the `text` attribute. From Loxone 13.1 the block's icon and colour are the attributes `loxone_icon` (a Loxone SVG path, not an `mdi:` icon) and `color`. |
 | `TextInput` | `text` + `sensor` | A text VI as a settable `text` entity (values longer than 255 characters are truncated) and as a read-only sensor. Attribute: `state_uuid`. |
 | `Meter`, `EnergyManager`, `EnergyManager2`, `PowerUnit`, `Wallbox` | `sensor` | One sensor per register the control reports, on one device: `Actual` (power, measurement), `Total` and `Total Neg` (energy, total increasing), `Level` (energy, measurement). Units and precision come from the control's format details. |
 | `Tracker` | `sensor` | The tracker's entries as a comma-joined string, also when nested under another control such as an alarm. Attributes: `entries`, `count`, `state_uuid`. |
@@ -182,7 +184,7 @@ Every supported control type and what it turns into:
 | Message Center | `sensor` + repairs | One diagnostic sensor per Message Center block whose state is the highest active severity; active entries appear as repair issues and disappear when they clear. Attribute: `status` (counts per severity). |
 | `Switch` | `switch` | On/off switch. |
 | `TimedSwitch` | `switch` | Switch with a deactivation timer; turning on sends `pulse`. Attributes: `delay_time_total`, and `delay` (seconds remaining) while it is on. |
-| `Intercom` / `IntercomV2` | `switch` | The intercom's sub-controls that report an `active` state, as switches on the intercom's device. |
+| `Intercom` / `IntercomV2` | `switch` | The intercom's sub-controls that report an `active` state, as switches on the intercom's device. The Loxone structure file describes these outputs (door openers, for example) as pushbuttons; see [Known limitations](#known-limitations). |
 
 Loxone entities carry the attributes `uuid` (the control's `uuidAction`, usable
 with the [websocket command services](#services)), `platform` (`loxone`),
@@ -190,6 +192,15 @@ with the [websocket command services](#services)), `platform` (`loxone`),
 platforms `device_type` (the Loxone control family) and `state_uuid` (the
 state stream the entity reads). These bookkeeping attributes are excluded from
 the recorder; see [Recorder configuration](#recorder-configuration).
+
+### Memory flags and other values without a block
+
+The Miniserver only publishes what its own user interface shows. A memory
+flag (Merker), a sensor input or a block output becomes visible once
+"Use" (in the user interface) is ticked for it in Loxone Config. It then
+appears as an `InfoOnlyDigital`, `InfoOnlyAnalog` or `InfoOnlyText` control,
+depending on its type, and turns into a `binary_sensor` or `sensor` like any
+other control of that type.
 
 ### Enabling LightControllerV2 sub-controls
 
@@ -248,6 +259,12 @@ homeassistant:
   Reading the current speed works. A redesign is planned; the correct
   commands are not yet known (`docs/review/2026-09-remediation-plan.md`,
   "Ventilation fan model rework").
+- **Intercom door openers are switches, not buttons.** The Loxone
+  structure file describes the outputs of an `Intercom` and an `IntercomV2`
+  as pushbuttons, which are pulsed. Turning one of these switches on sends `on`, which
+  keeps the output active until the switch is turned off again. Do not
+  leave a door-opener switch on, and prefer a `turn_on` followed by a
+  `turn_off` in automations until this is changed.
 - Some commands were implemented from documentation and inference rather
   than observed on hardware (audio zone power/mute/source, `LightsceneRGB`
   writes, gate positioning, `UpDownDigital`, `Tracker` payloads, the legacy

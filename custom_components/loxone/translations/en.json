@@ -29,6 +29,13 @@
           "fixed": "Fixed Setpoint",
           "unknown": "Unknown"
         }
+      },
+      "window_state": {
+        "state": {
+          "closed": "Closed",
+          "tilted": "Tilted",
+          "open": "Open"
+        }
       }
     }
   },

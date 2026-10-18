@@ -13,6 +13,51 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+### Added
+
+- The "Status" block (`TextState`) is a read-only text sensor (#529). The
+  state is the block's text, cut to Home Assistant's 255-character limit
+  with the full text in the `text` attribute; from Loxone 13.1 the icon and
+  colour arrive as the `loxone_icon` and `color` attributes. A missing or
+  malformed icon payload leaves the attributes out. The README now also
+  explains that memory flags (Merker) appear once "Use" is ticked in
+  Loxone Config, as the already supported `InfoOnlyDigital`,
+  `InfoOnlyAnalog` and `InfoOnlyText` controls.
+- The window and door monitor (`WindowMonitor`) is supported (#524). Its
+  contacts did not appear in Home Assistant at all, because the monitor is
+  the only place the Miniserver publishes them. Each contact gets its own
+  device in its own room, with a `window` binary sensor (tilted counts as
+  open), a `State` sensor that keeps `tilted` apart from `open`, and a
+  `Lock` binary sensor that appears once the contact has reported a lock
+  state, since the structure file does not say which contacts have one.
+  The values are decoded as the bitmask the structure file describes, so a
+  lockable door's `8` and `16` read as closed, as the reporter observed. A
+  contact listed by a room monitor and the central monitor appears once,
+  and motorised windows and gates stay covers. The unique ids carry a
+  suffix (`-window`, `-state`, `-lock`), because a contact can be a control
+  that already has an entity of its own. The monitor's counters are
+  sensors on the monitor's device; only `Open` and `Tilted` are enabled by
+  default.
+
+### Changed
+
+- The documentation no longer claims support that was only ever tested
+  against the synthetic test fixture. Checked against the Loxone structure
+  file (v16): a `PresenceDetector` publishes no brightness or noise state,
+  so the `Illuminance` and `Noise` sub-sensors added in 0.10.0 (#461) most
+  likely never appear on a real Miniserver; the README now points to
+  ticking "Use" on the detector's outputs, which turns them into
+  `InfoOnlyAnalog` sensors. An `AudioZoneV2` documents no `active`, `mute`,
+  `source`, `sourceList`, `favouriteList` or `metadata` state and no on/off,
+  mute or source command, so power, mute, source selection and track
+  metadata are described as unverified instead of supported. The outputs
+  of an intercom are pushbuttons in the structure file, while the
+  integration exposes them as switches that send `on` and hold the output
+  until turned off; the README warns about door openers until that is
+  changed. The code paths stay (they are guarded and do nothing when the
+  states are missing) and are marked for a live check in
+  `docs/review/LIVE-MINISERVER-CHECKS.md`.
+
 ## 0.10.9 - 2026-09-16
 
 ### Fixed
