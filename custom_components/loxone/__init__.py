@@ -14,6 +14,10 @@ import time
 from functools import partial
 
 from homeassistant.components import group
+
+# 2026.11 dropped the ``async_get_component`` re-export from the group package;
+# ``group.entity`` has defined it since well before the 2026.7 floor.
+from homeassistant.components.group.entity import async_get_component as async_get_group_component
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, UnknownEntry, ConfigEntryAuthFailed, ConfigEntryState
 from homeassistant.const import (
@@ -467,7 +471,7 @@ async def create_group_for_loxone_entities(hass, entities, name, object_id):
     # So: when the group entity still exists on the platform, always
     # (re)point it at the freshly discovered members; only create fresh
     # when no such entity exists at all.
-    component = group.async_get_component(hass)
+    component = async_get_group_component(hass)
     entity = component.get_entity(entity_id)
     if entity is not None and hasattr(entity, "async_update_tracked_entity_ids"):
         if tuple(sorted(entity.tracking)) != tuple(sorted(entities)):
