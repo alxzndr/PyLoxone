@@ -335,6 +335,35 @@ async def test_live_session_401_creates_auth_failed_issue(hass, loxapp3, mock_co
     assert _issue_or_none(hass, issue_id).translation_key == "auth_failed"
 
 
+async def test_unexpected_session_failure_reloads_the_entry(hass, loxapp3, mock_connection, mock_entry) -> None:
+    """A session that dies from an error ``run`` does not retry (here: an
+    HTTP 500 while re-fetching the structure file) must reload the entry
+    after a delay instead of leaving it LOADED with a dead connection."""
+    await _setup_entry(hass, mock_entry)
+
+    runs: list[int] = []
+
+    async def run_failing_once(api, on_state, callback=None):
+        runs.append(1)
+        if len(runs) == 1:
+            raise RuntimeError("Failed to get structure file, status: 500")
+        await asyncio.Event().wait()  # the reloaded session stays up
+
+    with (
+        patch("custom_components.loxone.UNEXPECTED_FAILURE_RELOAD_DELAY", 0),
+        patch.object(LoxoneConnection, "run", new=run_failing_once),
+    ):
+        assert await hass.config_entries.async_unload(mock_entry.entry_id)
+        await hass.async_block_till_done()
+        assert await hass.config_entries.async_setup(mock_entry.entry_id)
+        await _wait_until(hass, lambda: len(runs) >= 2, message="the entry to be reloaded after the session failure")
+
+    assert hass.config_entries.async_get_entry(mock_entry.entry_id).state is ConfigEntryState.LOADED
+    # Not a credential problem: no reauth flow, no auth issue.
+    assert _reauth_flow_id(hass, mock_entry.entry_id) is None
+    assert _issue_or_none(hass, f"auth_failed_{mock_entry.entry_id}") is None
+
+
 # --------------------------------------------------------------------------- #
 # unsupported_firmware: created below the floor, removed above it
 # --------------------------------------------------------------------------- #

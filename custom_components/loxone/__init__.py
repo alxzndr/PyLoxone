@@ -138,6 +138,12 @@ RELOAD_SCHEMA = vol.Schema(
 # therefore retried; once the failures span this long we escalate to
 # `ConfigEntryAuthFailed` + a reauth flow (with the repair issue HA raises
 # for it, CORE-09 / WP-3.4).
+# Seconds before an entry whose session died from an error that
+# ``LoxoneConnection.run`` does not retry itself (an HTTP 500 or a truncated
+# LoxAPP3.json during a reconnect bootstrap, or a bug in our own code) is
+# reloaded. Without it the entry stayed loaded with every entity unavailable
+# until someone reloaded it by hand (ported from upstream 0.10.1).
+UNEXPECTED_FAILURE_RELOAD_DELAY = 30
 AUTH_RETRY_MAX_ATTEMPTS = 5
 AUTH_RETRY_MIN_ELAPSED_SECONDS = 300
 _AUTH_FAILURES = "auth_failures"  # key in hass.data[DOMAIN]; a plain dict that must not outlive the last counting entry
@@ -1009,6 +1015,20 @@ async def async_setup_entry(hass, config_entry):
             config_entry.async_start_reauth(hass)
         except asyncio.CancelledError:
             raise
+        # The last line of defence for this entry: run() has already logged
+        # the error with its traceback. A delayed reload (instead of an
+        # immediate one) keeps a deterministic failure from hammering the
+        # Miniserver; the sleep is cancelled with this task on unload.
+        except Exception as e:  # noqa: BLE001
+            coordinator.set_connected_state(False)
+            _LOGGER.warning(
+                "Loxone session for %s stopped after an unexpected error (%s); reloading the entry in %d s",
+                host,
+                e,
+                UNEXPECTED_FAILURE_RELOAD_DELAY,
+            )
+            await asyncio.sleep(UNEXPECTED_FAILURE_RELOAD_DELAY)
+            hass.config_entries.async_schedule_reload(config_entry.entry_id)
 
     async def create_groups(_hass: HomeAssistant) -> None:
         """
