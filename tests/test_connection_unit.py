@@ -33,6 +33,7 @@ from custom_components.loxone.pyloxone_api.connection import (
     percent_encode_credential,
     parse_loxone_url,
 )
+from custom_components.loxone.pyloxone_api.const import SECURED_COMMAND_TIMEOUT
 from custom_components.loxone.pyloxone_api.exceptions import LoxoneConnectionClosedOk
 from custom_components.loxone.pyloxone_api.loxone_token import LoxoneToken
 from custom_components.loxone.pyloxone_api.message import TextMessage
@@ -194,7 +195,7 @@ def test_hash_token_returns_none_on_non_hex_key() -> None:
 
 
 _VISUSALT_MSG = json.dumps(
-    {"LL": {"control": "jdev/sys/getvisusalt/admin/", "code": "15", "value": {"key": "deadbeef", "salt": "00112233"}}}
+    {"LL": {"control": "jdev/sys/getvisusalt/admin/", "code": "200", "value": {"key": "deadbeef", "salt": "00112233"}}}
 )
 
 
@@ -233,6 +234,67 @@ async def test_getvisusalt_drains_secured_queue() -> None:
     pwd_hash = m.hexdigest().upper()
     expected_hash = HMAC.new(bytes.fromhex("deadbeef"), pwd_hash.encode("utf-8"), SHA1).hexdigest()
     assert item.command == f"jdev/sps/ios/{expected_hash}/abcd-uuid/1"
+
+
+async def test_one_getvisusalt_reply_releases_exactly_one_secured_command() -> None:
+    # Each secured command sends its own getvisusalt request; the replies
+    # arrive in order, so one reply must release one command (FIFO), not the
+    # whole queue.
+    conn = make_connection()
+    conn._secured_queue.extend(
+        [
+            SecuredCommand(device_uuid="gate", value="open", code="1234"),
+            SecuredCommand(device_uuid="alarm", value="off", code="1234"),
+        ]
+    )
+
+    await conn._websocket_event(TextMessage(_VISUSALT_MSG))
+    assert [item.command.split("/")[4] for item in _drain(conn)] == ["gate"]
+    assert [c.device_uuid for c in conn._secured_queue] == ["alarm"]
+
+    await conn._websocket_event(TextMessage(_VISUSALT_MSG))
+    assert [item.command.split("/")[4] for item in _drain(conn)] == ["alarm"]
+    assert not conn._secured_queue
+
+
+async def test_failed_getvisusalt_reply_drops_its_command(caplog) -> None:
+    # A failed reply used to warn and still send the queue with its salt,
+    # so the failed command ran together with the next one.
+    failed = json.dumps({"LL": {"control": "jdev/sys/getvisusalt/admin/", "code": "500", "value": ""}})
+    conn = make_connection()
+    conn._secured_queue.extend(
+        [
+            SecuredCommand(device_uuid="gate", value="open", code="1234"),
+            SecuredCommand(device_uuid="alarm", value="off", code="1234"),
+        ]
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await conn._websocket_event(TextMessage(failed))
+    assert _drain(conn) == []
+    assert "Secured command for gate not sent" in caplog.text
+
+    await conn._websocket_event(TextMessage(_VISUSALT_MSG))
+    assert [item.command.split("/")[4] for item in _drain(conn)] == ["alarm"]
+
+
+async def test_expired_secured_command_is_dropped_not_sent_late(caplog) -> None:
+    conn = make_connection()
+    stale = SecuredCommand(device_uuid="gate", value="open", code="1234")
+    stale.created -= SECURED_COMMAND_TIMEOUT + 1
+    conn._secured_queue.extend([stale, SecuredCommand(device_uuid="alarm", value="off", code="1234")])
+
+    with caplog.at_level(logging.WARNING):
+        await conn._websocket_event(TextMessage(_VISUSALT_MSG))
+    assert [item.command.split("/")[4] for item in _drain(conn)] == ["alarm"]
+    assert "Secured command for gate dropped" in caplog.text
+
+
+def _drain(conn) -> list:
+    items = []
+    while not conn._message_queue.empty():
+        items.append(conn._message_queue.get_nowait())
+    return items
 
 
 def test_secured_command_text_none_without_visual_hash() -> None:

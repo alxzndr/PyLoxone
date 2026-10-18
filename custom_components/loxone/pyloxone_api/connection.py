@@ -19,7 +19,7 @@ import urllib
 from base64 import b64decode, b64encode
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Any, Final, NoReturn
 from urllib.parse import urlparse
@@ -61,6 +61,7 @@ from .const import (
     SALT_BYTES,
     SALT_MAX_AGE_SECONDS,
     SALT_MAX_USE_COUNT,
+    SECURED_COMMAND_TIMEOUT,
     TIMEOUT,
     TOKEN_PERMISSION,
     TOKEN_REFRESH_MAX_FAILURES,
@@ -201,6 +202,8 @@ class SecuredCommand:
     device_uuid: str
     value: str | int | float
     code: str
+    # time.monotonic() when queued; see SECURED_COMMAND_TIMEOUT.
+    created: float = field(default_factory=time.monotonic)
 
 
 def percent_encode_credential(value: str) -> str:
@@ -865,6 +868,32 @@ class LoxoneBaseConnection:
         digester = HMAC.new(key_bytes, pwd_hash.encode("utf-8"), hash_module)
         new_hash = digester.hexdigest()
         return f"jdev/sps/ios/{new_hash}/{secured.device_uuid}/{secured.value}"
+
+    def _pop_secured_command(self) -> SecuredCommand | None:
+        """
+        Pop the oldest pending secured command that has not expired.
+
+        A command older than ``SECURED_COMMAND_TIMEOUT`` lost its
+        ``getvisusalt`` reply; sending it now would run a secured action
+        long after the user asked for it, so it is dropped.
+        """
+        now = time.monotonic()
+        while self._secured_queue:
+            secured = self._secured_queue.popleft()
+            if now - secured.created <= SECURED_COMMAND_TIMEOUT:
+                return secured
+            _LOGGER.warning(
+                "Secured command for %s dropped: no visual salt within %d s",
+                secured.device_uuid,
+                SECURED_COMMAND_TIMEOUT,
+            )
+        return None
+
+    def _drop_secured_command(self, reason: str) -> None:
+        """Discard the secured command a failed ``getvisusalt`` reply belongs to."""
+        secured = self._pop_secured_command()
+        if secured is not None:
+            _LOGGER.warning("Secured command for %s not sent: %s", secured.device_uuid, reason)
 
     def _hash_credentials(self):
         try:
@@ -2175,7 +2204,21 @@ class LoxoneConnection(LoxoneBaseConnection):
 
             # Handle visual salt
             elif isinstance(mess_obj, TextMessage) and "getvisusalt" in mess_obj.message:
-                self._check_auth_response(mess_obj, "getvisusalt (visual salt request)")
+                # Every secured command sends exactly one getvisusalt request
+                # and the Miniserver answers them in order on this socket, so
+                # each reply releases exactly one command (FIFO). Draining the
+                # whole queue on one reply sent a command whose own request
+                # had failed together with the next one: a failed "open gate"
+                # running with a later "disarm" (ported from upstream a61c502).
+                try:
+                    self._check_auth_response(mess_obj, "getvisusalt (visual salt request)")
+                except LoxoneUnauthorisedError:
+                    self._drop_secured_command("the Miniserver rejected the visual salt request")
+                    raise
+                code = getattr(mess_obj, "code", None)
+                if code not in (None, 0, 200):
+                    self._drop_secured_command(f"visual salt request failed with code {code}")
+                    return
                 try:
                     value_dict = mess_obj.value_as_dict
                     if not isinstance(value_dict, dict):
@@ -2192,16 +2235,14 @@ class LoxoneConnection(LoxoneBaseConnection):
                     key_and_salt.time_elapsed_in_seconds = time_elapsed_in_seconds()
                     self._visual_hash = key_and_salt
 
-                    # API-15: drain the parameter deque now that the salt is
-                    # known and hash each queued secured command.
-                    while self._secured_queue:
-                        secured = self._secured_queue.popleft()
-                        command = self._secured_command_text(secured)
-                        if command is not None:
-                            await self._message_queue.put(MessageForQueue(command, True))
-
                 except Exception as e:
                     _LOGGER.exception("Error processing visual salt: %s", e)
+                    self._drop_secured_command(f"unusable visual salt reply: {e}")
+                else:
+                    secured = self._pop_secured_command()
+                    command = self._secured_command_text(secured) if secured is not None else None
+                    if command is not None:
+                        await self._message_queue.put(MessageForQueue(command, True))
 
             # Handle token response
             elif isinstance(mess_obj, TextMessage) and ("gettoken" in mess_obj.message or "getjwt" in mess_obj.message):
