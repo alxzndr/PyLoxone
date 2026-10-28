@@ -99,14 +99,21 @@ def plan_temp_turn_on(
     """
     Build the outgoing command for a TunableWhite picker `turn_on`.
 
+    A *plain* `turn_on` (no service data) sends ``setBrightness/<last known
+    level>`` — falling back to full when nothing has ever been reported —
+    not ``On``: the ColorPickerV2 command list of the Structure File (v16
+    and v17) documents `setBrightness`, `hsv()` and `temp()`, but no `on`
+    (upstream ``7cc7c77``/``5867889``), and an unknown command is still
+    answered with 200, so the old ``On`` may simply have been ignored.
+
     Defaults for the unreported state (brightness 255, and
-    :data:`DEFAULT_TURN_ON_KELVIN` *clamped into the picker's own range*,
-    upstream ``7cc7c77``) are applied *before* formatting, so a `turn_on`
-    before the first state cannot raise or emit ``None`` (PC-11) and a
-    narrow-range picker is never sent a kelvin outside its range.
+    :data:`DEFAULT_TURN_ON_KELVIN` *clamped into the picker's own range*)
+    are applied *before* formatting, so a `turn_on` before the first state
+    cannot raise or emit ``None`` (PC-11) and a narrow-range picker is
+    never sent a kelvin outside its range.
     """
     if not kwargs:
-        return "On"
+        return f"setBrightness/{hass_to_lox(brightness or 255)}"
     level = kwargs.get(ATTR_BRIGHTNESS, brightness) or 255
     kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN, color_temp_kelvin)
     if kelvin is None:

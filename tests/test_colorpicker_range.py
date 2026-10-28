@@ -1,5 +1,5 @@
-"""WP-7.2: ColorPickerV2 kelvin range from TWMin/TWMax (upstream
-``7cc7c77`` / ``5867889``).
+"""WP-7.2: ColorPickerV2 kelvin range from TWMin/TWMax; TunableWhite plain
+turn-on (upstream ``7cc7c77`` / ``5867889``, light parts only).
 
 Everything runs through the real ``hass`` harness: the entry sets up from
 ``tests/fixtures/LoxAPP3.json`` (the two standalone pickers added there —
@@ -10,13 +10,22 @@ narrow 2700-3500 range), states are fed through ``mock_connection.feed``
 and service calls go through ``hass.services.async_call``.  Commands are
 asserted on ``mock_connection.sent``.
 
-Semantics and their source: ``TWMin``/``TWMax`` are the ColorPickerV2
-details with spec defaults 2700/6500 — Structure File v16 (under the names
-``minKelvin``/``maxKelvin``) and v17, confirmed in the spec text; the real
-device (firmware 17.2.8.28) sends ``TWMin``/``TWMax`` and all three of the
-maintainer's pickers say 2200-6500, so a hard 2700 floor made Home
-Assistant advertise — and dashboard sliders honour — a range that cut the
-warm end off (PC-39; live check #30).
+Semantics and their sources:
+
+* ``TWMin``/``TWMax`` are the ColorPickerV2 details with spec defaults
+  2700/6500 — Structure File v16 (under the names ``minKelvin``/``maxKelvin``)
+  and v17, confirmed in the spec text; the real device (firmware
+  17.2.8.28) sends ``TWMin``/``TWMax`` and all three of the maintainer's
+  pickers say 2200-6500, so a hard 2700 floor made Home Assistant clamp
+  every warm request away (upstream ``7cc7c77``; PC-39);
+* a plain TunableWhite turn-on sends ``setBrightness/<last level>`` — the
+  ColorPickerV2 *Commands* list of the spec (v16 and v17) has
+  ``setBrightness``, ``hsv()``, ``temp()`, ... but **no** ``on``, so the
+  fork's ``On`` was at best undocumented, and a 200 reply never proves a
+  command exists (upstream ``7cc7c77``/``5867889``; no TunableWhite picker
+  in the house — live check #30 stays open for that half);
+* ``DEFAULT_TURN_ON_KELVIN`` is clamped into the picker's own range when
+  no temperature is known yet.
 """
 
 from __future__ import annotations
@@ -79,8 +88,8 @@ def test_color_temp_range_falls_back_to_the_spec_defaults(details, expected):
 # Through the real harness
 # --------------------------------------------------------------------------- #
 async def test_realistic_picker_advertises_the_range_from_details(hass, mock_connection, mock_entry) -> None:
-    """Before the fix the class-level 2700-6500 was advertised, so the
-    whole 2200-2699 K band was cut off — on the dashboard too."""
+    """Before the fix the class-level 2700-6500 was advertised, so Home
+    Assistant clamped the whole 2200-2699 K band away."""
     rgb, _ = await _setup(hass, mock_connection, mock_entry)
     mock_connection.feed(RGB_COLOR, "temp(100,4000)")
     await hass.async_block_till_done()
@@ -91,8 +100,8 @@ async def test_realistic_picker_advertises_the_range_from_details(hass, mock_con
 
 
 async def test_kelvin_at_the_reported_minimum_reaches_the_miniserver(hass, mock_connection, mock_entry) -> None:
-    """`light.turn_on` with 2200 K must send `temp(...,2200)` through the
-    real service path, end to end."""
+    """`light.turn_on` with 2200 K must send `temp(...,2200)`; with the old
+    hard 2700 floor Home Assistant clamped the request to 2700."""
     rgb, _ = await _setup(hass, mock_connection, mock_entry)
     mock_connection.feed(RGB_COLOR, "temp(100,4000)")
     await hass.async_block_till_done()
@@ -114,3 +123,42 @@ async def test_narrow_picker_default_kelvin_is_clamped_into_its_range(hass, mock
     sent_before = len(mock_connection.sent)
     await hass.services.async_call("light", "turn_on", {"entity_id": tw, "brightness": 255}, blocking=True)
     assert mock_connection.sent[sent_before:] == [{"uuid": TW_ACTION, "value": "temp(100.0, 3500)", "code": None}]
+
+
+async def test_plain_turn_on_sends_set_brightness_not_on(hass, mock_connection, mock_entry) -> None:
+    """The ColorPickerV2 command list (spec v16/v17) has no ``on``; the
+    documented ``setBrightness`` carries the last known level (upstream
+    5867889), full brightness when nothing has been reported (0 -> off ->
+    the fallback)."""
+    _, tw = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(TW_COLOR, "hsv(0,0,0)")
+    await hass.async_block_till_done()
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": tw}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": TW_ACTION, "value": "setBrightness/100.0", "code": None}]
+
+
+async def test_plain_turn_on_keeps_the_last_level(hass, mock_connection, mock_entry) -> None:
+    """Not full brightness on every plain turn-on: the last reported level
+    goes back out (80 % -> ``hass_to_lox(204)`` = 80.0)."""
+    _, tw = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(TW_COLOR, "temp(80,3000)")
+    await hass.async_block_till_done()
+    assert hass.states.get(tw).state == "on"
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": tw}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": TW_ACTION, "value": "setBrightness/80.0", "code": None}]
+
+
+async def test_known_temperature_survives_a_plain_brightness_call(hass, mock_connection, mock_entry) -> None:
+    """A brightness-only call still sends the *reported* temperature with it
+    (``temp()`` needs both parts; PC-11 unchanged)."""
+    _, tw = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(TW_COLOR, "temp(80,3000)")
+    await hass.async_block_till_done()
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": tw, "brightness": 128}, blocking=True)
+    # hand: hass_to_lox(128) = 128 / 255 * 100
+    assert mock_connection.sent[sent_before:] == [
+        {"uuid": TW_ACTION, "value": "temp(50.19607843137255, 3000)", "code": None}
+    ]

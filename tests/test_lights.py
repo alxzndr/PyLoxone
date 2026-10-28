@@ -396,10 +396,22 @@ class TestTunableWhite:
         await light.async_turn_on(**{ATTR_COLOR_TEMP_KELVIN: 2700})
         assert light.hass.bus.fired[-1]["value"] == "temp(100.0, 2700)"
 
-    async def test_bare_turn_on_sends_on(self):
+    async def test_bare_turn_on_sends_set_brightness(self):
+        # WP-7.2 (upstream 7cc7c77/5867889): the ColorPickerV2 command
+        # list of the structure file (v16/v17) has no `on`, and an unknown
+        # command is answered 200 anyway — so the plain turn-on sends the
+        # documented setBrightness, at full when nothing was reported.
         light = self.light(uuidAction="ctl-pick-tw3")
         await light.async_turn_on()
-        assert light.hass.bus.fired[-1]["value"] == "On"
+        assert light.hass.bus.fired[-1]["value"] == "setBrightness/100.0"
+
+    async def test_bare_turn_on_keeps_the_last_brightness(self):
+        # upstream 5867889: not full brightness on every plain turn-on.
+        light = self.light(uuidAction="ctl-pick-tw3b")
+        light._attr_brightness = 128
+        await light.async_turn_on()
+        # hand: 128 / 255 * 100
+        assert light.hass.bus.fired[-1]["value"] == "setBrightness/50.19607843137255"
 
     async def test_turn_off_accepts_kwargs(self):
         light = self.light(uuidAction="ctl-pick-tw4")
@@ -433,14 +445,15 @@ class TestTunableWhite:
 
 def test_plan_temp_turn_on_defaults():
     # PC-11: no state yet → exact, non-raising defaults.
-    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=None, kwargs={}) == "On"
+    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=None, kwargs={}) == "setBrightness/100.0"
     assert (
         plan_temp_turn_on(color_temp_kelvin=None, brightness=None, kwargs={ATTR_BRIGHTNESS: 255}) == "temp(100.0, 4000)"
     )
-    # a bare `turn_on` (no args) means "on, keep the setpoint" — the stored
-    # values do not enter the payload
-    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=128, kwargs={}) == "On"
-    assert plan_temp_turn_on(color_temp_kelvin=5200, brightness=128, kwargs={}) == "On"
+    # a bare `turn_on` (no args) means "on, at the last known level" — the
+    # documented setBrightness, no fixed 100 % (upstream 5867889); the
+    # stored kelvin does not enter the payload
+    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=128, kwargs={}) == "setBrightness/50.19607843137255"
+    assert plan_temp_turn_on(color_temp_kelvin=5200, brightness=128, kwargs={}) == "setBrightness/50.19607843137255"
 
 
 def test_plan_temp_turn_on_clamps_the_default_kelvin():
