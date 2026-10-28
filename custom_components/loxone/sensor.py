@@ -144,9 +144,34 @@ METER_STATE_CLASSES = {
 METER_FORMAT_KEYS = {
     "actual": "actualFormat",
     "total": "totalFormat",
-    "totalNeg": "totalFormat",
+    # Structure file v16 (Meter, p. 112): the negative total has its own
+    # format detail "totalFormatNeg" — "unavailable if unidirectional",
+    # "available since 13.01".  Upstream 6441290.
+    "totalNeg": "totalFormatNeg",
     "storage": "storageFormat",
 }
+# Fallback detail keys, tried in order when the primary format detail is
+# missing (old structures and unidirectional meters have no
+# "totalFormatNeg"; upstream falls back to "totalFormat" too).  Anything
+# still missing uses METER_DEFAULT_FORMAT.
+METER_FORMAT_FALLBACK_KEYS = {"totalNeg": ("totalFormat",)}
+METER_DEFAULT_FORMAT = "%.1f"
+
+
+def meter_format(details: dict, state_key: str) -> str:
+    """
+    The Loxone format string of one meter register (WP-7.3).
+
+    Single lookup point for the ``totalFormatNeg`` → ``totalFormat`` →
+    ``"%.1f"`` fallback chain (structure file v16, Meter; PS-08 keeps the
+    neutral default for missing formats).
+    """
+    for key in (METER_FORMAT_KEYS[state_key], *METER_FORMAT_FALLBACK_KEYS.get(state_key, ())):
+        if key in details:
+            return details[key]
+    return METER_DEFAULT_FORMAT
+
+
 METER_NAME_SUFFIX = {
     "actual": "Actual",
     "total": "Total",
@@ -598,7 +623,7 @@ def meter_sub_sensor_kwargs(control: dict, config_entry) -> list[dict]:
                 # after the parent control, so no control-name prefix
                 # (CORE-26).
                 "name": METER_NAME_SUFFIX[state_key],
-                "details": {"format": details.get(METER_FORMAT_KEYS[state_key], "%.1f")},
+                "details": {"format": meter_format(details, state_key)},
                 "device_class": device_class,
                 "state_class": state_class,
                 "config_entry": config_entry,

@@ -19,6 +19,7 @@ shared fixture file is owned by another work package).
 from __future__ import annotations
 
 import copy
+from typing import Any
 
 import pytest
 from homeassistant.components.text import ATTR_MAX
@@ -155,3 +156,34 @@ async def test_set_value_sends_the_uri_encoded_text(hass, mock_connection, mock_
     await hass.services.async_call("text", "set_value", {"entity_id": entity_id, "value": "a/b c"}, blocking=True)
     sent = [s for s in mock_connection.sent if s["uuid"] == TEXT_INPUT_ACTION]
     assert sent == [{"uuid": TEXT_INPUT_ACTION, "value": "a%2Fb%20c", "code": None}]
+
+
+# --------------------------------------------------------------------------- #
+# Meter — totalFormatNeg
+# --------------------------------------------------------------------------- #
+
+
+def _display_precision(registry: er.EntityRegistry, unique_id: str) -> Any:
+    entity_id = _entity_id(registry, "sensor", unique_id)
+    entry = registry.async_get(entity_id)
+    return (entry.options.get("sensor") or {}).get("suggested_display_precision")
+
+
+async def test_total_neg_uses_total_format_neg(hass, mock_connection, mock_entry) -> None:
+    """Upstream 6441290, structure file v16 p. 112 ("totalFormatNeg",
+    available since 13.01): the negative total has its own format.  The
+    fork derives the display precision from the format, so the registry
+    entry of "Total Neg" must show the %.3f precision, "Total" the %.2f."""
+    registry = await _setup(hass, mock_connection, mock_entry)
+
+    neg = registry.async_get(_entity_id(registry, "sensor", BIDI_TOTAL_NEG))
+    assert neg.original_name == "Total Neg"
+    assert _display_precision(registry, BIDI_TOTAL_NEG) == 3
+    assert _display_precision(registry, BIDI_TOTAL) == 2
+
+
+async def test_total_neg_falls_back_to_total_format(hass, mock_connection, mock_entry) -> None:
+    """ "totalFormatNeg" is unavailable for unidirectional meters (and
+    missing in pre-13.01 structures): fall back to "totalFormat"."""
+    registry = await _setup(hass, mock_connection, mock_entry)
+    assert _display_precision(registry, UNI_TOTAL_NEG) == 2

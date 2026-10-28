@@ -148,8 +148,8 @@ def test_meter_sub_sensor_kwargs_guards():
     kwargs_list = meter_sub_sensor_kwargs(_control(details=None), None)
     assert [kw["details"]["format"] for kw in kwargs_list] == ["%.1f", "%.1f", "%.1f", "%.1f"]
     # a single missing format key only degrades that register
-    # totalNeg shares the totalFormat key (METER_FORMAT_KEYS), so it gets
-    # the total's format, not the neutral fallback.
+    # totalNeg falls back to the total's format when "totalFormatNeg" is
+    # missing (WP-7.3, METER_FORMAT_FALLBACK_KEYS), not to the neutral one.
     control = _control(details={"totalFormat": "%d kWh", "storageFormat": "%d kWh"})
     formats = [kw["details"]["format"] for kw in meter_sub_sensor_kwargs(control, None)]
     assert formats == ["%.1f", "%d kWh", "%d kWh", "%d kWh"]
