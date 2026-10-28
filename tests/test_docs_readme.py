@@ -6,7 +6,7 @@ artefacts of the integration so a drift in one side of the
 documentation is a red build, not a user-finding:
 
 * every service of ``services.yaml`` is documented in the README;
-* the five configuration options are documented;
+* the six configuration options are documented;
 * the ``loxone_event`` payload (incl. the multi-instance ``entry_id``
   field) is documented;
 * the logger snippet of the README names loggers that actually exist
@@ -28,14 +28,15 @@ README = ROOT / "README.md"
 CONTRIBUTING = ROOT / "CONTRIBUTING.md"
 HACS_JSON = ROOT / "hacs.json"
 
-# The five options/config fields a user can tune (TOOL-13: they were
-# undocumented).
+# The six options/config fields a user can tune (TOOL-13: they were
+# undocumented; ``alarm_code_format`` joined with WP-7.5).
 OPTION_KEYS = (
     "verify_ssl",
     "generate_groups",
     "generate_scenes",
     "generate_scenes_delay",
     "generate_lightcontroller_subcontrols",
+    "alarm_code_format",
 )
 
 
