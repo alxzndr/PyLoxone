@@ -20,9 +20,11 @@ Expected values are hand-derived literals.  Semantics and their sources:
   ``LIVE-MINISERVER-CHECKS.md`` #29;
 * an empty ``activeMoods`` list is manual mode and follows the master,
   else the circuits — upstream's observation, unverified — live check #29;
-* plain turn-on plays the first non-off mood of the mood list, else the
-  spec word ``plus`` (the spec lists no other "on" command; the old
-  ``changeTo/99`` is documented nowhere) — live check #29.
+* plain turn-on plays mood 777 — the static "all on" mood observed on the
+  maintainer's installation (scene names "alles aan" / "bright" / "on"),
+  else the first non-off mood of the mood list, else the spec word
+  ``plus`` (the spec lists no other "on" command; the old ``changeTo/99``
+  is documented nowhere) — live check #29.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.loxone.lights.lightcontroller import (
+    ALL_ON_MOOD_ID,
     OFF_MOOD_IDS,
     lcv2_circuit_level,
     lcv2_is_on,
@@ -59,6 +62,9 @@ BED_RIGHT_ACTIVE = "1d8f0a20-00bb-9766-ffff0d3a09848c7c"
 
 MOODS = '[{"id": 0, "name": "Off"}, {"id": 3, "name": "Party"}, {"id": 5, "name": "Dinner"}]'
 OFF_ONLY_MOODS = '[{"id": 0, "name": "Off"}, {"id": 778, "name": "Aus"}]'
+# 777 (the maintainer's "alles aan") *after* a custom mood: the order the
+# fixture mood lists do not have and the integration test must feed.
+MOODS_WITH_ALL_ON = '[{"id": 3, "name": "Party"}, {"id": 777, "name": "alles aan"}, {"id": 5, "name": "Dinner"}]'
 
 
 async def _setup(hass, mock_connection, mock_entry):
@@ -77,9 +83,14 @@ async def _setup(hass, mock_connection, mock_entry):
 # Pure helpers (parametrised literals)
 # --------------------------------------------------------------------------- #
 def test_off_mood_ids_documents_their_sources():
-    # 0 = spec ("The moodID 0 is always 'off'"), 778 = upstream's observed
-    # static "Aus" mood (not in the structure file; live check #29).
+    # 0 = spec ("The moodID 0 is always 'off'"), 778 = the static off mood
+    # observed on upstream's installation ("Aus") and on the maintainer's
+    # ("uit" / "off"); neither is in the structure file (live check #29).
     assert OFF_MOOD_IDS == frozenset({0, 778})
+    # 777 = the static "all on" mood observed on the maintainer's
+    # installation ("alles aan" / "bright" / "on"); not in the structure
+    # file either (WP-7.1b, live check #29).
+    assert ALL_ON_MOOD_ID == 777
 
 
 @pytest.mark.parametrize(
@@ -146,8 +157,15 @@ def test_lcv2_is_on(active_moods, master, circuits, expected):
 @pytest.mark.parametrize(
     ("mood_list", "expected"),
     [
-        # first mood whose id is not an off mood; off moods at the head are
-        # skipped (upstream 466ea0e).
+        # 777 (the maintainer's "alles aan") wins wherever it sits, so a
+        # plain turn-on never surfaces a custom mood because the list
+        # happens to start with it (WP-7.1b).
+        ([{"id": 3, "name": "Cinema"}, {"id": 777, "name": "alles aan"}], "changeTo/777"),
+        ([{"id": 0, "name": "Off"}, {"id": 5, "name": "Nacht"}, {"id": 777, "name": "bright"}], "changeTo/777"),
+        # a numeric-string 777 counts too (Loxone streams both shapes).
+        ([{"id": 3, "name": "Cinema"}, {"id": "777", "name": "on"}], "changeTo/777"),
+        # no 777: first mood whose id is not an off mood; off moods at the
+        # head are skipped (upstream 466ea0e).
         ([{"id": 3, "name": "Party"}, {"id": 0, "name": "Off"}], "changeTo/3"),
         ([{"id": 0, "name": "Off"}, {"id": 1, "name": "On"}], "changeTo/1"),
         ([{"id": 0, "name": "Off"}, {"id": 778, "name": "Aus"}, {"id": 12, "name": "Cozy"}], "changeTo/12"),
@@ -290,6 +308,21 @@ async def test_plain_turn_on_sends_first_non_off_mood(hass, mock_connection, moc
     sent_before = len(mock_connection.sent)
     await hass.services.async_call("light", "turn_on", {"entity_id": kitchen}, blocking=True)
     assert mock_connection.sent[sent_before:] == [{"uuid": KIT_ACTION, "value": "changeTo/3", "code": None}]
+
+
+async def test_plain_turn_on_prefers_the_all_on_mood(hass, mock_connection, mock_entry) -> None:
+    """777 ("alles aan" on the maintainer's installation) wins even though
+    the custom mood "Party" comes first in the fed list (WP-7.1b): a plain
+    turn-on must not surface "Party" — or, on the maintainer's controllers,
+    "cinema" / "nacht" — just because of the list order."""
+    kitchen, _ = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(KIT_MOOD_LIST, MOODS_WITH_ALL_ON)
+    mock_connection.feed(KIT_ACTIVE_MOODS, "[0]")
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "off"
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": kitchen}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": KIT_ACTION, "value": "changeTo/777", "code": None}]
 
 
 async def test_plain_turn_on_with_only_off_moods_sends_plus(hass, mock_connection, mock_entry) -> None:

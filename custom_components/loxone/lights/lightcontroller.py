@@ -25,12 +25,23 @@ OFF_MOOD_ID = "0"
 #:
 #: * ``0``   — documented: Structure File v16/v17, LightControllerV2
 #:   Commands: "The moodID 0 is always 'off'".  ``turn_off`` sends it.
-#: * ``778`` — the static "Aus" (off) mood id *observed on upstream's
-#:   installation* (upstream ``466ea0e``).  Neither Structure File version
-#:   mentions 778, and the runtime mood list is not part of the structure
-#:   file, so another Miniserver may use another id for its off mood.
-#:   Confirm on the maintainer's house — LIVE-MINISERVER-CHECKS.md #29.
+#: * ``778`` — the static off mood id, observed on upstream's installation
+#:   as "Aus" (upstream ``466ea0e``) *and* on the maintainer's installation
+#:   (WP-7.1b), where the scene entities generated from the mood lists are
+#:   named "uit" / "off".  Neither Structure File version mentions 778, and
+#:   the runtime mood list is not part of the structure file, so another
+#:   Miniserver may use another id for its off mood.
 OFF_MOOD_IDS = frozenset({0, 778})
+
+#: The static "all on" mood id, preferred by a plain ``turn_on``
+#: (WP-7.1b, LIVE-MINISERVER-CHECKS.md #29).  Observed on the maintainer's
+#: installation: the scene entities generated from every controller's mood
+#: list carry mood id 777 in their unique ids and are named "alles aan" /
+#: "bright" / "on".  Like 778, it appears in no Structure File version, so
+#: another Miniserver may name its full-light mood another id (or have no
+#: such mood at all) — the turn-on helper then falls back to the first
+#: non-off mood.
+ALL_ON_MOOD_ID = 777
 
 #: The one state per sub-control type that says how bright the circuit is
 #: (Structure File v16/v17, LightControllerV2 Subcontrols: the circuits are
@@ -109,24 +120,38 @@ def lcv2_is_on(active_moods, master_position, circuit_levels) -> bool | None:
 def lcv2_plain_turn_on_command(mood_list) -> str:
     """
     The command for a plain ``turn_on`` — no brightness, no effect (WP-7.1,
-    upstream ``e43301f`` / ``466ea0e``).
+    upstream ``e43301f`` / ``466ea0e``; 777 preference added by WP-7.1b).
 
     The Structure File (v16 and v17, read 2026-10-28) lists no "on"
     command for LightControllerV2: moods are the only on/off vocabulary.
-    So play the first mood of ``moodList`` that is not an off mood; when
-    the list is missing, empty or holds only off moods, send ``plus``
-    (spec: "Changes to the next mood").  The old ``changeTo/99`` is
-    documented nowhere and would be acknowledged with 200 even if the
-    Miniserver did not know it.  Which mood actually comes up is
-    unverified: LIVE-MINISERVER-CHECKS.md #29.
+    So:
+
+    1. play mood :data:`ALL_ON_MOOD_ID` (777) when ``moodList`` holds it —
+       the static "all on" mood on the maintainer's installation ("alles
+       aan" / "bright" / "on"); taking it wherever it sits in the list
+       avoids surfacing a custom mood ("cinema", "nacht") on a plain
+       turn-on just because the list happens to start with it,
+    2. otherwise the first mood of ``moodList`` that is not an off mood,
+    3. when the list is missing, empty or holds only off moods, ``plus``
+       (spec: "Changes to the next mood").
+
+    The old ``changeTo/99`` is documented nowhere and would be
+    acknowledged with 200 even if the Miniserver did not know it.  Which
+    mood actually comes up is unverified: LIVE-MINISERVER-CHECKS.md #29.
     """
+    first_non_off = None
     for mood in mood_list or ():
         if not isinstance(mood, dict):
             continue
         mood_id = mood.get("id")
         if mood_id is None or lcv2_mood_is_off(mood_id):
             continue
-        return f"changeTo/{mood_id}"
+        if lcv2_mood_id(mood_id) == ALL_ON_MOOD_ID:
+            return f"changeTo/{mood_id}"
+        if first_non_off is None:
+            first_non_off = mood_id
+    if first_non_off is not None:
+        return f"changeTo/{first_non_off}"
     return "plus"
 
 
