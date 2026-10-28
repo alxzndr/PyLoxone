@@ -73,7 +73,24 @@ def _ready(formatter) -> None:
     formatter.redact = cli._redacted_uuids(STRUCTURE)
 
 
-# --- raw and pretty formats (upstream 4230276) --------------------------------
+# --- raw and pretty formats (upstream 4230276, adc411b) -----------------------
+
+
+def test_pretty_reply_is_printed_in_full(lines):
+    """Upstream adc411b: the reply is no longer cut to its command name.
+
+    Safe in the fork because the connection never forwards auth command
+    responses (getjwt, getkey2, getvisusalt, ...) to the message
+    callback - the tool therefore never sees a token or a key.
+    """
+    formatter = cli.PrettyFormatter()
+
+    line = _capture(formatter, {"control": "dev/sps/enablebinstatusupdate", "value": "1", "Code": 200}, lines)
+
+    assert "reply" in line
+    assert "dev/sps/enablebinstatusupdate" in line
+    assert "1" in line
+    assert "code=200" in line
 
 
 def test_raw_formatter_prints_everything(lines):
