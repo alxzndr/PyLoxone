@@ -92,22 +92,30 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   controller showing mood 0, or no mood at all after the master was
   moved, claimed to be on. The state now follows the active moods (off
   moods: 0, which the structure file defines as always off, and 778, the
-  static "Aus" mood of some installations), then — in manual mode, with
-  no mood active — the master dimmer position, and failing that the
-  controller's own circuits; it stays unknown until the Miniserver has
-  reported the active moods. Upstream `e43301f` had the same idea but
-  read every controller without a master dimmer as off in manual mode
-  while its circuits were lit; this version falls back to the circuits
-  instead. (PC-33)
+  static off mood — its generated scenes read "uit" / "off" on the
+  maintainer's installation too); in manual mode, with no mood active,
+  the controller's own circuits decide, because they are the real
+  outputs: any lit output reads on even when the master sits at 0, and
+  every output dark reads off even when the master is above 0. Only
+  while no circuit level is known does the master dimmer position
+  decide, and the state stays unknown until the Miniserver has reported
+  the active moods. Upstream `e43301f` had the same idea but read every
+  controller without a master dimmer as off in manual mode while its
+  circuits were lit. (PC-33)
 - A **plain `light.turn_on`** of a light controller (no brightness, no
   effect) no longer sends the undocumented `changeTo/99` — a mood id no
   source documents, which a Miniserver would acknowledge even if it did
-  not know it. It now plays the first mood of the controller's mood list
-  that is not an off mood, or the spec word `plus` when the mood list
-  holds none; a controller that is verifiably already on still gets
-  nothing, so the call never steals a running mood. Which mood actually
-  comes up is settled by live check #29 before the release.
-  (Upstream `e43301f`/`466ea0e`)
+  not know it. It now plays mood 777 when the controller's mood list
+  holds it: the static "all on" mood, whose generated scenes read
+  "alles aan" / "bright" / "on" on the maintainer's installation.
+  Without a 777 it plays the first mood of the list that is not an off
+  mood, or the spec word `plus` when the mood list holds none — so the
+  call can no longer surface a custom mood like "cinema" or "nacht"
+  just because the list happens to start with it. A controller that is
+  verifiably already on still gets nothing, so the call never steals a
+  running mood. That the lamps really come up bright is settled by live
+  check #29 before the release. (Upstream `e43301f`/`466ea0e`; the 777
+  preference and the circuit-first order came out of the WP-7.1 review)
 - A `LightControllerV2` whose structure entry lacks one of the optional
   mood states (`moodList`, `additionalMoods`, `activeMoods`) no longer
   raises while the light platform is setting up; before, the whole
