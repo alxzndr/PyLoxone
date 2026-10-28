@@ -497,7 +497,10 @@ class WebUi:
         # to 127.0.0.1 (DNS rebinding) and read this tree — names, alarm
         # state, lastuser. Only Host headers that name the loopback on
         # this view's own port are answered (WP-7.8).
-        if request.headers.get("host", "") not in (f"127.0.0.1:{self._port}", f"localhost:{self._port}"):
+        allowed = {f"127.0.0.1:{self._port}", f"localhost:{self._port}"}
+        if self._port == 80:
+            allowed |= {"127.0.0.1", "localhost"}  # browsers omit the default port
+        if request.headers.get("host", "") not in allowed:
             return web.Response(status=400, text="Bad request: unexpected Host header")
         query = str(request.query.get("q", "")).lower().strip()
         paused = request.query.get("pause") == "1"

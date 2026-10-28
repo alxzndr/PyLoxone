@@ -60,8 +60,8 @@ SECRET_TAG = "04:1a:2b:3c:de:ad:be"
 SECRET_EVENT = "Code 4711 entered"
 
 
-def _ui(states: dict | None = None) -> cli.WebUi:
-    ui = cli.WebUi(port=8999)
+def _ui(states: dict | None = None, port: int = 8999) -> cli.WebUi:
+    ui = cli.WebUi(port=port)
     ui.set_structure(STRUCTURE)
     if states:
         ui.states.update(states)
@@ -315,6 +315,20 @@ async def test_page_refuses_foreign_host_headers():
     assert await status("evil.example") == 400
     # right ip, foreign port: not this view's request either
     assert await status("127.0.0.1:1234") == 400
+
+
+async def test_page_on_port_80_accepts_a_portless_host():
+    """Browsers omit the default port: on ``--web-port 80`` the Host
+    header is plain ``127.0.0.1``, which must not lock the user out."""
+    ui = _ui(port=80)
+
+    async def status(host: str) -> int:
+        request = make_mocked_request("GET", "/", headers={"Host": host})
+        return (await ui._page(request)).status
+
+    assert await status("127.0.0.1") == 200
+    assert await status("localhost") == 200
+    assert await status("evil.example") == 400
 
 
 def test_app_is_read_only():

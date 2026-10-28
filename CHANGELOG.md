@@ -82,7 +82,8 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   first reports one. A text written from Home Assistant percent-encodes
   only what would break the command path - a slash, a question mark, a
   hash, and the percent sign itself - so a recipe text like
-  `SET(Ap;Fav;4)` still reaches the block exactly as typed (the encoding
+  `SET(Ap;Fav;4)` or "Küche 21°C" still reaches the block exactly as typed
+  (the encoding
   still wants a look at real hardware - live check #31). A text the block
   reports back longer than its own `maxLength` is now cut to that length;
   before, Home Assistant rejected such a state outright and the entity

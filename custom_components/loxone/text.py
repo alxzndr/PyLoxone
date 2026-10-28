@@ -6,7 +6,6 @@ https://github.com/JoDehli/PyLoxone
 """
 
 import logging
-from urllib.parse import quote
 
 from homeassistant.components.text import TextEntity
 from homeassistant.config_entries import ConfigEntry
@@ -31,8 +30,10 @@ def text_input_command(value: str) -> str:
     The spec command is the new text itself, sent as one path segment of
     ``jdev/sps/io/<uuid>/<value>`` (structure file v16, TextInput:
     "Commands: {text}").  Only what breaks that path is percent-encoded —
-    ``%``, ``/``, ``?``, ``#`` (``quote`` adds its own always-unsafe set);
-    everything else goes out raw.  WP-7.3 encoded the whole value, which
+    ``%`` (first, so an existing ``%2F`` cannot pass for an escape), ``/``,
+    ``?``, ``#``; everything else goes out raw, including non-ASCII text
+    ("Küche 21°C"), which went out raw before WP-7.3.  Not ``quote()``: it
+    always encodes non-ASCII characters, whatever ``safe`` says.  WP-7.3 encoded the whole value, which
     also encoded spaces, ``(``, ``)``, ``;``, ``,`` and ``'`` — but the
     structure file says ``{uriEncodedReason}`` *explicitly* where it wants
     encoding (Alarm, Wallbox names) and TextInput's command is plain
@@ -41,7 +42,7 @@ def text_input_command(value: str) -> str:
     ``loxone.event_websocket_command`` on real hardware.  Pending live
     check ``docs/review/LIVE-MINISERVER-CHECKS.md`` #31.
     """
-    return quote(value, safe=" ()[];,:'\"!*+=@&$")
+    return value.replace("%", "%25").replace("/", "%2F").replace("?", "%3F").replace("#", "%23")
 
 
 async def async_setup_entry(

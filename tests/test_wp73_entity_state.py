@@ -196,6 +196,19 @@ async def test_set_value_sends_a_recipe_command_unchanged(hass, mock_connection,
     assert sent == [{"uuid": TEXT_INPUT_ACTION, "value": "SET(Ap;Fav;4)", "code": None}]
 
 
+async def test_set_value_sends_non_ascii_text_unchanged(hass, mock_connection, mock_entry) -> None:
+    """``urllib.parse.quote`` encodes non-ASCII whatever ``safe`` says, so
+    "Küche 21°C" went out as ``K%C3%BCche 21%C2%B0C``. Only the four
+    path-breaking characters are escaped; umlauts and symbols go out raw,
+    as they did before WP-7.3."""
+    registry = await _setup(hass, mock_connection, mock_entry)
+    entity_id = _entity_id(registry, "text", TEXT_INPUT_ACTION)
+
+    await hass.services.async_call("text", "set_value", {"entity_id": entity_id, "value": "Küche 21°C"}, blocking=True)
+    sent = [s for s in mock_connection.sent if s["uuid"] == TEXT_INPUT_ACTION]
+    assert sent == [{"uuid": TEXT_INPUT_ACTION, "value": "Küche 21°C", "code": None}]
+
+
 # --------------------------------------------------------------------------- #
 # Meter — totalFormatNeg
 # --------------------------------------------------------------------------- #
