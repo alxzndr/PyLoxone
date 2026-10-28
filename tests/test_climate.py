@@ -574,7 +574,8 @@ def test_v2_demand_event_still_wins_when_it_arrives():
 async def test_v2_preset_mode_fixed_literals_and_commands():
     """PC-32: FIXED (14) / FIXED_DYNAMIC (112) read back as stable presets;
     the schedule preset is always offered; `stop` sends `setOperatingMode/0`
-    (PC-20), never `setOperationMode/0`."""
+    (PC-20), never `setOperationMode/0`, and — WP-7.4, upstream 7561247 —
+    `stopOverride` while overridden."""
     modes = [{"id": 0, "name": "Away"}, {"id": 1, "name": "Here"}]
     states = {"activeMode": "st_active", "operatingMode": "st_op", "openWindow": "st_ow", "overrideReason": "st_ov"}
     e, out = _v2_make(states, details={"timerModes": modes, "possibleCapabilities": 3})
@@ -601,6 +602,12 @@ async def test_v2_preset_mode_fixed_literals_and_commands():
     # schedule preset -> correctly spelled command
     await e.async_set_preset_mode(PRESET_SCHEDULE)
     assert out == ["setOperatingMode/0"]
+    # WP-7.4: while overridden, "Schedule" ends the override and sends
+    # nothing that changes the operating mode (the branch c7ad8c9 dropped)
+    feed(e, {"st_ov": 3})  # comfort override
+    before = len(out)
+    await e.async_set_preset_mode(PRESET_SCHEDULE)
+    assert out[before:] == ["stopOverride"]
     await e.async_set_preset_mode("Here")
     assert out[-1] == "override/1"
     await e.async_set_preset_mode("Bogus")

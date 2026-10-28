@@ -335,6 +335,40 @@ class OperatingMode(Enum):
         raise ValueError(f"{mode} is not a valid number for {cls.__name__}")
 
 
+def schedule_preset_commands(is_overridden: bool, operating_mode: OperatingMode) -> list[str]:
+    """
+    Commands for the "Schedule" preset of an ``IRoomControllerV2`` (PC-20, PC-32).
+
+    Structure File v16, Intelligent Room Controller v2, commands (pages
+    84-85; upstream's "page 77" for ``stopOverride`` is the v17
+    pagination): ``stopOverride`` "Stops a currently running override
+    timer" and changes nothing else; ``setOperatingMode/{opMode}`` selects
+    one of ``states.operatingMode`` -- 0 = "Automatic, heating and cooling
+    allowed", 1/2 = automatic with heating/cooling only, 3-5 = manual,
+    -1 = off.
+
+    * Overridden: end the override and leave the operating mode alone.
+      0.9.23 (upstream ``7561247``) had this branch; the fork dropped it in
+      WP-4.1 (``c7ad8c9``), and since then "Schedule" always sent
+      ``setOperatingMode/0`` -- which does not end the override and moves a
+      controller that was on automatic heating (1) to heating and cooling
+      (0).  The ``and operating_mode`` half mirrors upstream's 0.10.2
+      condition (``cf51951``); an ``OperatingMode`` member is always
+      truthy, so it never changes the outcome.
+    * Not overridden: ``setOperatingMode/0``, as upstream 0.9.23/0.10.2 and
+      the fork already do.  Without an override the controller follows its
+      schedule only in an automatic mode; from a manual mode or off this is
+      the documented way back, and sending nothing would make the preset
+      silently do nothing.  Accepted trade-off: from automatic heating-only
+      or cooling-only (1/2) it also lifts that restriction.  No room
+      controller in the maintainer's house -- both branches are in
+      ``docs/review/LIVE-MINISERVER-CHECKS.md`` (#32).
+    """
+    if is_overridden and operating_mode:
+        return ["stopOverride"]
+    return ["setOperatingMode/0"]
+
+
 # Home Assistant 2026.11 renamed the temperature members a climate entity
 # implements to ``native_*`` (the old names warn until their removal in
 # 2027.11) and owns the new ``temperature_unit`` state attribute itself.
@@ -980,8 +1014,12 @@ class LoxoneRoomControllerV2(LoxoneEntity, NativeTemperatureCompat, ClimateEntit
             _LOGGER.debug("Unknown preset mode %r for %s (%s)", preset_mode, self._lox_name, self.type)
             return
         if mode_id == "stop":
-            # PC-20: the correct command is setOperatingMode/0, not setOperationMode/0
-            self._send("setOperatingMode/0")
+            # PC-20: "stop" is not a mode to override into -- it means "back to
+            # the schedule".  stopOverride while overridden, else
+            # setOperatingMode/0 (never the setOperationMode/0 typo); see the
+            # helper for the Structure File semantics.
+            for command in schedule_preset_commands(self.is_overridden, self.operating_mode):
+                self._send(command)
         else:
             self._send(f"override/{mode_id}")
         self.async_write_ha_state()
