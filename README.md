@@ -410,7 +410,8 @@ scripts/pyloxone-cli 192.168.1.10 80 admin
   values at `http://127.0.0.1:<port>` (`--web-port`, default 8124). The
   page is rendered locally with no JavaScript and reloads every two
   seconds; it is reachable from that machine only - it binds `127.0.0.1`
-  - and can change nothing.
+  and answers only requests whose `Host` header names the loopback on
+  that port - and can change nothing.
 
 `--uuid <control-uuid>` (repeatable) limits the output to one control
 with its states and sub-controls. In every format the values of the NFC

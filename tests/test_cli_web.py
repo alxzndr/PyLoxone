@@ -2,7 +2,9 @@
 
 The page is rendered entirely in Python (aiohttp) and uses a plain HTML
 ``meta http-equiv="refresh"`` for live values - no JavaScript anywhere.
-It binds ``127.0.0.1`` only and has no command endpoint (read-only).
+It binds ``127.0.0.1`` only, answers only ``Host`` headers that name the
+loopback on its own port (WP-7.8, DNS rebinding) and has no command
+endpoint (read-only).
 
 Fork rule (PS-27): credential states (``lastcode`` / ``lasttag`` /
 ``events`` of an NFC Code Touch) are redacted before they are stored,
@@ -11,6 +13,8 @@ recorded in the commit that adds them.
 """
 
 from unittest.mock import AsyncMock, Mock
+
+from aiohttp.test_utils import make_mocked_request
 
 import custom_components.loxone.pyloxone_api.__main__ as cli
 
@@ -290,6 +294,27 @@ async def test_run_binds_loopback_only_on_the_chosen_port(monkeypatch):
     await ui.stop()
 
     assert started == {"host": "127.0.0.1", "port": 8999}
+
+
+async def test_page_refuses_foreign_host_headers():
+    """WP-7.8: binding ``127.0.0.1`` alone does not keep a foreign origin
+    out.  A malicious page in the user's browser can resolve its own
+    domain to 127.0.0.1 (DNS rebinding) and read the tree - control names,
+    alarm state, ``lastuser``.  The ``Host`` header is what tells the two
+    requests apart, so only the loopback names on *this* view's port are
+    answered; everything else gets 400."""
+    ui = _ui()
+
+    async def status(host: str) -> int:
+        request = make_mocked_request("GET", "/", headers={"Host": host})
+        return (await ui._page(request)).status
+
+    assert await status("127.0.0.1:8999") == 200
+    assert await status("localhost:8999") == 200
+    assert await status("evil.example:8999") == 400
+    assert await status("evil.example") == 400
+    # right ip, foreign port: not this view's request either
+    assert await status("127.0.0.1:1234") == 400
 
 
 def test_app_is_read_only():

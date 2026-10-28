@@ -23,7 +23,9 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   `--uuid <control-uuid>` limits the output to one control with its
   states and sub-controls, and `--format web` serves a live, read-only
   structure tree on `127.0.0.1` only - rendered without JavaScript, no
-  command endpoint. Unlike upstream, which prints every state value,
+  command endpoint, and it answers only requests whose `Host` header names
+  the loopback on its own port, so a DNS-rebinding page in your browser
+  cannot read the tree. Unlike upstream, which prints every state value,
   every format here keeps the NFC Code Touch credentials hidden: the
   values of `lastcode`, `lasttag` and `events` show as `[redacted]` and
   no flag turns that off (PS-27).
