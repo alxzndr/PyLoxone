@@ -13,6 +13,40 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+### Fixed
+
+- **Changed for `LightControllerV2` automations and dashboards:** the
+  controller light now tells the truth about on/off. Its state followed
+  the active moods with one hardcoded rule ("mood 778 means off"), so a
+  controller showing mood 0, or no mood at all after the master was
+  moved, claimed to be on. The state now follows the active moods (off
+  moods: 0, which the structure file defines as always off, and 778, the
+  static "Aus" mood of some installations), then — in manual mode, with
+  no mood active — the master dimmer position, and failing that the
+  controller's own circuits; it stays unknown until the Miniserver has
+  reported the active moods. Upstream `e43301f` had the same idea but
+  read every controller without a master dimmer as off in manual mode
+  while its circuits were lit; this version falls back to the circuits
+  instead. (PC-33)
+- A **plain `light.turn_on`** of a light controller (no brightness, no
+  effect) no longer sends the undocumented `changeTo/99` — a mood id no
+  source documents, which a Miniserver would acknowledge even if it did
+  not know it. It now plays the first mood of the controller's mood list
+  that is not an off mood, or the spec word `plus` when the mood list
+  holds none; a controller that is verifiably already on still gets
+  nothing, so the call never steals a running mood. Which mood actually
+  comes up is settled by live check #29 before the release.
+  (Upstream `e43301f`/`466ea0e`)
+- A `LightControllerV2` whose structure entry lacks one of the optional
+  mood states (`moodList`, `additionalMoods`, `activeMoods`) no longer
+  raises while the light platform is setting up; before, the whole
+  platform lost its entities. (Upstream `64ad11d`, LightControllerV2
+  part)
+- The `Switch` circuit of a light controller starts as *unknown* instead
+  of carrying the string `"unknown"` as its state — a truthy value that
+  claimed the light was on before its first report. (Upstream `173d2ea`,
+  PS-02)
+
 ## 1.0.1 - 2026-10-18
 
 ### Fixed
