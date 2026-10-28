@@ -79,7 +79,10 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   only what would break the command path - a slash, a question mark, a
   hash, and the percent sign itself - so a recipe text like
   `SET(Ap;Fav;4)` still reaches the block exactly as typed (the encoding
-  still wants a look at real hardware - live check #31). Ported from
+  still wants a look at real hardware - live check #31). A text the block
+  reports back longer than its own `maxLength` is now cut to that length;
+  before, Home Assistant rejected such a state outright and the entity
+  silently kept its old value. Ported from
   upstream `6911e14`; this was finding PS-03 from 2026-09.
 - The `Total Neg` sensor of a meter that counts both directions now uses
   the control's negative-total format (`totalFormatNeg`) instead of the

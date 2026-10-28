@@ -136,7 +136,11 @@ class LoxoneText(LoxoneEntity, TextEntity):
             value = e[uuid]
             if not isinstance(value, str):
                 value = str(value)
-            self._attr_native_value = value[:MAX_TEXT_LENGTH]
+            # A state longer than the entity's ``max`` (``native_max``,
+            # here the block's maxLength, else 255) makes HA's
+            # ``TextEntity.state`` raise ValueError and the entity goes
+            # stale — cut at the entity's own max, not at 255 (WP-7.8).
+            self._attr_native_value = value[: self.max]
             self.async_write_ha_state()
 
     @property
