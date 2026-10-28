@@ -13,6 +13,21 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+### Added
+
+- The stand-alone client `scripts/pyloxone-cli` grew three output styles
+  ported from upstream (`4230276`, `adc411b`, `ecf4d65`): `--format
+  pretty` labels every state with its control and state name from the
+  structure file and timestamps it, with command replies printed in
+  full (safe because the connection never forwards auth replies),
+  `--uuid <control-uuid>` limits the output to one control with its
+  states and sub-controls, and `--format web` serves a live, read-only
+  structure tree on `127.0.0.1` only - rendered without JavaScript, no
+  command endpoint. Unlike upstream, which prints every state value,
+  every format here keeps the NFC Code Touch credentials hidden: the
+  values of `lastcode`, `lasttag` and `events` show as `[redacted]` and
+  no flag turns that off (PS-27).
+
 ## 1.0.1 - 2026-10-18
 
 ### Fixed

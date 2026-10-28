@@ -391,12 +391,31 @@ one WARNING when it drops and one INFO when it is back.
 To check the connection to a Miniserver without Home Assistant, run the
 protocol client on its own from a checkout of this repository (it needs
 `aiohttp`, `websockets` and `pycryptodome`). It asks for the password, or
-reads it from `LOXONE_PASSWORD`, and prints every state message;
+reads it from `LOXONE_PASSWORD` - the password is never a command-line
+argument, where other users could read it from the process list;
 `LOXONE_DEBUG=1` adds the protocol log:
 
 ```bash
 scripts/pyloxone-cli 192.168.1.10 80 admin
 ```
+
+`--format` picks the output style:
+
+- `raw` (the default) prints every message exactly as it arrives.
+- `pretty` prints one timestamped line per state, labelled with the
+  control and state name from the structure file, and prints command
+  replies in full.
+- `web` serves a live, read-only tree of the whole structure with state
+  values at `http://127.0.0.1:<port>` (`--web-port`, default 8124). The
+  page is rendered locally with no JavaScript and reloads every two
+  seconds; it is reachable from that machine only - it binds `127.0.0.1`
+  - and can change nothing.
+
+`--uuid <control-uuid>` (repeatable) limits the output to one control
+with its states and sub-controls. In every format the values of the NFC
+Code Touch credential states (`lastcode`, `lasttag`, `events`) show as
+`[redacted]`: the state names are visible, the values never leave the
+connection, and no flag turns this off.
 
 ## Recorder configuration
 
