@@ -23,6 +23,20 @@ logger:
     custom_components.loxone.pyloxone_api: debug
 ```
 
+To watch what a control actually publishes while you work through the
+list, the read-only way is the stand-alone client (no Home Assistant
+involved, and it never sends a command - it only prints what the
+Miniserver pushes). Watch one control's states, labelled from the
+structure file:
+
+```bash
+scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
+```
+
+`--format web` instead shows the whole structure as a live tree on
+`http://127.0.0.1:8124`. NFC reader credentials (`lastcode`, `lasttag`,
+`events`) stay redacted in every format.
+
 ---
 
 ## Blocking — these send commands to hardware
