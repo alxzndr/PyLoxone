@@ -23,10 +23,11 @@ from typing import Any
 
 import pytest
 from homeassistant.components.text import ATTR_MAX
-from homeassistant.const import STATE_UNKNOWN
+from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
+from custom_components.loxone.binary_sensor import digital_value_is_on
 
 # Hand-transcribed from tests/fixtures/LoxAPP3.json.
 TEXT_INPUT_ACTION = "63746c3a-0116-9617-ffff-57320496e707000022"
@@ -187,3 +188,80 @@ async def test_total_neg_falls_back_to_total_format(hass, mock_connection, mock_
     missing in pre-13.01 structures): fall back to "totalFormat"."""
     registry = await _setup(hass, mock_connection, mock_entry)
     assert _display_precision(registry, UNI_TOTAL_NEG) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Digital binary sensors — unknown first, and the string rule
+# --------------------------------------------------------------------------- #
+
+
+async def test_digital_sensors_unknown_until_first_value(hass, mock_connection, mock_entry) -> None:
+    """Upstream 127f42a (and the fork's own PS-02 rule): off is a
+    statement, not a guess — before the first value the sensor is
+    unknown."""
+    registry = await _setup(hass, mock_connection, mock_entry)
+    door = _entity_id(registry, "binary_sensor", MAIN_DOOR_ACTION)
+    smoke = _entity_id(registry, "binary_sensor", SMOKE_ACTION)
+
+    assert hass.states.get(door).state == STATE_UNKNOWN
+    assert hass.states.get(smoke).state == STATE_UNKNOWN
+
+    mock_connection.feed(MAIN_DOOR_ACTIVE, 1.0)
+    mock_connection.feed(SMOKE_LEVEL, 0.5)  # a smoke level above zero is an alarm
+    await hass.async_block_till_done()
+    assert hass.states.get(door).state == STATE_ON
+    assert hass.states.get(smoke).state == STATE_ON
+
+    mock_connection.feed(MAIN_DOOR_ACTIVE, 0.0)
+    mock_connection.feed(SMOKE_LEVEL, 0)
+    await hass.async_block_till_done()
+    assert hass.states.get(door).state == STATE_OFF
+    assert hass.states.get(smoke).state == STATE_OFF
+
+
+async def test_digital_sensor_numeric_string_zero_is_off(hass, mock_connection, mock_entry) -> None:
+    """Do-not-copy #5 (the bug upstream 6f90986 and the fork shared): the
+    old rule read every string except "off" as on — "0" included."""
+    registry = await _setup(hass, mock_connection, mock_entry)
+    door = _entity_id(registry, "binary_sensor", MAIN_DOOR_ACTION)
+
+    mock_connection.feed(MAIN_DOOR_ACTIVE, "1")
+    await hass.async_block_till_done()
+    assert hass.states.get(door).state == STATE_ON
+
+    mock_connection.feed(MAIN_DOOR_ACTIVE, "0")
+    await hass.async_block_till_done()
+    assert hass.states.get(door).state == STATE_OFF
+
+    # Unparsable text carries no information: the previous state stands.
+    mock_connection.feed(MAIN_DOOR_ACTIVE, "Bewegung erkannt")
+    await hass.async_block_till_done()
+    assert hass.states.get(door).state == STATE_OFF
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (True, True),
+        (False, False),
+        (1, True),
+        (2.0, True),
+        (0.5, True),
+        (0, False),
+        (0.0, False),
+        (-1, False),
+        ("1", True),
+        ("0", False),
+        ("0.0", False),
+        ("On", True),
+        (" OFF ", False),
+        ("", None),
+        ("   ", None),
+        ("Bewegung erkannt", None),
+        (None, None),
+        ([1, 2], None),
+        ({"a": 1}, None),
+    ],
+)
+def test_digital_value_parser(value: Any, expected: bool | None) -> None:
+    assert digital_value_is_on(value) is expected
