@@ -244,7 +244,7 @@ class _FakeConnection:
         self.state_cb = state_cb
         self.message_cb = callback
         state_cb(True)
-        callback({"<uuid-pos>": 1.0, "<uuid-lastcode>": SECRET_CODE})
+        callback({"<uuid-pos>": 1.0, "<uuid-lastcode>": SECRET_CODE, "<uuid-lasttag>": SECRET_TAG})
         callback({"<ctl-reader>": "irrelevant", "<uuid-up>": 0.0})
 
     async def close(self):
@@ -280,6 +280,34 @@ async def test_main_drops_messages_before_the_redaction_exists(monkeypatch, line
     # the guard is only for the unready phase: the connected feed still prints,
     # and the second canned message carries <uuid-up>.
     assert "<uuid-up>" in joined
+
+
+@pytest.mark.parametrize("format_name", ["raw", "pretty"])
+async def test_main_without_uuid_redacts_in_both_formats(monkeypatch, lines, format_name):
+    """WP-7.8 test gap: the only end-to-end ``main()`` test so far filtered
+    the NFC reader out with ``--uuid``, leaving the ``sink.redact`` wiring
+    in ``main()`` itself untested.  Without a filter everything prints —
+    so this asserts the redaction of ``lastcode``/``lasttag`` runs through
+    the real ``main()`` in both formats, while the non-credential states
+    still show."""
+    _FakeConnection.instances = []
+    monkeypatch.setattr(cli, "LoxoneConnection", _FakeConnection)
+    monkeypatch.setenv("LOXONE_PASSWORD", "not-on-the-command-line")
+
+    await cli.main(["host", "80", "admin", "--format", format_name])
+
+    joined = "\n".join(lines)
+    assert SECRET_CODE not in joined
+    assert SECRET_TAG not in joined
+    assert cli.REDACTION in joined
+    # proof the run really printed the reader and the window control: raw
+    # shows uuids, pretty shows their labels.
+    if format_name == "pretty":
+        assert "Gate reader.states.lastcode" in joined
+        assert "Fenster Buero.states.position" in joined
+    else:
+        assert "<uuid-lastcode>" in joined
+        assert "<uuid-pos>" in joined
 
 
 async def test_main_filters_by_uuid_and_redacts(monkeypatch, lines):
