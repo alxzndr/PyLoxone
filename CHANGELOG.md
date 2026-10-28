@@ -40,6 +40,15 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   `text` (default) or `number` for the PIN pad `#413` asked for. This
   changes the keypad for existing installs with a secured alarm; pick
   `number` once to keep it. Unsecured alarms ask for no code either way.
+- Binary sensors (a digital `InfoOnlyDigital`, a presence detector, a
+  smoke alarm, a YAML-configured binary sensor) now read `unknown` instead
+  of `off` until the Miniserver first reports them - `off` is a statement,
+  not a guess (finding PS-02; upstream `127f42a`). Check automations that
+  treated "has not reported yet" as "off". Text the Miniserver sends these
+  sensors is read more exactly as well: `"0"` and `"0.0"` are now off
+  instead of on, and text that says neither on nor off keeps the sensor at
+  its previous state instead of silently switching it (a bug the fork
+  shared with upstream `6f90986`; finding PS-04).
 
 ### Fixed
 
@@ -62,6 +71,20 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   the format's unit text as a whole token (`°F` / `F`, `°C` / `C`), the
   bare `°` keeps meaning the Miniserver's own unit, and anything else
   falls back as before. PC-23.
+- The settable `text` entity of a text VI (`TextInput`) never showed a
+  value. It listened on the control's action uuid, but the block sends its
+  text on the separate `text` state (structure file v16), which has its own
+  uuid; the entity now reads that state and stays `unknown` until the block
+  first reports one. A text written from Home Assistant is sent
+  percent-encoded, so a slash, a question mark or a space in it can no
+  longer break the command path (the encoding still wants a look at real
+  hardware - live check #31). Ported from upstream `6911e14`; this was
+  finding PS-03 from 2026-09.
+- The `Total Neg` sensor of a meter that counts both directions now uses
+  the control's negative-total format (`totalFormatNeg`) instead of the
+  positive one. Meters whose structure predates that detail, and meters
+  that only count one way, keep the previous format. Ported from upstream
+  `6441290`.
 
 ## 1.0.1 - 2026-10-18
 

@@ -2,9 +2,10 @@
 
 Covers the handlers that were running unexercised:
 
-* ``LoxoneCustomBinarySensor`` -- the YAML binary sensor's ``== 1.0`` mapping,
-* ``LoxoneDigitalSensor``'s remaining value-type branches (bool / text /
-  unusable payload; PS-04),
+* ``LoxoneCustomBinarySensor`` -- the YAML binary sensor through the shared
+  WP-7.3 value parser (unknown until the first value, above-zero numbers on),
+* ``LoxoneDigitalSensor``'s remaining value-type branches (bool / numeric
+  strings / on-off text / unusable payload; PS-04 + WP-7.3),
 * ``LoxoneCustomSensor`` -- list/dict stringification and the 255-char cap,
 * ``LoxoneKeepAliveSensor`` -- the 60 s throttle around the heartbeat,
 * ``LoxoneClimateController`` -- the JSON control list, the per-room demand
@@ -58,10 +59,13 @@ class TestCustomBinarySensor:
         return _detach(LoxoneCustomBinarySensor(**kwargs))
 
     def test_starts_unknown(self):
+        # WP-7.3 (upstream 127f42a): unknown until the first value, not "off".
         e = self.sensor()
         assert e._state == STATE_UNKNOWN
-        assert e.is_on is False
-        assert e.state == STATE_OFF
+        assert e.is_on is None
+        # The final base ``state`` yields ``None`` for an unknown binary
+        # sensor; Home Assistant renders that as ``unknown``.
+        assert e.state is None
 
     def test_exactly_one_is_on(self):
         e = self.sensor()
@@ -76,11 +80,12 @@ class TestCustomBinarySensor:
         assert e.is_on is False
         assert e.state == STATE_OFF
 
-    def test_any_other_value_is_off(self):
-        # The YAML sensor compares against 1.0 exactly: 2.0 reads as "off".
+    def test_above_one_is_on(self):
+        # WP-7.3: the YAML sensor used to compare against 1.0 exactly, so a
+        # level of 2.0 read as "off"; the shared parser says above zero is on.
         e = self.sensor()
         e.event_handler({CUSTOM_UUID: 2.0})
-        assert e.is_on is False
+        assert e.is_on is True
 
     def test_unrelated_event_is_ignored(self):
         e = self.sensor()
@@ -93,7 +98,7 @@ class TestCustomBinarySensor:
         assert e.uuidAction == ""
         assert e._state_uuids() == frozenset()
         e.event_handler({CUSTOM_UUID: 1.0})
-        assert e.is_on is False
+        assert e.is_on is None
 
     def test_state_uuids_is_the_action_uuid(self):
         assert self.sensor()._state_uuids() == frozenset({CUSTOM_UUID})
@@ -125,24 +130,36 @@ class TestDigitalSensorValueTypes:
         e.event_handler({DIGITAL_UUID: False})
         assert e.is_on is False
 
-    def test_text_payloads_are_on_unless_they_say_off(self):
+    def test_numeric_strings_follow_the_number_rule(self):
+        # WP-7.3, do-not-copy #5: the old rule ("on" unless the text says
+        # "off") read the strings "0" and "0.0" as on.
+        e = self.sensor()
+        e.event_handler({DIGITAL_UUID: "1"})
+        assert e.is_on is True
+        e.event_handler({DIGITAL_UUID: "0"})
+        assert e.is_on is False
+        e.event_handler({DIGITAL_UUID: "1"})
+        e.event_handler({DIGITAL_UUID: "0.0"})
+        assert e.is_on is False
+
+    def test_text_payloads_are_on_or_off_as_they_say(self):
         e = self.sensor()
         e.event_handler({DIGITAL_UUID: "On"})
         assert e.is_on is True
         e.event_handler({DIGITAL_UUID: " OFF "})
         assert e.is_on is False
-        # any other non-blank text is a *reported* state, i.e. "on"
-        e.event_handler({DIGITAL_UUID: "Bewegung erkannt"})
-        assert e.is_on is True
 
-    def test_blank_and_unusable_payloads_are_off(self):
+    def test_unparsable_text_keeps_the_previous_state(self):
+        # WP-7.3: free text is not a boolean the integration may guess at;
+        # blank, ``None`` and anything unparsable keep the previous state.
         e = self.sensor()
         e.event_handler({DIGITAL_UUID: "On"})
+        e.event_handler({DIGITAL_UUID: "Bewegung erkannt"})
+        assert e.is_on is True
         e.event_handler({DIGITAL_UUID: "   "})
-        assert e.is_on is False
-        e.event_handler({DIGITAL_UUID: "On"})
+        assert e.is_on is True
         e.event_handler({DIGITAL_UUID: None})
-        assert e.is_on is False
+        assert e.is_on is True
 
 
 # --------------------------------------------------------------------------- #

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import Any, Literal, final
+from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -90,6 +90,40 @@ _DIGITAL_CATEGORY_KEYWORDS: tuple[tuple[tuple[str, ...], BinarySensorDeviceClass
     # a breaker whose category says it powers something → power available
     (("energy", "power"), BinarySensorDeviceClass.PLUG),
 )
+
+
+def digital_value_is_on(value: object) -> bool | None:
+    """
+    Decode a digital sensor value from the wire (WP-7.3, upstream 127f42a / 6f90986).
+
+    Pure: no entity state, no HA.  ``None`` means *no information* — the
+    caller keeps its previous state (and stays ``unknown`` before the first
+    value).
+
+    * ``bool``: as it is.
+    * number: above zero is on (a smoke *level* of 0.5 or 2 is an alarm).
+    * string that parses as a number: the number rule — ``"0"`` and
+      ``"0.0"`` are off.  The shared upstream bug (do-not-copy #5) read
+      every non-``"off"`` string, ``"0"`` included, as on.
+    * ``"on"`` / ``"off"`` in any case: as they say.
+    * empty string or anything else: no information.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value > 0
+    if isinstance(value, str):
+        text = value.strip().lower()
+        try:
+            number = float(text)
+        except ValueError:
+            if text == "on":
+                return True
+            if text == "off":
+                return False
+        else:
+            return number > 0
+    return None
 
 
 def _normalize_label(label: object) -> str | None:
@@ -256,7 +290,10 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._attr_state = STATE_UNKNOWN
-        self._attr_is_on = STATE_UNKNOWN
+        # PS-02 / upstream 127f42a: no concrete state before the first
+        # value — ``None`` renders as ``unknown``, the string "unknown"
+        # used to be truthy on anything reading ``_attr_is_on`` directly.
+        self._attr_is_on = None
         self._from_loxone_config = False
 
         if "type" in kwargs and "room" in kwargs and "cat" in kwargs and hasattr(self, "states"):
@@ -349,34 +386,29 @@ class LoxoneDigitalSensor(LoxoneEntity, BinarySensorEntity):
     @callback
     def event_handler(self, e):
         if self._state_uuid in e:
-            value = e[self._state_uuid]
-            # PS-04: react to the *level*/active value itself, not the
-            # stale two-valued comparison (a sub-normal non-1.0 value such as
-            # a fraction or a missing sentinel used to read as "off").
-            if isinstance(value, bool):
-                on = value
-            elif isinstance(value, (int, float)):
-                on = value > 0
-            elif isinstance(value, str) and value.strip() != "":
-                on = value.strip().lower() != "off"
-            else:
-                on = False
+            # PS-04 + WP-7.3 (upstream 127f42a, do-not-copy #5): decode via
+            # the shared parser — a numeric payload above zero is on, the
+            # strings "0"/"0.0" are off (they used to read as on), and an
+            # empty or unusable payload keeps the previous state instead of
+            # inventing "off".
+            on = digital_value_is_on(e[self._state_uuid])
+            if on is None:
+                return
             self._state = self._on_state if on else self._off_state
             if not self._attr_available:
                 self._attr_available = True
             self.async_write_ha_state()
 
-    @final
-    @property
-    def state(self) -> Literal["on", "off"] | None:
-        """Return the state of the binary sensor."""
-        if (is_on := self.is_on) is None:
-            return None
-        return STATE_ON if is_on else STATE_OFF
-
     @property
     def is_on(self) -> bool | None:
         """Return true if sensor is on."""
+        # WP-7.3 (upstream 127f42a): ``STATE_UNKNOWN`` until the first
+        # value — no value to report yet, so neither on nor off.  The final
+        # ``BinarySensorEntity.state`` derives on/off from this and stays
+        # ``None`` (``unknown``) while we return ``None``; the old
+        # ``state`` override fought that final property and is deleted.
+        if self._state == STATE_UNKNOWN:
+            return None
         return self._state == self._on_state
 
 
@@ -406,21 +438,21 @@ class LoxoneCustomBinarySensor(LoxoneEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         """Return true if sensor is on."""
-        return self._state == self._on_state
-
-    @property
-    def state(self) -> Literal["on", "off"] | None:
-        """Return the state of the binary sensor."""
-        if (is_on := self.is_on) is None:
+        # WP-7.3 (upstream 127f42a): unknown until the first value; see
+        # ``LoxoneDigitalSensor.is_on`` — the ``state`` override of the
+        # final Home Assistant property is deleted here as well.
+        if self._state == STATE_UNKNOWN:
             return None
-        return STATE_ON if is_on else STATE_OFF
+        return self._state == self._on_state
 
     @callback
     def event_handler(self, e):
         if self.uuidAction in e:
-            data = e[self.uuidAction]
-            if data == 1.0:
-                self._state = self._on_state
-            else:
-                self._state = self._off_state
+            # WP-7.3: the same parser as the entry entities — the old
+            # ``data == 1.0`` compared against 1.0 exactly, so a level of
+            # 2.0 read as "off".
+            on = digital_value_is_on(e[self.uuidAction])
+            if on is None:
+                return
+            self._state = self._on_state if on else self._off_state
             self.async_write_ha_state()
