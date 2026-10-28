@@ -16,9 +16,46 @@ from ..helpers import device_info_for, hass_to_lox, literal_decoder, lox_to_hass
 _LOGGER = logging.getLogger(__name__)
 
 # Kelvin sent when a colour picker `turn_on` needs a temperature but none has
-# ever been reported.  The documented Loxone range is 2700-6500 (PC-39); the
-# value itself is arbitrary inside that range — VERIFY on a live Miniserver.
+# ever been reported.  The value itself is arbitrary *inside the picker's own
+# range*, so `plan_temp_turn_on` clamps it into that range (upstream
+# 7cc7c77): a 2200-3000 K block must never be sent 4000.  The value is still
+# VERIFY on a live Miniserver (PC-39; live check #13).
 DEFAULT_TURN_ON_KELVIN = 4000
+
+# Structure File v16/v17, ColorPickerV2 Details: `TWMin`/`TWMax` are "Lowest/
+# Highest color-temperature supported" with defaults 2700/6500.  They are the
+# fallback when a control's details carry no usable pair (PC-39).
+DEFAULT_MIN_KELVIN = 2700
+DEFAULT_MAX_KELVIN = 6500
+
+
+def color_temp_range(details) -> tuple[int, int]:
+    """
+    The colour-temperature range a picker supports, from its ``details``
+    (upstream ``7cc7c77``/``5867889``).
+
+    ``TWMin``/``TWMax`` (Structure File v17, ColorPickerV2 Details; the real
+    device sends them, e.g. 2200/6500 — v16 documents the same two details
+    under the names `minKelvin`/`maxKelvin`).  A missing, ``null``,
+    non-numeric or non-positive value falls back to the spec default for
+    that end; a nonsensical pair (min >= max) falls back to the pair.
+    Home Assistant would otherwise clamp every request into the hard-coded
+    2700-6500 and make the warm end of a 2200 K block unreachable.
+    """
+    details = details if isinstance(details, dict) else {}
+
+    def _kelvin(value, default):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):  # None, "", "abc", 2700.5.5, ...
+            return default
+        return value if value > 0 else default
+
+    lo = _kelvin(details.get("TWMin"), DEFAULT_MIN_KELVIN)
+    hi = _kelvin(details.get("TWMax"), DEFAULT_MAX_KELVIN)
+    if lo >= hi:
+        return DEFAULT_MIN_KELVIN, DEFAULT_MAX_KELVIN
+    return lo, hi
 
 
 def plan_turn_on(*, color_mode, hs_color, color_temp_kelvin, brightness, kwargs) -> str:
@@ -51,24 +88,37 @@ def plan_turn_on(*, color_mode, hs_color, color_temp_kelvin, brightness, kwargs)
     return f"setBrightness/{hass_to_lox(level)}"
 
 
-def plan_temp_turn_on(*, color_temp_kelvin, brightness, kwargs) -> str:
+def plan_temp_turn_on(
+    *,
+    color_temp_kelvin,
+    brightness,
+    kwargs,
+    min_kelvin: int = DEFAULT_MIN_KELVIN,
+    max_kelvin: int = DEFAULT_MAX_KELVIN,
+) -> str:
     """
     Build the outgoing command for a TunableWhite picker `turn_on`.
 
-    Defaults for the unreported state (brightness 255, a kelvin in the
-    documented 2700-6500 range) are applied *before* formatting, so a
-    `turn_on` before the first state cannot raise or emit ``None`` (PC-11).
+    Defaults for the unreported state (brightness 255, and
+    :data:`DEFAULT_TURN_ON_KELVIN` *clamped into the picker's own range*,
+    upstream ``7cc7c77``) are applied *before* formatting, so a `turn_on`
+    before the first state cannot raise or emit ``None`` (PC-11) and a
+    narrow-range picker is never sent a kelvin outside its range.
     """
     if not kwargs:
         return "On"
     level = kwargs.get(ATTR_BRIGHTNESS, brightness) or 255
-    kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN, color_temp_kelvin) or DEFAULT_TURN_ON_KELVIN
+    kelvin = kwargs.get(ATTR_COLOR_TEMP_KELVIN, color_temp_kelvin)
+    if kelvin is None:
+        kelvin = min(max(DEFAULT_TURN_ON_KELVIN, min_kelvin), max_kelvin)
     return f"temp({hass_to_lox(level)}, {kelvin})"
 
 
 class TunableWhiteLight(LoxoneEntity, LightEntity):
-    _attr_max_color_temp_kelvin = 6500
-    _attr_min_color_temp_kelvin = 2700
+    # Defaults; replaced per control from `details.TWMin`/`TWMax` in
+    # `__init__` (upstream 7cc7c77).
+    _attr_max_color_temp_kelvin = DEFAULT_MAX_KELVIN
+    _attr_min_color_temp_kelvin = DEFAULT_MIN_KELVIN
 
     _attr_supported_color_modes: set[ColorMode] = {ColorMode.COLOR_TEMP}
     _attr_available = False
@@ -80,6 +130,7 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
         self._attr_unique_id = self.uuidAction
         self._attr_color_mode = ColorMode.UNKNOWN
         self._color_uuid = kwargs.get("states", {}).get("color", None)
+        self._attr_min_color_temp_kelvin, self._attr_max_color_temp_kelvin = color_temp_range(kwargs.get("details"))
 
         self._async_add_devices = kwargs["async_add_devices"]
         self._light_controller_id = kwargs.get("lightcontroller_id")
@@ -126,6 +177,8 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
                 color_temp_kelvin=self._attr_color_temp_kelvin,
                 brightness=self._attr_brightness,
                 kwargs=kwargs,
+                min_kelvin=self._attr_min_color_temp_kelvin,
+                max_kelvin=self._attr_max_color_temp_kelvin,
             )
         )
         self.async_schedule_update_ha_state()
@@ -174,8 +227,10 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
 
 
 class RGBColorPicker(LoxoneEntity, LightEntity):
-    _attr_max_color_temp_kelvin = 6500
-    _attr_min_color_temp_kelvin = 2700
+    # Defaults; replaced per control from `details.TWMin`/`TWMax` in
+    # `__init__` (upstream 7cc7c77).
+    _attr_max_color_temp_kelvin = DEFAULT_MAX_KELVIN
+    _attr_min_color_temp_kelvin = DEFAULT_MIN_KELVIN
     _attr_available = False
 
     _attr_supported_color_modes: set[ColorMode] = {
@@ -190,6 +245,7 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
         self._attr_color_mode = ColorMode.UNKNOWN
         self._color_uuid = kwargs.get("states", {}).get("color", None)
         self._sequence_uuid = kwargs.get("states", {}).get("sequence", None)
+        self._attr_min_color_temp_kelvin, self._attr_max_color_temp_kelvin = color_temp_range(kwargs.get("details"))
 
         self._async_add_devices = kwargs["async_add_devices"]
         self._light_controller_id = kwargs.get("lightcontroller_id")
