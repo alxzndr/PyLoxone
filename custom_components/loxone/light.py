@@ -42,11 +42,11 @@ class ColorPickerTypes(StrEnum):
 
 #: Mapping of ``details.pickerType`` → picker entity class (PC-43).
 #:
-#: Newer Miniservers report the picker type as an *integer* (0 = RGB,
-#: 1 = kelvin, 2 = kelvin full-range), while older ones (and the
-#: LumiTech special case) use the string names in :class:`ColorPickerTypes`.
-#: The integer mapping is VERIFY — confirm it against a live Miniserver
-#: before relying on it.
+#: The Structure File (v16/v17, ColorPickerV2 Details) documents the type as
+#: the *strings* below, and the real device (firmware 17.2.8.28) sends the
+#: string ``"Rgb"``.  Some Miniservers were reported to send integers
+#: (0 = RGB, 1 = kelvin, 2 = kelvin full-range) instead; that mapping is
+#: documented nowhere — VERIFY against a live Miniserver (live check #13).
 PICKER_TYPE_TO_CLASS = {
     0: RGBColorPicker,
     1: TunableWhiteLight,

@@ -1422,6 +1422,46 @@
         "numUnlocked": "1efaa7ad-0226-edf3-0dff5b41adbf0226",
         "windowStates": "1efaa7ad-0227-ede4-ffff5b41adbf0227"
       }
+    },
+    "63746c3a-0240-9766-ffff-7069636b6572000240": {
+      "name": "Parlour RGB Picker",
+      "type": "ColorPickerV2",
+      "uuidAction": "63746c3a-0240-9766-ffff-7069636b6572000240",
+      "room": "726f6f6d-0101-9617-ffff-c6f7572726f6000001",
+      "cat": "6361743a-0182-96d6-ffff-f72746361743000130",
+      "details": {
+        "pickerType": "Rgb",
+        "TWMin": 2200,
+        "TWMax": 6500
+      },
+      "states": {
+        "color": "37333735-0241-9336-ffff-636f6c6f72000241",
+        "sequence": "37333735-0242-9336-ffff-73657175656e000242",
+        "sequenceColorIdx": "37333735-0243-9336-ffff-69647830000243"
+      },
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false
+    },
+    "63746c3a-0244-9766-ffff-7069636b6572000244": {
+      "name": "Parlour Tunable White",
+      "type": "ColorPickerV2",
+      "uuidAction": "63746c3a-0244-9766-ffff-7069636b6572000244",
+      "room": "726f6f6d-0101-9617-ffff-c6f7572726f6000001",
+      "cat": "6361743a-0182-96d6-ffff-f72746361743000130",
+      "details": {
+        "pickerType": "TunableWhite",
+        "TWMin": 2700,
+        "TWMax": 3500
+      },
+      "states": {
+        "color": "37333735-0245-9336-ffff-636f6c6f72000245",
+        "sequence": "37333735-0246-9336-ffff-73657175656e000246",
+        "sequenceColorIdx": "37333735-0247-9336-ffff-69647830000247"
+      },
+      "defaultRating": 0,
+      "isFavorite": false,
+      "isSecured": false
     }
   }
 }

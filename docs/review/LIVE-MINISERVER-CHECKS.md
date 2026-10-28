@@ -222,11 +222,22 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
 
 ### 13. Colour picker type mapping and default Kelvin (WP-4.3)
 
-- **The doubt:** `PICKER_TYPE_TO_CLASS` maps integer `pickerType` values
-  (`0 = RGB`, and so on), and `DEFAULT_TURN_ON_KELVIN = 4000` is a chosen default
-  for turning on a tunable-white light with no prior colour.
-- **Test:** with an RGB and a tunable-white picker, confirm each is created as the
-  right entity type and that turning on from cold produces a sensible white.
+- **The doubt:** `PICKER_TYPE_TO_CLASS` also maps integer `pickerType`
+  values (`0 = RGB`, `1`/`2 = kelvin`), and `DEFAULT_TURN_ON_KELVIN = 4000`
+  is a chosen default for turning on a picker with no prior temperature
+  (since WP-7.2 clamped into the picker's own `TWMin`/`TWMax` range).
+- **Known since (WP-7.2):** the mapping question is half settled from the
+  Structure File text (v16 and v17, ColorPickerV2 Details): the documented
+  `pickerType` values are the **strings** `Rgb` / `Lumitech` /
+  `TunableWhite`, and the maintainer's real device (firmware 17.2.8.28)
+  sends the string `"Rgb"` on all three pickers — so string handling is
+  spec-backed, not the fallback it used to be. What remains unverified is
+  the *integer* mapping (0/1/2 — documented in no spec version, seen in
+  upstream issue reports) and whether 4000 K is a sensible cold-start
+  white.
+- **Test:** on a Miniserver that reports integer picker types, confirm
+  each is created as the right entity class; on any picker, a turn-on
+  from cold should produce a sensible white inside the block's range.
 
 ### 14. Media player stop uses `pause` (PC-43)
 
@@ -616,6 +627,40 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   dark instead of bright, or jumps to a surprise mood ->
   `lcv2_plain_turn_on_command` and `ALL_ON_MOOD_ID` are the one place to
   change the command.
+
+### 30. Colour temperature range from TWMin/TWMax and the TunableWhite plain turn-on (WP-7.2)
+
+- **Where:** `color_temp_range` and `plan_temp_turn_on` in
+  `custom_components/loxone/lights/colorpickers.py`
+- **The doubt:** two halves, only one of them checkable here. Confirmed in
+  the Structure File text (v16 and v17, ColorPickerV2): `TWMin`/`TWMax` are
+  the block's colour-temperature limits with spec defaults 2700/6500 (v16
+  names the same two details `minKelvin`/`maxKelvin`; the real device sends
+  `TWMin`/`TWMax`), and the *Commands* list has `setBrightness`, `hsv()`,
+  `temp()`, `daylight()` and the `setFav`/`setSequence` words — **no**
+  `on`. So the plain TunableWhite turn-on that used to send `On` sends the
+  documented `setBrightness/<last level>` now (upstream `7cc7c77` /
+  `5867889`). Not confirmed anywhere: (a) that the Miniserver honours the
+  reported 2200 K floor as Home Assistant asks for it, (b) what the plain
+  turn-on actually does on hardware — a 200 reply proves nothing about
+  unknown commands — and (c) that the fallback 4000 K (clamped into the
+  picker's range since this change) is a sensible cold-start white.
+- **Test:** on the maintainer's house — needs `generate_lightcontroller_subcontrols`
+  on, all three pickers sit inside light controllers. From Home Assistant
+  set one RGB picker to **2200 K** (`light.turn_on` with
+  `color_temp_kelvin: 2200`; before this change the entity advertised
+  2700 K as its floor) and read the control's `color` state back. The
+  TunableWhite half — plain turn-on level recall and the clamped 4000 K
+  default — has **no TunableWhite picker in the house and stays open**;
+  run it wherever one exists.
+- **Pass:** the light visibly goes warm white and the `color` state reads
+  back `temp(<b>,2200)`. **Fail / adjust:** the lamp stays at the warmest
+  achievable 2700 or the state reads a clamped value -> the block ignores
+  its own `TWMin`, note the real floor here and clamp `color_temp_range`
+  accordingly. For the TunableWhite half: the plain turn-on must bring the
+  light back at its previous level — not full brightness, not dark; if it
+  stays dark, the picker wants `temp()` instead, and `plan_temp_turn_on`
+  is the one place to change the command.
 
 ### 31. TextInput value state and command encoding (WP-7.3, PS-03)
 

@@ -484,6 +484,28 @@
     "device_model": "LightControllerV2"
   },
   {
+    "domain": "light",
+    "entity_id": "light.parlour_parlour_rgb_picker",
+    "unique_id": "63746c3a-0240-9766-ffff-7069636b6572000240",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Parlour RGB Picker",
+    "device_model": "ColorPickerV2"
+  },
+  {
+    "domain": "light",
+    "entity_id": "light.parlour_parlour_tunable_white",
+    "unique_id": "63746c3a-0244-9766-ffff-7069636b6572000244",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Parlour Tunable White",
+    "device_model": "ColorPickerV2"
+  },
+  {
     "domain": "media_player",
     "entity_id": "media_player.parlour_parlour_audio_zone",
     "unique_id": "63746c3a-01b6-9726-ffff-f75722041756000182",

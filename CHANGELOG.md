@@ -125,6 +125,29 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   of carrying the string `"unknown"` as its state — a truthy value that
   claimed the light was on before its first report. (Upstream `173d2ea`,
   PS-02)
+- Colour pickers now know their own colour-temperature range. The
+  structure file stores it per block as `TWMin`/`TWMax` - all three of the
+  maintainer's pickers say 2200-6500 K - but the integration hard-coded
+  2700-6500, so the advertised range, and with it every dashboard slider,
+  cut off the warm 2200-2699 K band. The range now comes from the block's
+  details; 2700-6500 K stays only as the default when the details carry no
+  usable pair - a missing, `null`, non-numeric or non-positive value falls
+  back per end, a nonsensical pair (`min` >= `max`) as a whole. Ported
+  from upstream `7cc7c77`, whose first version still crashed on
+  `"TWMin": null`; that hardening is `5867889`. PC-39; live check #30.
+- A plain `light.turn_on` of a TunableWhite picker no longer sends `On`.
+  The ColorPickerV2 command list of the structure file (v16 and v17)
+  knows `setBrightness`, `hsv()` and `temp()` - but no `on`, and a
+  Miniserver answers an unknown command with 200 just the same, so `On`
+  may all along have been acknowledged and ignored. The call now resends
+  the `setBrightness` at the last known level, full brightness only when
+  no level was ever reported (upstream `7cc7c77`, keeping the level from
+  `5867889`). The fallback colour temperature for a turn-on with no known
+  temperature (4000 K) is now clamped into the picker's own range, so a
+  2200-3000 K block is no longer asked for 4000; `temp()` still never
+  carries a missing value (PC-11). Whether the light really comes back at
+  its previous level wants hardware no TunableWhite picker in this house
+  can give - live check #30.
 
 ## 1.0.1 - 2026-10-18
 

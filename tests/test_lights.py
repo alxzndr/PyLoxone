@@ -291,9 +291,19 @@ class TestRgbColorPicker:
 
     def test_min_kelvin_is_the_documented_loxone_floor(self):
         # PC-39: Loxone's documented range is 2700-6500; the old 2000
-        # floor advertised a capability the control does not have.
+        # floor advertised a capability the control does not have.  Since
+        # WP-7.2 this is only the *default* — a control with TWMin/TWMax
+        # details advertises its own range (test below).
         assert self.picker()._attr_min_color_temp_kelvin == 2700
         assert self.picker()._attr_max_color_temp_kelvin == 6500
+
+    def test_kelvin_range_comes_from_the_controls_details(self):
+        # WP-7.2 (upstream 7cc7c77): the maintainer's pickers report
+        # TWMin 2200; the hard 2700 floor made Home Assistant clamp the
+        # warm end away.
+        light = self.picker(details={"pickerType": "Rgb", "TWMin": 2200, "TWMax": 6500})
+        assert light._attr_min_color_temp_kelvin == 2200
+        assert light._attr_max_color_temp_kelvin == 6500
 
     def test_standalone_device_identifier_is_a_string(self):
         # PC-05: a standalone picker carries a real control uuidAction,
@@ -386,10 +396,22 @@ class TestTunableWhite:
         await light.async_turn_on(**{ATTR_COLOR_TEMP_KELVIN: 2700})
         assert light.hass.bus.fired[-1]["value"] == "temp(100.0, 2700)"
 
-    async def test_bare_turn_on_sends_on(self):
+    async def test_bare_turn_on_sends_set_brightness(self):
+        # WP-7.2 (upstream 7cc7c77/5867889): the ColorPickerV2 command
+        # list of the structure file (v16/v17) has no `on`, and an unknown
+        # command is answered 200 anyway — so the plain turn-on sends the
+        # documented setBrightness, at full when nothing was reported.
         light = self.light(uuidAction="ctl-pick-tw3")
         await light.async_turn_on()
-        assert light.hass.bus.fired[-1]["value"] == "On"
+        assert light.hass.bus.fired[-1]["value"] == "setBrightness/100.0"
+
+    async def test_bare_turn_on_keeps_the_last_brightness(self):
+        # upstream 5867889: not full brightness on every plain turn-on.
+        light = self.light(uuidAction="ctl-pick-tw3b")
+        light._attr_brightness = 128
+        await light.async_turn_on()
+        # hand: 128 / 255 * 100
+        assert light.hass.bus.fired[-1]["value"] == "setBrightness/50.19607843137255"
 
     async def test_turn_off_accepts_kwargs(self):
         light = self.light(uuidAction="ctl-pick-tw4")
@@ -397,8 +419,15 @@ class TestTunableWhite:
         assert light.hass.bus.fired[-1]["value"] == "setBrightness/0"
 
     def test_min_kelvin_is_the_documented_loxone_floor(self):
+        # 2700-6500 is the structure-file *default*; TWMin/TWMax details
+        # override it (WP-7.2, upstream 7cc7c77).
         assert self.light()._attr_min_color_temp_kelvin == 2700
         assert self.light()._attr_max_color_temp_kelvin == 6500
+
+    def test_kelvin_range_comes_from_the_controls_details(self):
+        light = self.light(details={"pickerType": "TunableWhite", "TWMin": 2700, "TWMax": 4000})
+        assert light._attr_min_color_temp_kelvin == 2700
+        assert light._attr_max_color_temp_kelvin == 4000
 
     def test_standalone_device_identifier_is_a_string(self):
         light = self.light()
@@ -416,14 +445,33 @@ class TestTunableWhite:
 
 def test_plan_temp_turn_on_defaults():
     # PC-11: no state yet → exact, non-raising defaults.
-    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=None, kwargs={}) == "On"
+    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=None, kwargs={}) == "setBrightness/100.0"
     assert (
         plan_temp_turn_on(color_temp_kelvin=None, brightness=None, kwargs={ATTR_BRIGHTNESS: 255}) == "temp(100.0, 4000)"
     )
-    # a bare `turn_on` (no args) means "on, keep the setpoint" — the stored
-    # values do not enter the payload
-    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=128, kwargs={}) == "On"
-    assert plan_temp_turn_on(color_temp_kelvin=5200, brightness=128, kwargs={}) == "On"
+    # a bare `turn_on` (no args) means "on, at the last known level" — the
+    # documented setBrightness, no fixed 100 % (upstream 5867889); the
+    # stored kelvin does not enter the payload
+    assert plan_temp_turn_on(color_temp_kelvin=None, brightness=128, kwargs={}) == "setBrightness/50.19607843137255"
+    assert plan_temp_turn_on(color_temp_kelvin=5200, brightness=128, kwargs={}) == "setBrightness/50.19607843137255"
+
+
+def test_plan_temp_turn_on_clamps_the_default_kelvin():
+    # WP-7.2: DEFAULT_TURN_ON_KELVIN (4000) is clamped into the picker's
+    # own range — a 2200-3000 block must not be sent 4000, a 5000-6500 one
+    # must not be sent below its floor.
+    assert (
+        plan_temp_turn_on(
+            color_temp_kelvin=None, brightness=255, kwargs={ATTR_BRIGHTNESS: 255}, min_kelvin=2200, max_kelvin=3000
+        )
+        == "temp(100.0, 3000)"
+    )
+    assert (
+        plan_temp_turn_on(
+            color_temp_kelvin=None, brightness=None, kwargs={ATTR_BRIGHTNESS: 255}, min_kelvin=5000, max_kelvin=6500
+        )
+        == "temp(100.0, 5000)"
+    )
 
 
 # --------------------------------------------------------------------------- #
