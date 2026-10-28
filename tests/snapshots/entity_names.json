@@ -309,6 +309,39 @@
   },
   {
     "domain": "light",
+    "entity_id": "light.bedroom_bedroom_light_controller",
+    "unique_id": "1d8f0a20-00b2-9766-ffff0d3a09848c7c",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Bedroom Light Controller",
+    "device_model": "LightControllerV2"
+  },
+  {
+    "domain": "light",
+    "entity_id": "light.bedroom_bedroom_light_controller_left",
+    "unique_id": "1d8f0a20-00b2-9766-ffff0d3a09848c7c/AI1",
+    "name": null,
+    "original_name": "Left",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Bedroom Light Controller",
+    "device_model": "LightControllerV2"
+  },
+  {
+    "domain": "light",
+    "entity_id": "light.bedroom_bedroom_light_controller_right",
+    "unique_id": "1d8f0a20-00b2-9766-ffff0d3a09848c7c/AI2",
+    "name": null,
+    "original_name": "Right",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Bedroom Light Controller",
+    "device_model": "LightControllerV2"
+  },
+  {
+    "domain": "light",
     "entity_id": "light.bedroom_cinema_light_1",
     "unique_id": "1cf643a3-0083-7c35-ffff47167370ed09",
     "name": null,
@@ -339,6 +372,39 @@
     "disabled": false,
     "device_name": "Standalone Dimmer",
     "device_model": "Dimmer"
+  },
+  {
+    "domain": "light",
+    "entity_id": "light.kitchen_kitchen_light_controller",
+    "unique_id": "1d8f0a10-00a1-9766-ffff0d3a09848c7c",
+    "name": null,
+    "original_name": null,
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Kitchen Light Controller",
+    "device_model": "LightControllerV2"
+  },
+  {
+    "domain": "light",
+    "entity_id": "light.kitchen_kitchen_light_controller_ceiling",
+    "unique_id": "1d8f0a10-00a1-9766-ffff0d3a09848c7c/AI1",
+    "name": null,
+    "original_name": "Ceiling",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Kitchen Light Controller",
+    "device_model": "LightControllerV2"
+  },
+  {
+    "domain": "light",
+    "entity_id": "light.kitchen_kitchen_light_controller_counter",
+    "unique_id": "1d8f0a10-00a1-9766-ffff0d3a09848c7c/AI2",
+    "name": null,
+    "original_name": "Counter",
+    "has_entity_name": true,
+    "disabled": true,
+    "device_name": "Kitchen Light Controller",
+    "device_model": "LightControllerV2"
   },
   {
     "domain": "light",
@@ -1087,6 +1153,17 @@
     "disabled": false,
     "device_name": "Entrance Intercom",
     "device_model": "IntercomV2"
+  },
+  {
+    "domain": "switch",
+    "entity_id": "switch.kitchen_kitchen_light_controller_presence_detection",
+    "unique_id": "1d8f0a10-00a1-976f-ffff0d3a09848c7c",
+    "name": null,
+    "original_name": "Presence Detection",
+    "has_entity_name": true,
+    "disabled": false,
+    "device_name": "Kitchen Light Controller",
+    "device_model": "LightControllerV2"
   },
   {
     "domain": "switch",

@@ -498,11 +498,20 @@ class TestLightControllerV2:
         assert light.hass.bus.fired[-1] == {"uuid": "ctl-lcv2-test-off", "value": "changeTo/0"}
 
     async def test_active_moods_flip_is_on(self):
+        # WP-7.1: mood 0 (spec) and 778 (upstream's observed "Aus") are
+        # off; the old rule read `[0]` and `[]` as on.  With no master and
+        # no circuits known, an empty list stays unknown.
         light = _lcv2(uuidAction="ctl-lcv2-test-moods")
         light.event_handler(_event({"st-moods": "[778]"}))
         assert light._attr_is_on is False
+        light.event_handler(_event({"st-moods": "[0, 778]"}))
+        assert light._attr_is_on is False
         light.event_handler(_event({"st-moods": "[1]"}))
         assert light._attr_is_on is True
+        light.event_handler(_event({"st-moods": "[0, 1]"}))
+        assert light._attr_is_on is True
+        light.event_handler(_event({"st-moods": "[]"}))
+        assert light._attr_is_on is None
 
     async def test_master_position_read_is_rescaled(self):
         # master min/max [10, 90]: 90 → 255, 50 → 128 (hand, as in the
