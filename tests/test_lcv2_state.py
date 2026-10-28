@@ -191,6 +191,34 @@ def test_lcv2_circuit_level(circuit_type, raw, expected):
 
 
 # --------------------------------------------------------------------------- #
+# The LCV2 `Switch` circuit (upstream 173d2ea, PS-02)
+# --------------------------------------------------------------------------- #
+def test_lcv2_switch_circuit_starts_none_not_unknown_string(loxapp3):
+    """The circuit entity built from the real fixture control starts with
+    ``is_on is None``.  The old ``_attr_is_on = STATE_UNKNOWN`` was the
+    *string* ``"unknown"`` — truthy, so ``is_on`` claimed the light was
+    on before any value ever arrived."""
+    from custom_components.loxone.lights.switch import LoxoneLightSwitch
+
+    circuit = dict(loxapp3["controls"][BED_ACTION]["subControls"][f"{BED_ACTION}/AI2"])
+    entity = LoxoneLightSwitch(
+        **{
+            "hass": object(),
+            "async_add_devices": lambda *_a, **_k: None,
+            "config_entry": None,
+            "lightcontroller_id": BED_ACTION,
+            "lightcontroller_name": "Bedroom Light Controller",
+            "enabled_default": False,
+            "room": "Bedroom",
+            "cat": "Comfort",
+            **circuit,
+        }
+    )
+    assert entity._attr_is_on is None
+    assert entity.is_on is None
+
+
+# --------------------------------------------------------------------------- #
 # Real harness: state derivation through hass.states
 # --------------------------------------------------------------------------- #
 async def test_moods_decide_is_on(hass, mock_connection, mock_entry) -> None:
