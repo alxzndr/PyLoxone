@@ -20,7 +20,6 @@ from ..helpers import (
 # Structure File v16/v17, LightControllerV2 Commands: "changeTo/{moodId}
 # ... The moodID 0 is always 'off'".
 OFF_MOOD_ID = "0"
-ON_MOOD_ID = "99"  # removed in the plain-turn-on commit
 
 #: Mood ids that mean "off" (WP-7.1, upstream `466ea0e`).
 #:
@@ -105,6 +104,30 @@ def lcv2_is_on(active_moods, master_position, circuit_levels) -> bool | None:
     if not known:
         return None
     return any(level > 0 for level in known)
+
+
+def lcv2_plain_turn_on_command(mood_list) -> str:
+    """
+    The command for a plain ``turn_on`` — no brightness, no effect (WP-7.1,
+    upstream ``e43301f`` / ``466ea0e``).
+
+    The Structure File (v16 and v17, read 2026-10-28) lists no "on"
+    command for LightControllerV2: moods are the only on/off vocabulary.
+    So play the first mood of ``moodList`` that is not an off mood; when
+    the list is missing, empty or holds only off moods, send ``plus``
+    (spec: "Changes to the next mood").  The old ``changeTo/99`` is
+    documented nowhere and would be acknowledged with 200 even if the
+    Miniserver did not know it.  Which mood actually comes up is
+    unverified: LIVE-MINISERVER-CHECKS.md #29.
+    """
+    for mood in mood_list or ():
+        if not isinstance(mood, dict):
+            continue
+        mood_id = mood.get("id")
+        if mood_id is None or lcv2_mood_is_off(mood_id):
+            continue
+        return f"changeTo/{mood_id}"
+    return "plus"
 
 
 def _numeric_level(raw) -> float | None:
@@ -319,8 +342,14 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         # master dimmer) still emits a command, so a service call never
         # silently does nothing.
         if not sent_something:
-            if not kwargs and not self._attr_is_on:
-                self._send(f"changeTo/{ON_MOOD_ID}")
+            # WP-7.1: an *unknown* state counts as "not on" — a plain
+            # turn-on of a controller whose moods have not arrived yet
+            # sends the command (this was the behaviour before, and the
+            # user asked for light).  Only a controller that is verifiably
+            # already on stays silent, so the call never steals a running
+            # mood.  `lcv2_plain_turn_on_command` names the one command.
+            if not kwargs and self._attr_is_on is not True:
+                self._send(lcv2_plain_turn_on_command(self._moodlist))
             elif kwargs:
                 self._send("on")
         self.async_schedule_update_ha_state()

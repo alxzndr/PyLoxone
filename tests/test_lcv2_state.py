@@ -39,6 +39,7 @@ from custom_components.loxone.lights.lightcontroller import (
     lcv2_is_on,
     lcv2_mood_id,
     lcv2_mood_is_off,
+    lcv2_plain_turn_on_command,
 )
 
 # --------------------------------------------------------------------------- #
@@ -143,6 +144,28 @@ def test_lcv2_is_on(active_moods, master, circuits, expected):
 
 
 @pytest.mark.parametrize(
+    ("mood_list", "expected"),
+    [
+        # first mood whose id is not an off mood; off moods at the head are
+        # skipped (upstream 466ea0e).
+        ([{"id": 3, "name": "Party"}, {"id": 0, "name": "Off"}], "changeTo/3"),
+        ([{"id": 0, "name": "Off"}, {"id": 1, "name": "On"}], "changeTo/1"),
+        ([{"id": 0, "name": "Off"}, {"id": 778, "name": "Aus"}, {"id": 12, "name": "Cozy"}], "changeTo/12"),
+        # no usable mood -> the spec word "plus" ("Changes to the next
+        # mood"), never the undocumented changeTo/99.
+        ([], "plus"),
+        (None, "plus"),
+        ([{"id": 0, "name": "Off"}, {"id": 778, "name": "Aus"}], "plus"),
+        ([{"name": "no id"}, "junk"], "plus"),
+        # non-numeric ids (the spec's "ID1" spelling) are not off ids.
+        ([{"id": "ID4", "name": "Party"}], "changeTo/ID4"),
+    ],
+)
+def test_lcv2_plain_turn_on_command(mood_list, expected):
+    assert lcv2_plain_turn_on_command(mood_list) == expected
+
+
+@pytest.mark.parametrize(
     ("circuit_type", "raw", "expected"),
     [
         ("Dimmer", 40, 40.0),
@@ -228,6 +251,64 @@ async def test_unknown_before_first_active_moods(hass, mock_connection, mock_ent
     assert hass.states.get(kitchen).state == "off"
 
 
+async def test_plain_turn_on_sends_first_non_off_mood(hass, mock_connection, mock_entry) -> None:
+    """The old code sent the undocumented `changeTo/99` (and upstream's
+    first attempt did not skip off moods)."""
+    kitchen, _ = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(KIT_MOOD_LIST, MOODS)
+    mock_connection.feed(KIT_ACTIVE_MOODS, "[0]")
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "off"
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": kitchen}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": KIT_ACTION, "value": "changeTo/3", "code": None}]
+
+
+async def test_plain_turn_on_with_only_off_moods_sends_plus(hass, mock_connection, mock_entry) -> None:
+    kitchen, _ = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(KIT_MOOD_LIST, OFF_ONLY_MOODS)
+    mock_connection.feed(KIT_ACTIVE_MOODS, "[0]")
+    await hass.async_block_till_done()
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": kitchen}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": KIT_ACTION, "value": "plus", "code": None}]
+
+
+async def test_plain_turn_on_while_on_sends_nothing(hass, mock_connection, mock_entry) -> None:
+    """A plain turn-on must not steal the running mood (also true while
+    the state is unknown — the *decision*, docstring of ``async_turn_on``:
+    unknown counts as "not on", so an unknown controller does get the
+    command)."""
+    kitchen, _ = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(KIT_MOOD_LIST, MOODS)
+    mock_connection.feed(KIT_ACTIVE_MOODS, "[3]")
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "on"
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": kitchen}, blocking=True)
+    assert mock_connection.sent[sent_before:] == []
+
+
+async def test_plain_turn_on_while_unknown_sends_mood(hass, mock_connection, mock_entry) -> None:
+    kitchen, _ = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(KIT_MOOD_LIST, MOODS)
+    mock_connection.feed(KIT_CEILING_POSITION, 0)  # available, state unknown
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "unknown"
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": kitchen}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": KIT_ACTION, "value": "changeTo/3", "code": None}]
+
+
+async def test_turn_off_still_sends_change_to_zero(hass, mock_connection, mock_entry) -> None:
+    kitchen, _ = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(KIT_ACTIVE_MOODS, "[3]")
+    await hass.async_block_till_done()
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_off", {"entity_id": kitchen}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": KIT_ACTION, "value": "changeTo/0", "code": None}]
+
+
 async def test_controller_without_optional_states_sets_up_clean(hass, mock_connection, mock_entry, caplog) -> None:
     """The Bedroom controller has neither `moodList` nor `additionalMoods`
     (both optional per the structure file).  The old direct `states[...]`
@@ -240,10 +321,14 @@ async def test_controller_without_optional_states_sets_up_clean(hass, mock_conne
         record for record in caplog.records if record.levelno >= logging.WARNING and "loxone" in record.name.lower()
     ]
     assert not platform_errors, "loxone setup logged: " + "; ".join(r.getMessage() for r in platform_errors)
-    # The controller without a mood list still switches on its moods.
+    # The controller without a mood list still switches (mood-less plain
+    # turn-on falls back to `plus`).
     mock_connection.feed(BED_ACTIVE_MOODS, "[0]")
     await hass.async_block_till_done()
     assert hass.states.get(bedroom).state == "off"
+    sent_before = len(mock_connection.sent)
+    await hass.services.async_call("light", "turn_on", {"entity_id": bedroom}, blocking=True)
+    assert mock_connection.sent[sent_before:] == [{"uuid": BED_ACTION, "value": "plus", "code": None}]
     # and the controller *with* the full state set is still there too
     # (scene generation and the effect list keep reading the mood list).
     assert hass.states.get(kitchen) is not None
