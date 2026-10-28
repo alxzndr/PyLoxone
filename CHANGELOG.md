@@ -28,6 +28,19 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   values of `lastcode`, `lasttag` and `events` show as `[redacted]` and
   no flag turns that off (PS-27).
 
+### Changed
+
+- **Secured alarms now ask for the code in a text field, not a numeric
+  keypad.** The code a secured `Alarm` wants is the user's visualisation
+  password, and Loxone does not limit it to digits; Home Assistant's keypad
+  cannot type letters, so such a user could not arm or disarm from the card
+  at all (upstream `d13ef23`, which the fork had deliberately declined for
+  `PC-06` / upstream `#413`). The input is now the new
+  [configuration option](README.md#configuration-options) `alarm_code_format`:
+  `text` (default) or `number` for the PIN pad `#413` asked for. This
+  changes the keypad for existing installs with a secured alarm; pick
+  `number` once to keep it. Unsecured alarms ask for no code either way.
+
 ### Fixed
 
 - Selecting the "Schedule" preset of a room controller (V2) while the

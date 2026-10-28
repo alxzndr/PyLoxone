@@ -598,6 +598,27 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   needs `override/{modeId}` semantics or nothing more than a docstring
   note - remap inside the helper.
 
+### 33. Secured alarm with a letter in the visualisation password (WP-7.5, upstream d13ef23, #413)
+
+- **Where:** `alarm_code_format` in
+  `custom_components/loxone/alarm_control_panel.py`, the entry option
+  `alarm_code_format`
+- **The doubt:** the code a secured `Alarm` demands is the user's
+  `visupass`; the reverse-engineering note `secured-controls.md` §3 saw no
+  digit restriction in Config's serializer, but that is an observation of
+  the binary, not of a live Miniserver. The default text field must arm and
+  disarm with a code that contains letters; the numeric keypad (`number`)
+  cannot even enter one.
+- **Test:** needs a *secured* alarm — the maintainer's house has none
+  (`isSecured: false`), so this needs another Miniserver or one temporary
+  secured alarm. Set a visualisation password with letters, arm away from
+  the card with the default option, switch the option to `number` and
+  confirm the keypad appears and a digits-only password still works. The
+  house can only confirm the negative half: the unsecured alarm keeps
+  asking for no code.
+- **Pass:** the text field arms with the letter code. **Fail:** revisit the
+  option's default with the maintainer.
+
 ---
 
 ## Regression sweep
@@ -611,7 +632,7 @@ users will notice:
 | #491 | with two Miniservers, commands reach only the intended one, and reloading one leaves the other's entities alone |
 | #514 | an expected token expiry produces no ERROR-level traceback |
 | #486, #457, #487 | connection survives a Miniserver reboot without a Home Assistant restart |
-| #413 | a secured alarm shows a numeric PIN pad, not a text field |
+| #413 | a secured alarm shows the code input the `alarm_code_format` option names — a text field (default) or the numeric PIN pad (`number`) — and arms with a lettered password through the field |
 | #501 | a Window without `targetPosition` sets up and reports position |
 | #512 | an RGB light can be turned on with brightness in one call |
 | #402 | sensors carry sensible device classes |

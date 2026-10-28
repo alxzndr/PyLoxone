@@ -91,7 +91,8 @@
           "generate_groups": "Create Loxone groups",
           "generate_scenes": "Generate scenes",
           "generate_scenes_delay": "Delay for the scene generation if enabled",
-          "generate_lightcontroller_subcontrols": "Enable LightControllerV2 subcontrols by default"
+          "generate_lightcontroller_subcontrols": "Enable LightControllerV2 subcontrols by default",
+          "alarm_code_format": "Code input for secured alarms (text field, or numeric keypad for a digits-only password)"
         }
       }
     }

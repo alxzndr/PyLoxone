@@ -111,7 +111,9 @@ something on your network could reach the Miniserver.
 Referenced by commit: #292, #323, #398, #402, #413, #416, #457, #461, #466,
 #475, #479, #481, #486, #491, #492, #501, #506, #514, #515, #517.
 
-Notable ones: #413 (alarm PIN pad showed a text field), #501 (Window without
+Notable ones: #413 (secured-alarm code entry: the fork now follows upstream
+`d13ef23`'s text field by default, with the numeric PIN pad of #413 available
+through the `alarm_code_format` option), #501 (Window without
 `targetPosition`), #506 (non-ASCII usernames), #512-adjacent RGB brightness,
 #515 (message centre as repairs, ported with credit to the original author)
 and #517 (control characters in notification texts).

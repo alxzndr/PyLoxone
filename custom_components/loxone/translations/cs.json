@@ -91,7 +91,8 @@
           "generate_groups": "Vytvářet Loxone skupiny",
           "generate_scenes": "Generovat scény",
           "generate_scenes_delay": "Zpoždění generování scén (při zapnutí)",
-          "generate_lightcontroller_subcontrols": "Standardně povolit LightControllerV2 subcontrols"
+          "generate_lightcontroller_subcontrols": "Standardně povolit LightControllerV2 subcontrols",
+          "alarm_code_format": "Zadání kódu pro zajištěné alarmy (textové pole, nebo numerická klávesnice pro číselné heslo)"
         }
       }
     }

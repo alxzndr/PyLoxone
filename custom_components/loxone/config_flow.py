@@ -35,17 +35,24 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )
 
 from .const import (
+    ALARM_CODE_FORMAT_NUMBER,
+    ALARM_CODE_FORMAT_TEXT,
+    CONF_ALARM_CODE_FORMAT,
     CONF_GENERATE_GROUPS,
     CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
     CONF_SCENE_GEN,
     CONF_SCENE_GEN_DELAY,
     CONF_VERIFY_SSL,
+    DEFAULT_ALARM_CODE_FORMAT,
     DEFAULT_DELAY_SCENE,
     DEFAULT_GENERATE_GROUPS,
     DEFAULT_PORT,
@@ -392,6 +399,9 @@ class LoxoneConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_SCENE_GEN: True,
                 CONF_SCENE_GEN_DELAY: DEFAULT_DELAY_SCENE,
                 CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN: False,
+                # WP-7.5: secured alarms ask for the code in a text field
+                # (upstream d13ef23); the keypad of #413 stays opt-in.
+                CONF_ALARM_CODE_FORMAT: DEFAULT_ALARM_CODE_FORMAT,
             },
         )
 
@@ -467,6 +477,21 @@ class LoxoneOptionsFlow(OptionsFlow):
                         CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
                         default=current.get(CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN, False),
                     ): BooleanSelector(),
+                    # WP-7.5 (upstream d13ef23, #413): code input for secured
+                    # alarms.  Defaulted to the *stored* value like every
+                    # option here (CORE-15), so saving the form never flips an
+                    # explicit choice; an entry that predates the option gets
+                    # the text field (the numeric keypad locked letter
+                    # passwords out, see const.py).
+                    vol.Required(
+                        CONF_ALARM_CODE_FORMAT,
+                        default=current.get(CONF_ALARM_CODE_FORMAT, DEFAULT_ALARM_CODE_FORMAT),
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[ALARM_CODE_FORMAT_TEXT, ALARM_CODE_FORMAT_NUMBER],
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
                 }
             ),
         )
