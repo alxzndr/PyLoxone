@@ -18,8 +18,9 @@ Expected values are hand-derived literals.  Semantics and their sources:
 * 778 — the static "Aus" mood of upstream's installation only
   (upstream ``466ea0e``; NOT in the structure file) —
   ``LIVE-MINISERVER-CHECKS.md`` #29;
-* an empty ``activeMoods`` list is manual mode and follows the master,
-  else the circuits — upstream's observation, unverified — live check #29;
+* an empty ``activeMoods`` list is manual mode and follows the circuits —
+  the real outputs — and only then the master (WP-7.1b); upstream's
+  observation of the empty list itself is unverified — live check #29;
 * plain turn-on plays mood 777 — the static "all on" mood observed on the
   maintainer's installation (scene names "alles aan" / "bright" / "on"),
   else the first non-off mood of the mood list, else the spec word
@@ -134,19 +135,26 @@ def test_lcv2_mood_is_off(value, expected):
         ([778], None, [], False),
         ([0, 778], None, [], False),
         (["0", "778"], None, [], False),
-        # Manual mode (empty list): the master decides when known...
-        ([], 0.0, [90.0], False),
-        ([], 57.0, [], True),
-        # ... otherwise the circuits; nothing known at all stays unknown.
-        ([], None, [], None),
+        # Manual mode (empty list): the circuits — the real outputs —
+        # decide first (WP-7.1b).  A master at 0 with one lit circuit
+        # reads on while a lamp burns...
+        ([], 0.0, [90.0], True),
+        # ... and a master above 0 with every circuit at 0 reads off.
+        ([], 57.0, [0.0, 0.0], False),
         ([], None, [0.0, 0.0], False),
         ([], None, [0.0, 40.0], True),
         # Upstream's `master or 0` read every masterless manual-mode
         # controller as off while its circuits were lit (gaps doc, do-not-
         # copy 1): a missing master is None here, never 0.
         ([], None, [1.0], True),
-        # Unknown circuit feeds (None entries) are skipped, not counted.
+        # The master decides only while no circuit level is known...
+        ([], 57.0, [], True),
+        ([], 0.0, [], False),
+        # ... unknown circuit feeds (None entries) are no known levels and
+        # do not outvote the master; nothing known at all stays unknown.
+        ([], 0.0, [None], False),
         ([], None, [None], None),
+        ([], None, [], None),
         ([], None, [None, 1.0], True),
     ],
 )
@@ -251,8 +259,9 @@ async def test_moods_decide_is_on(hass, mock_connection, mock_entry) -> None:
         assert hass.states.get(kitchen).state == expected, f"activeMoods {fed}"
 
 
-async def test_manual_mode_follows_master_with_master(hass, mock_connection, mock_entry) -> None:
-    """Empty `activeMoods` with a master: the master position decides."""
+async def test_manual_mode_master_decides_until_circuits_known(hass, mock_connection, mock_entry) -> None:
+    """Empty `activeMoods`, a master and no circuit level seen yet: the
+    master position decides (the WP-7.1b fallback)."""
     kitchen, _ = await _setup(hass, mock_connection, mock_entry)
     mock_connection.feed(KIT_ACTIVE_MOODS, "[]")
     mock_connection.feed(KIT_MASTER_POSITION, 0)
@@ -261,6 +270,32 @@ async def test_manual_mode_follows_master_with_master(hass, mock_connection, moc
     mock_connection.feed(KIT_MASTER_POSITION, 57)
     await hass.async_block_till_done()
     assert hass.states.get(kitchen).state == "on"
+
+
+async def test_manual_mode_circuits_outvote_the_master(hass, mock_connection, mock_entry) -> None:
+    """The circuits are the real outputs and decide before the master
+    (WP-7.1b): a master at 0 with one circuit switched on directly reads
+    on while a lamp burns, and a master above 0 with every circuit dark
+    reads off.  The old order (master first) got both wrong."""
+    kitchen, _ = await _setup(hass, mock_connection, mock_entry)
+    mock_connection.feed(KIT_ACTIVE_MOODS, "[]")
+    mock_connection.feed(KIT_MASTER_POSITION, 0)
+    mock_connection.feed(KIT_CEILING_POSITION, 0)
+    mock_connection.feed(KIT_COUNTER_ACTIVE, 0)
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "off"
+    # the counter circuit switched on directly, master still at 0 -> on
+    mock_connection.feed(KIT_COUNTER_ACTIVE, 1)
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "on"
+    # master up: circuits still decide, and they agree
+    mock_connection.feed(KIT_MASTER_POSITION, 57)
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "on"
+    # every circuit dark again -> off *despite* the master at 57
+    mock_connection.feed(KIT_COUNTER_ACTIVE, 0)
+    await hass.async_block_till_done()
+    assert hass.states.get(kitchen).state == "off"
 
 
 async def test_manual_mode_masterless_follows_circuits(hass, mock_connection, mock_entry) -> None:

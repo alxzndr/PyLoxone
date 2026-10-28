@@ -91,13 +91,17 @@ def lcv2_is_on(active_moods, master_position, circuit_levels) -> bool | None:
     * ``activeMoods == []`` — upstream observed on its installation that
       moving the master clears the mood list ("Stimmung Manuell") while
       the circuits stay lit, so an empty list is *manual mode*, decided by
-      what is known: the master position when it is known, otherwise any
-      known circuit level (dimmer ``position``, switch ``active``, picker
-      brightness).  Only when nothing at all is known does this stay
-      unknown.  Upstream's ``self._master_position_loxone or 0`` read this
-      as off on every controller *without* a master dimmer — 13 of the
-      maintainer's 20 — while their circuits were lit; a missing master is
-      ``None`` here, never ``0``.
+      the real outputs (WP-7.1b): when any circuit level is known (dimmer
+      ``position``, switch ``active``, picker brightness), on if any known
+      level is above 0 — a master at 0 with one circuit switched on
+      directly reads on while a lamp burns; only while no circuit level is
+      known does the master position decide (``master_position > 0``), and
+      a master above 0 with every circuit at 0 reads off.  Only when
+      nothing at all is known does this stay unknown.  Upstream's
+      ``self._master_position_loxone or 0`` read this as off on every
+      controller *without* a master dimmer — 13 of the maintainer's 20 —
+      while their circuits were lit; a missing master is ``None`` here,
+      never ``0``.
 
     The empty-list meaning and the mood ids behind it are unverified on
     the maintainer's Miniserver: LIVE-MINISERVER-CHECKS.md #29.
@@ -108,13 +112,15 @@ def lcv2_is_on(active_moods, master_position, circuit_levels) -> bool | None:
         return True
     if len(active_moods) > 0:
         return False  # only off ids
-    # Manual mode: master first, then the circuits.
+    # Manual mode: the circuits are the real outputs and decide first;
+    # the master position is the fallback for a controller whose circuit
+    # levels are not known (yet).
+    known = [level for level in circuit_levels if level is not None]
+    if known:
+        return any(level > 0 for level in known)
     if master_position is not None:
         return master_position > 0
-    known = [level for level in circuit_levels if level is not None]
-    if not known:
-        return None
-    return any(level > 0 for level in known)
+    return None
 
 
 def lcv2_plain_turn_on_command(mood_list) -> str:
@@ -230,7 +236,8 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
         self._master_min = None
         self._master_max = None
         # WP-7.1: the master dimmer's raw position (None = never seen);
-        # decides is_on in manual mode.
+        # WP-7.1b: the fallback that decides is_on in manual mode when no
+        # circuit level is known.
         self._master_position = None
         # WP-7.1: per-circuit level states (circuit key -> last known
         # level), subscribed whether or not
@@ -466,11 +473,14 @@ class LoxoneLightControllerV2(LoxoneEntity, LightEntity):
                 level = lcv2_circuit_level(circuit_type, event[level_uuid])
                 if level is not None:
                     self._circuit_levels[circuit_key] = level
-                request_update = True
+                    # WP-7.1b: an unparseable feed says nothing and stored
+                    # nothing — it must not schedule a state write.
+                    request_update = True
 
         if request_update:
             # WP-7.1: is_on is derived on every state change — moods
-            # first, then (manual mode) the master, then the circuits.
+            # first, then (manual mode) the circuits, then the master
+            # (WP-7.1b).
             self._attr_is_on = lcv2_is_on(
                 self._active_moods if self._active_moods_received else None,
                 self._master_position,
