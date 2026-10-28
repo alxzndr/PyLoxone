@@ -75,11 +75,12 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   value. It listened on the control's action uuid, but the block sends its
   text on the separate `text` state (structure file v16), which has its own
   uuid; the entity now reads that state and stays `unknown` until the block
-  first reports one. A text written from Home Assistant is sent
-  percent-encoded, so a slash, a question mark or a space in it can no
-  longer break the command path (the encoding still wants a look at real
-  hardware - live check #31). Ported from upstream `6911e14`; this was
-  finding PS-03 from 2026-09.
+  first reports one. A text written from Home Assistant percent-encodes
+  only what would break the command path - a slash, a question mark, a
+  hash, and the percent sign itself - so a recipe text like
+  `SET(Ap;Fav;4)` still reaches the block exactly as typed (the encoding
+  still wants a look at real hardware - live check #31). Ported from
+  upstream `6911e14`; this was finding PS-03 from 2026-09.
 - The `Total Neg` sensor of a meter that counts both directions now uses
   the control's negative-total format (`totalFormatNeg`) instead of the
   positive one. Meters whose structure predates that detail, and meters

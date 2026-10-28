@@ -662,28 +662,34 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   stays dark, the picker wants `temp()` instead, and `plan_temp_turn_on`
   is the one place to change the command.
 
-### 31. TextInput value state and command encoding (WP-7.3, PS-03)
+### 31. TextInput value state and command encoding (WP-7.3, PS-03; encoding relaxed in WP-7.8)
 
 - **Where:** `text_input_command` and `LoxoneText._value_uuid` in
   `custom_components/loxone/text.py`
 - **The doubt:** the structure file (v16 p. 145) confirms the value comes
-  as the `text` state and the command is the new text itself, but it does
-  **not** say the text has to be URI-encoded. The integration percent-
-  encodes the whole value (`urllib.parse.quote(value, safe="")`), because
-  `/`, `?`, `#` and spaces would otherwise break the
-  `jdev/sps/io/<uuid>/<text>` path, and because v16 encodes the only other
-  free-text command argument it documents (the Alarm's
-  `{uriEncodedReason}`). No TextInput in the maintainer's house, so this
-  is untestable here.
-- **Test:** on a Miniserver with a virtual text input, type a value with a
-  slash, a question mark and a space in Home Assistant (e.g. `a/b?c d`)
-  and read the block's `text` state back (Loxone app or Visualizer). Then
-  change the text in Loxone Config and watch the `text.*` entity follow.
-- **Pass:** the block holds exactly `a/b?c d` and Home Assistant shows the
-  same text back as the entity state after the block reports it.
-  **Fail:** if the block stores the percent signs literally
-  (`a%2Fb%3Fc%20d`), drop the encoding in `text_input_command`; if the
-  raw text were cut at the first `/`, keep it and note it here.
+  as the `text` state and the command is the new text itself, as one path
+  segment of `jdev/sps/io/<uuid>/<text>` — but nowhere says whether the
+  Miniserver URL-decodes that segment. WP-7.3 encoded the *whole* value;
+  the WP-7.8 review relaxed that to the characters that break the path
+  (`%`, `/`, `?`, `#`): the structure file marks encoding explicitly where
+  it wants it (`{uriEncodedReason}`), upstream `6911e14` does not encode
+  at all, and this README's own recipe has for years sent
+  `SET(Ap;Fav;4)` — parentheses and semicolons raw — through
+  `loxone.event_websocket_command` on real hardware. Whether a percent
+  sign *inside* the value survives is what remains open, and there is no
+  TextInput in the maintainer's house, so this is untestable here.
+- **Test:** on a Miniserver with a virtual text input, set the `text`
+  entity once to `SET(Ap;Fav;4)` and once to a value with a slash, a
+  question mark, a hash and a space (e.g. `a/b?c#d e`), and read the
+  block's `text` state back (Loxone app or Visualizer). Then change the
+  text in Loxone Config and watch the `text.*` entity follow.
+- **Pass:** the block holds both texts exactly as typed. **Fail:** if the
+  block stores `a%2Fb%3Fc%23d e` with the percent signs literally, the
+  Miniserver does not URL-decode — send a raw `/` and `#` through
+  `loxone.event_websocket_command` instead: if the block then holds the
+  text whole, drop the encoding in `text_input_command` entirely (the
+  README recipe was the whole truth); if the raw text is cut at the first
+  `/` or `#`, keep the encoding and note it here.
 
 ### 32. "Schedule" preset during an override (WP-7.4, PC-20/PC-32)
 

@@ -25,18 +25,23 @@ MAX_TEXT_LENGTH = 255
 
 def text_input_command(value: str) -> str:
     """
-    The wire payload for a ``TextInput`` command (WP-7.3, upstream 6911e14).
+    The wire payload for a ``TextInput`` command (WP-7.3, upstream 6911e14;
+    relaxed by the WP-7.8 review).
 
     The spec command is the new text itself, sent as one path segment of
     ``jdev/sps/io/<uuid>/<value>`` (structure file v16, TextInput:
-    "Commands: {text}").  The spec does not say the text is URI-encoded,
-    but it percent-encodes the free-text reason of the Alarm's
-    ``lockcontrol`` command exactly the same way (``{uriEncodedReason}``),
-    and a raw ``/`` ``?`` ``#`` or space breaks the path — so the value is
-    encoded here, in one place, pending live check
-    ``docs/review/LIVE-MINISERVER-CHECKS.md`` #31.
+    "Commands: {text}").  Only what breaks that path is percent-encoded —
+    ``%``, ``/``, ``?``, ``#`` (``quote`` adds its own always-unsafe set);
+    everything else goes out raw.  WP-7.3 encoded the whole value, which
+    also encoded spaces, ``(``, ``)``, ``;``, ``,`` and ``'`` — but the
+    structure file says ``{uriEncodedReason}`` *explicitly* where it wants
+    encoding (Alarm, Wallbox names) and TextInput's command is plain
+    ``{text}``, upstream ``6911e14`` does not encode, and the README
+    recipe sends ``SET(Ap;Fav;4)`` raw through
+    ``loxone.event_websocket_command`` on real hardware.  Pending live
+    check ``docs/review/LIVE-MINISERVER-CHECKS.md`` #31.
     """
-    return quote(value, safe="")
+    return quote(value, safe=" ()[];,:'\"!*+=@&$")
 
 
 async def async_setup_entry(
