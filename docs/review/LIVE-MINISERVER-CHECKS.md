@@ -569,26 +569,27 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   **Fail:** adjust the parser; if a lock blocks a control that the app
   can still switch, drop the refusal in `_send`.
 
-### 29. LightControllerV2 off moods, manual mode and plain turn-on (WP-7.1)
+### 29. LightControllerV2 off moods, manual mode and plain turn-on (WP-7.1, amended by WP-7.1b)
 
-- **Where:** `OFF_MOOD_IDS`, `lcv2_is_on` and `lcv2_plain_turn_on_command`
-  in `custom_components/loxone/lights/lightcontroller.py`
-- **The doubt:** three stacked guesses, ported from upstream `e43301f` /
-  `466ea0e` and only partly spec-backed. Confirmed in the Structure File
-  (v16 and v17 text): `changeTo/{moodId}` exists, "The moodID 0 is always
-  'off'", and `plus` is "Changes to the next mood" — and the command list
-  has **no** other "on" command, so mood-picking is the only documented
-  vocabulary. Not confirmed anywhere: (a) that **778** is an off mood on
-  this Miniserver — it is upstream's observed static "Aus" id and appears
-  in no spec; (b) that an **empty `activeMoods` list means manual mode**
-  ("Stimmung Manuell", the master clears the list while circuits stay
-  lit) — one upstream observation on one installation; (c) what the
-  **plain turn-on** should actually be — the old `changeTo/99` was
-  documented nowhere, and a 200 reply never proves a command exists, so
-  the first non-off mood of the mood list (fallback `plus`) must be
-  judged by what the lights do, not by the reply. The real device also
-  streams an `activeMoodsNum` state the structure file does not document
-  (the integration ignores it; if (b) fails, it may be the tiebreaker).
+- **Where:** `OFF_MOOD_IDS`, `ALL_ON_MOOD_ID`, `lcv2_is_on` and
+  `lcv2_plain_turn_on_command` in
+  `custom_components/loxone/lights/lightcontroller.py`
+- **The doubt:** the mood *ids* are no longer guessed — the Home
+  Assistant registry of the maintainer's installation generates one
+  scene per mood, unique-id ending in the mood id, name being the mood
+  name, and it reads mood **777** as "alles aan" / "bright" / "on" and
+  mood **778** as "uit" / "off" on every controller (777 and 778 appear
+  in no Structure File version, and 0 is "always off" per the spec).
+  What stays unverified on the live device is the *behaviour*: (a) that
+  an **empty `activeMoods` list means manual mode** ("Stimmung Manuell",
+  the master clears the list while circuits stay lit) — one upstream
+  observation on one installation; and (b) that the commands actually do
+  what the ids suggest — `changeTo/777` on plain turn-on (the old
+  `changeTo/99` was documented nowhere) must be judged by what the lamps
+  do, not by the reply, since a 200 never proves a command exists. The
+  real device also streams an `activeMoodsNum` state the structure file
+  does not document (the integration ignores it; if (a) fails, it may be
+  the tiebreaker).
 - **Test:** read-only first — watch `activeMoods` and `activeMoodsNum`
   (raw websocket state feed, or an automation on the `loxone_event`
   bus event) while
@@ -601,13 +602,20 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   one without.
 - **Pass:** off in the app reads `off` in HA (whatever id the app
   reports — if the app's off mood is an id other than 0 or 778, note
-  it); manual mode after (c)/(d) shows on while any circuit is lit; the
-  plain turn-on lights the room without changing an already-lit one.
+  it); manual mode after (c)/(d) follows the **circuits first**: on
+  while any circuit is lit even with the master at 0, off when every
+  circuit is dark even with the master above 0, and the master position
+  decides only until the first circuit level arrives; the plain
+  turn-on plays mood **777** ("alles aan") whenever the controller's
+  mood list holds it and lights the room bright without changing an
+  already-lit one — only a controller without a 777 falls back to the
+  first non-off mood or `plus`.
   **Fail / adjust:** a wrong off id -> add it to `OFF_MOOD_IDS` (with a
   comment naming where it came from); manual mode misread -> `lcv2_is_on`
-  (its fallback chain is master -> circuits -> unknown); plain turn-on
+  (its fallback chain is circuits -> master -> unknown); plain turn-on
   dark instead of bright, or jumps to a surprise mood ->
-  `lcv2_plain_turn_on_command` is the one place to change the command.
+  `lcv2_plain_turn_on_command` and `ALL_ON_MOOD_ID` are the one place to
+  change the command.
 
 ### 31. TextInput value state and command encoding (WP-7.3, PS-03)
 
