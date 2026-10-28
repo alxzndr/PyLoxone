@@ -13,7 +13,8 @@ asserted on ``mock_connection.sent``.
 Semantics and their sources:
 
 * ``TWMin``/``TWMax`` are the ColorPickerV2 details with spec defaults
-  2700/6500 — Structure File v16 (under the names ``minKelvin``/``maxKelvin``)
+  2700/6500 — Structure File v16 (under the names ``minKelvin``/``maxKelvin``,
+  which ``color_temp_range`` reads as a fallback since WP-7.8)
   and v17, confirmed in the spec text; the real device (firmware
   17.2.8.28) sends ``TWMin``/``TWMax`` and all three of the maintainer's
   pickers say 2200-6500, so a hard 2700 floor made Home Assistant clamp
@@ -66,6 +67,13 @@ async def _setup(hass, mock_connection, mock_entry):
     [
         # the real shape (all three of the maintainer's pickers)
         ({"pickerType": "Rgb", "TWMin": 2200, "TWMax": 6500}, (2200, 6500)),
+        # Structure File v16 names the same two details
+        # ``minKelvin``/``maxKelvin`` (WP-7.8: read as a fallback; the v16
+        # spec examples are 2700 / 8500).
+        ({"pickerType": "Rgb", "minKelvin": 2200, "maxKelvin": 8500}, (2200, 8500)),
+        ({"minKelvin": 3000}, (3000, 6500)),
+        # the v17 names win when a structure carries both
+        ({"TWMin": 2200, "TWMax": 6500, "minKelvin": 2700, "maxKelvin": 8500}, (2200, 6500)),
         # missing details / missing or null values -> spec defaults (upstream
         # 5867889: `.get("TWMin", 2700)` alone still crashed on `int(None)`)
         (None, (2700, 6500)),

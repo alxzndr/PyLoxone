@@ -23,10 +23,14 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   `--uuid <control-uuid>` limits the output to one control with its
   states and sub-controls, and `--format web` serves a live, read-only
   structure tree on `127.0.0.1` only - rendered without JavaScript, no
-  command endpoint. Unlike upstream, which prints every state value,
+  command endpoint, and it answers only requests whose `Host` header names
+  the loopback on its own port, so a DNS-rebinding page in your browser
+  cannot read the tree. Unlike upstream, which prints every state value,
   every format here keeps the NFC Code Touch credentials hidden: the
   values of `lastcode`, `lasttag` and `events` show as `[redacted]` and
-  no flag turns that off (PS-27).
+  no flag turns that off (PS-27); until that redaction is built from the
+  structure file, a state message is dropped rather than printed
+  unredacted.
 
 ### Changed
 
@@ -75,11 +79,15 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   value. It listened on the control's action uuid, but the block sends its
   text on the separate `text` state (structure file v16), which has its own
   uuid; the entity now reads that state and stays `unknown` until the block
-  first reports one. A text written from Home Assistant is sent
-  percent-encoded, so a slash, a question mark or a space in it can no
-  longer break the command path (the encoding still wants a look at real
-  hardware - live check #31). Ported from upstream `6911e14`; this was
-  finding PS-03 from 2026-09.
+  first reports one. A text written from Home Assistant percent-encodes
+  only what would break the command path - a slash, a question mark, a
+  hash, and the percent sign itself - so a recipe text like
+  `SET(Ap;Fav;4)` still reaches the block exactly as typed (the encoding
+  still wants a look at real hardware - live check #31). A text the block
+  reports back longer than its own `maxLength` is now cut to that length;
+  before, Home Assistant rejected such a state outright and the entity
+  silently kept its old value. Ported from
+  upstream `6911e14`; this was finding PS-03 from 2026-09.
 - The `Total Neg` sensor of a meter that counts both directions now uses
   the control's negative-total format (`totalFormatNeg`) instead of the
   positive one. Meters whose structure predates that detail, and meters
@@ -132,7 +140,10 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   cut off the warm 2200-2699 K band. The range now comes from the block's
   details; 2700-6500 K stays only as the default when the details carry no
   usable pair - a missing, `null`, non-numeric or non-positive value falls
-  back per end, a nonsensical pair (`min` >= `max`) as a whole. Ported
+  back per end, a nonsensical pair (`min` >= `max`) as a whole. Structure
+  file v16 names the same two details `minKelvin`/`maxKelvin`, so a firmware
+  that uses those names is read too: each end falls back to the v16 name
+  when its `TW*` key is missing. Ported
   from upstream `7cc7c77`, whose first version still crashed on
   `"TWMin": null`; that hardening is `5867889`. PC-39; live check #30.
 - A plain `light.turn_on` of a TunableWhite picker no longer sends `On`.

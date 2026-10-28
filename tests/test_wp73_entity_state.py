@@ -5,7 +5,8 @@ handlers (fork rule: no ``__new__``/``SimpleNamespace`` harness):
 
 * the writable ``text`` entity of a ``TextInput`` reads its value from the
   ``text`` *state* (PS-03; it listened on ``uuidAction``, a stream no
-  Miniserver publishes on), and sends commands URI-encoded;
+  Miniserver publishes on), and sends the new text as the command with
+  only the path-breaking characters percent-encoded (WP-7.8);
 * a bidirectional ``Meter``'s ``Total Neg`` register is formatted with
   ``totalFormatNeg``, falling back to ``totalFormat`` (upstream 6441290);
 * digital binary sensors read ``unknown`` until their first value and the
@@ -19,6 +20,7 @@ shared fixture file is owned by another work package).
 from __future__ import annotations
 
 import copy
+import logging
 from typing import Any
 
 import pytest
@@ -150,13 +152,48 @@ async def test_text_without_a_text_state_falls_back_to_uuid_action(hass, mock_co
 async def test_set_value_sends_the_uri_encoded_text(hass, mock_connection, mock_entry) -> None:
     """The command is the text itself on the control
     (jdev/sps/io/<uuid>/<text>) — characters that break that path must not
-    go out raw."""
+    go out raw (WP-7.8: exactly the ``%`` ``/`` ``?`` ``#``; the percent
+    sign itself first, so ``%2F`` cannot masquerade as an encoding)."""
     registry = await _setup(hass, mock_connection, mock_entry)
     entity_id = _entity_id(registry, "text", TEXT_INPUT_ACTION)
 
-    await hass.services.async_call("text", "set_value", {"entity_id": entity_id, "value": "a/b c"}, blocking=True)
+    await hass.services.async_call("text", "set_value", {"entity_id": entity_id, "value": "a/b%c"}, blocking=True)
     sent = [s for s in mock_connection.sent if s["uuid"] == TEXT_INPUT_ACTION]
-    assert sent == [{"uuid": TEXT_INPUT_ACTION, "value": "a%2Fb%20c", "code": None}]
+    assert sent == [{"uuid": TEXT_INPUT_ACTION, "value": "a%2Fb%25c", "code": None}]
+
+
+async def test_incoming_value_is_cut_to_the_entity_max(hass, mock_connection, mock_entry, caplog) -> None:
+    """WP-7.8: ``native_max`` comes from the block's ``maxLength`` (20 in
+    the fixture) but the handler only cut incoming text at 255 — and Home
+    Assistant raises ``ValueError`` ("too long (maximum length 20)") when
+    an entity's state exceeds ``max``, leaving the entity stale.  Incoming
+    values are truncated to the entity's max."""
+    registry = await _setup(hass, mock_connection, mock_entry)
+    entity_id = _entity_id(registry, "text", TEXT_INPUT_ACTION)
+
+    with caplog.at_level(logging.ERROR):
+        mock_connection.feed(TEXT_INPUT_TEXT_STATE, "a" * 25)
+        await hass.async_block_till_done()
+
+    assert hass.states.get(entity_id).state == "a" * 20
+    assert "too long" not in caplog.text
+
+
+async def test_set_value_sends_a_recipe_command_unchanged(hass, mock_connection, mock_entry) -> None:
+    """WP-7.8: the README recipe sends ``SET(Ap;Fav;4)`` to a virtual text
+    input through ``loxone.event_websocket_command`` — raw, and it works on
+    real hardware.  Whole-value percent-encoding (WP-7.3) turned that into
+    ``SET%28Ap%3BFav%3B4%29``; the block then sees the encoded text if the
+    Miniserver does not URL-decode.  Parentheses, semicolons and spaces go
+    out as they came."""
+    registry = await _setup(hass, mock_connection, mock_entry)
+    entity_id = _entity_id(registry, "text", TEXT_INPUT_ACTION)
+
+    await hass.services.async_call(
+        "text", "set_value", {"entity_id": entity_id, "value": "SET(Ap;Fav;4)"}, blocking=True
+    )
+    sent = [s for s in mock_connection.sent if s["uuid"] == TEXT_INPUT_ACTION]
+    assert sent == [{"uuid": TEXT_INPUT_ACTION, "value": "SET(Ap;Fav;4)", "code": None}]
 
 
 # --------------------------------------------------------------------------- #

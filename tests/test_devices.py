@@ -26,7 +26,7 @@ from types import SimpleNamespace
 import pytest
 from homeassistant.const import EntityCategory
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import area_registry as ar, device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.loxone import DOMAIN
@@ -117,6 +117,21 @@ def _find_device(device_registry, identifier: tuple[str, str]):
         if identifier in device.identifiers:
             return device
     return None
+
+
+def _area_name(hass, device) -> str | None:
+    """The device's area name, resolved through the area registry.
+
+    ``DeviceEntry.suggested_area`` was removed in Home Assistant 2026.11;
+    the integration only *passes* ``suggested_area`` in device info, which
+    is still supported and lands as the device's area.  Resolving
+    ``device.area_id`` via the area registry is the version-stable way to
+    assert the room became the area (2026.8 / 2026.9 / 2026.11).
+    """
+    if device.area_id is None:
+        return None
+    area = ar.async_get(hass).async_get_area(device.area_id)
+    return area.name if area is not None else None
 
 
 # --------------------------------------------------------------------------- #
@@ -416,14 +431,14 @@ async def test_device_registry_snapshot_after_setup(
     assert fan_device is not None
     assert fan_device.name == FAN_NAME
     assert fan_device.model == DEVICE_TYPE_VENTILATION
-    assert fan_device.suggested_area == FAN_ROOM
+    assert _area_name(hass, fan_device) == FAN_ROOM
     assert fan_device.via_device_id == ms_device.id
 
     lcv2_device = _find_device(device_registry, (DOMAIN, LCV2_UUID))
     assert lcv2_device is not None
     assert lcv2_device.name == LCV2_NAME
     assert lcv2_device.model == "LightControllerV2"
-    assert lcv2_device.suggested_area == LCV2_ROOM
+    assert _area_name(hass, lcv2_device) == LCV2_ROOM
     assert lcv2_device.via_device_id == ms_device.id
 
     dimmer_device = _find_device(device_registry, (DOMAIN, DIMMER_UUID))
@@ -436,7 +451,7 @@ async def test_device_registry_snapshot_after_setup(
     assert temp_device is not None
     assert temp_device.name == TEMP_NAME
     assert temp_device.model == DEVICE_TYPE_ANALOG
-    assert temp_device.suggested_area == TEMP_ROOM
+    assert _area_name(hass, temp_device) == TEMP_ROOM
     assert temp_device.via_device_id == ms_device.id
 
     # the pre-fix symptom: the first sub-sensor written seeded the shared

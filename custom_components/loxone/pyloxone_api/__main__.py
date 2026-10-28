@@ -7,7 +7,10 @@ Run it through the launcher, which loads this package on its own::
 
 Without ``--format`` the output is ``raw``. ``web`` instead serves a page
 on ``127.0.0.1`` that shows the structure file as a tree with live state
-values (see :class:`WebUi`); the local port follows ``--web-port``.
+values (see :class:`WebUi`); the local port follows ``--web-port``. Only
+requests whose ``Host`` header names the loopback on that port are
+answered, which keeps a DNS-rebinding page in the user's browser from
+reading the tree.
 
 ``--uuid`` limits the output to one or more controls, including all their
 states and sub-controls. The password is asked for (or read from
@@ -489,6 +492,13 @@ class WebUi:
         return app
 
     async def _page(self, request) -> web.Response:
+        # Binding 127.0.0.1 alone does not keep a foreign origin out: a
+        # malicious page in the user's browser can resolve its own domain
+        # to 127.0.0.1 (DNS rebinding) and read this tree — names, alarm
+        # state, lastuser. Only Host headers that name the loopback on
+        # this view's own port are answered (WP-7.8).
+        if request.headers.get("host", "") not in (f"127.0.0.1:{self._port}", f"localhost:{self._port}"):
+            return web.Response(status=400, text="Bad request: unexpected Host header")
         query = str(request.query.get("q", "")).lower().strip()
         paused = request.query.get("pause") == "1"
         return web.Response(text=self._render_page(query, paused), content_type="text/html")
@@ -545,13 +555,19 @@ async def main(argv: list[str]) -> int:
         sink = FORMATTERS[args.format]()
     api = LoxoneConnection(host=args.host, port=args.port, username=args.username, password=password)
     wanted: frozenset[str] | None = None
+    # WP-7.8 fail-closed: sink.redact is derived from the structure file,
+    # which only exists once on_state(True) has run. Until then the
+    # default path drops dict messages, exactly like --uuid mode drops
+    # them while `wanted` is None — nothing can be printed unredacted.
+    redaction_ready = False
 
     def on_state(connected: bool) -> None:
-        nonlocal wanted
+        nonlocal wanted, redaction_ready
         # The structure file is loaded before the connection is reported up.
         if connected:
             sink.labels = _state_labels(api.structure_file)
             sink.redact = _redacted_uuids(api.structure_file)
+            redaction_ready = True
             if isinstance(sink, WebUi):
                 sink.set_structure(api.structure_file)
         sink.connection(connected)
@@ -564,6 +580,8 @@ async def main(argv: list[str]) -> int:
 
     def on_message(data) -> None:
         if not args.uuid:
+            if isinstance(data, dict) and not redaction_ready:
+                return
             sink.message(data)
             return
         if wanted is None or not isinstance(data, dict):
