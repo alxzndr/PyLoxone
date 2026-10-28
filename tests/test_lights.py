@@ -452,11 +452,28 @@ def _lcv2(**overrides):
 
 
 class TestLightControllerV2:
-    async def test_bare_turn_on_while_off_sends_on_mood(self):
+    async def test_bare_turn_on_while_off_sends_first_non_off_mood(self):
+        # WP-7.1 (upstream e43301f/466ea0e): the old `changeTo/99` is
+        # documented nowhere and a plain turn-on skipped no off moods.
         light = _lcv2()
         light._attr_is_on = False
+        light._moodlist = [
+            {"id": 0, "name": "Off"},
+            {"id": 778, "name": "Aus"},
+            {"id": 3, "name": "Ambient"},
+        ]
         await light.async_turn_on()
-        assert light.hass.bus.fired[-1] == {"uuid": "ctl-lcv2-test", "value": "changeTo/99"}
+        assert light.hass.bus.fired[-1] == {"uuid": "ctl-lcv2-test", "value": "changeTo/3"}
+
+    async def test_bare_turn_on_without_usable_moods_sends_plus(self):
+        # Mood list missing, empty or only off moods -> spec `plus`.
+        light = _lcv2(uuidAction="ctl-lcv2-test-plus")
+        light._attr_is_on = False
+        await light.async_turn_on()
+        assert light.hass.bus.fired[-1] == {"uuid": "ctl-lcv2-test-plus", "value": "plus"}
+        light._moodlist = [{"id": 0, "name": "Off"}, {"id": 778, "name": "Aus"}]
+        await light.async_turn_on()
+        assert light.hass.bus.fired[-1] == {"uuid": "ctl-lcv2-test-plus", "value": "plus"}
 
     async def test_bare_turn_on_while_on_sends_nothing(self):
         light = _lcv2(uuidAction="ctl-lcv2-test-on")
@@ -498,11 +515,20 @@ class TestLightControllerV2:
         assert light.hass.bus.fired[-1] == {"uuid": "ctl-lcv2-test-off", "value": "changeTo/0"}
 
     async def test_active_moods_flip_is_on(self):
+        # WP-7.1: mood 0 (spec) and 778 (upstream's observed "Aus") are
+        # off; the old rule read `[0]` and `[]` as on.  With no master and
+        # no circuits known, an empty list stays unknown.
         light = _lcv2(uuidAction="ctl-lcv2-test-moods")
         light.event_handler(_event({"st-moods": "[778]"}))
         assert light._attr_is_on is False
+        light.event_handler(_event({"st-moods": "[0, 778]"}))
+        assert light._attr_is_on is False
         light.event_handler(_event({"st-moods": "[1]"}))
         assert light._attr_is_on is True
+        light.event_handler(_event({"st-moods": "[0, 1]"}))
+        assert light._attr_is_on is True
+        light.event_handler(_event({"st-moods": "[]"}))
+        assert light._attr_is_on is None
 
     async def test_master_position_read_is_rescaled(self):
         # master min/max [10, 90]: 90 → 255, 50 → 128 (hand, as in the

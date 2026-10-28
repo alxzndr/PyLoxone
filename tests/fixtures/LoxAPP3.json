@@ -824,6 +824,129 @@
         }
       }
     },
+    "1d8f0a10-00a1-9766-ffff0d3a09848c7c": {
+      "name": "Kitchen Light Controller",
+      "type": "LightControllerV2",
+      "uuidAction": "1d8f0a10-00a1-9766-ffff0d3a09848c7c",
+      "room": "726f6f6d-0103-9697-ffff-368656e726f6000003",
+      "cat": "6361743a-0182-96d6-ffff-f72746361743000130",
+      "details": {
+        "masterValue": "1d8f0a10-00a1-9766-ffff0d3a09848c7c/masterValue",
+        "icon": true
+      },
+      "states": {
+        "activeMoods": "1d8f0a10-00a1-9767-ffff0d3a09848c7c",
+        "activeMoodsNum": "1d8f0a10-00a1-9768-ffff0d3a09848c7c",
+        "additionalMoods": "1d8f0a10-00a1-9769-ffff0d3a09848c7c",
+        "circuitNames": "1d8f0a10-00a1-976a-ffff0d3a09848c7c",
+        "daylightConfig": "1d8f0a10-00a1-976b-ffff0d3a09848c7c",
+        "favoriteMoods": "1d8f0a10-00a1-976c-ffff0d3a09848c7c",
+        "jLocked": "1d8f0a10-00a1-976d-ffff0d3a09848c7c",
+        "moodList": "1d8f0a10-00a1-976e-ffff0d3a09848c7c",
+        "presence": "1d8f0a10-00a1-976f-ffff0d3a09848c7c"
+      },
+      "defaultRating": 2,
+      "isFavorite": true,
+      "isSecured": false,
+      "restrictions": 0,
+      "subControls": {
+        "1d8f0a10-00a1-9766-ffff0d3a09848c7c/AI1": {
+          "name": "Ceiling",
+          "type": "Dimmer",
+          "uuidAction": "1d8f0a10-00a1-9766-ffff0d3a09848c7c/AI1",
+          "details": {},
+          "states": {
+            "position": "1d8f0a10-00a1-9770-ffff0d3a09848c7c",
+            "min": "1d8f0a10-00a1-9771-ffff0d3a09848c7c",
+            "max": "1d8f0a10-00a1-9772-ffff0d3a09848c7c",
+            "step": "1d8f0a10-00a1-9773-ffff0d3a09848c7c"
+          },
+          "defaultRating": 0,
+          "isFavorite": false,
+          "isSecured": false
+        },
+        "1d8f0a10-00a1-9766-ffff0d3a09848c7c/AI2": {
+          "name": "Counter",
+          "type": "Switch",
+          "uuidAction": "1d8f0a10-00a1-9766-ffff0d3a09848c7c/AI2",
+          "details": {},
+          "states": {
+            "active": "1d8f0a10-00a1-9774-ffff0d3a09848c7c",
+            "jLocked": "1d8f0a10-00a1-9775-ffff0d3a09848c7c",
+            "lockedOn": "1d8f0a10-00a1-9776-ffff0d3a09848c7c"
+          },
+          "defaultRating": 0,
+          "isFavorite": false,
+          "isSecured": false
+        },
+        "1d8f0a10-00a1-9766-ffff0d3a09848c7c/masterValue": {
+          "name": "Master Brightness",
+          "type": "Dimmer",
+          "uuidAction": "1d8f0a10-00a1-9766-ffff0d3a09848c7c/masterValue",
+          "details": {},
+          "states": {
+            "position": "1d8f0a10-00a1-9777-ffff0d3a09848c7c",
+            "min": "1d8f0a10-00a1-9778-ffff0d3a09848c7c",
+            "max": "1d8f0a10-00a1-9779-ffff0d3a09848c7c",
+            "step": "1d8f0a10-00a1-977a-ffff0d3a09848c7c"
+          },
+          "defaultRating": 0,
+          "isFavorite": false,
+          "isSecured": false
+        }
+      }
+    },
+    "1d8f0a20-00b2-9766-ffff0d3a09848c7c": {
+      "name": "Bedroom Light Controller",
+      "type": "LightControllerV2",
+      "uuidAction": "1d8f0a20-00b2-9766-ffff0d3a09848c7c",
+      "room": "726f6f6d-0104-9656-ffff-26f6f6d726f6000004",
+      "cat": "6361743a-0182-96d6-ffff-f72746361743000130",
+      "details": {
+        "icon": true
+      },
+      "states": {
+        "activeMoods": "1d8f0a20-00b3-9766-ffff0d3a09848c7c",
+        "activeMoodsNum": "1d8f0a20-00b4-9766-ffff0d3a09848c7c",
+        "circuitNames": "1d8f0a20-00b5-9766-ffff0d3a09848c7c",
+        "jLocked": "1d8f0a20-00b6-9766-ffff0d3a09848c7c"
+      },
+      "defaultRating": 2,
+      "isFavorite": false,
+      "isSecured": false,
+      "restrictions": 0,
+      "subControls": {
+        "1d8f0a20-00b2-9766-ffff0d3a09848c7c/AI1": {
+          "name": "Left",
+          "type": "Dimmer",
+          "uuidAction": "1d8f0a20-00b2-9766-ffff0d3a09848c7c/AI1",
+          "details": {},
+          "states": {
+            "position": "1d8f0a20-00b7-9766-ffff0d3a09848c7c",
+            "min": "1d8f0a20-00b8-9766-ffff0d3a09848c7c",
+            "max": "1d8f0a20-00b9-9766-ffff0d3a09848c7c",
+            "step": "1d8f0a20-00ba-9766-ffff0d3a09848c7c"
+          },
+          "defaultRating": 0,
+          "isFavorite": false,
+          "isSecured": false
+        },
+        "1d8f0a20-00b2-9766-ffff0d3a09848c7c/AI2": {
+          "name": "Right",
+          "type": "Switch",
+          "uuidAction": "1d8f0a20-00b2-9766-ffff0d3a09848c7c/AI2",
+          "details": {},
+          "states": {
+            "active": "1d8f0a20-00bb-9766-ffff0d3a09848c7c",
+            "jLocked": "1d8f0a20-00bc-9766-ffff0d3a09848c7c",
+            "lockedOn": "1d8f0a20-00bd-9766-ffff0d3a09848c7c"
+          },
+          "defaultRating": 0,
+          "isFavorite": false,
+          "isSecured": false
+        }
+      }
+    },
     "63746c3a-019f-9616-ffff-4616c6f6e652000159": {
       "name": "Standalone Dimmer",
       "type": "Dimmer",

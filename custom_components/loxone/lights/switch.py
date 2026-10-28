@@ -1,7 +1,6 @@
 from typing import Any
 
 from homeassistant.components.light import ColorMode, LightEntity
-from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import callback
 
 from .. import LoxoneEntity
@@ -19,8 +18,10 @@ class LoxoneLightSwitch(LoxoneEntity, LightEntity):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._attr_state = STATE_UNKNOWN
-        self._attr_is_on = STATE_UNKNOWN
+        # PS-02 / upstream 173d2ea: the class-level `None` stands — the
+        # circuit must read unknown until its first `active` value.  The
+        # old `STATE_UNKNOWN` here was the *string* "unknown": truthy, so
+        # `is_on` claimed the light was on before any value ever arrived.
         self._attr_unique_id = self.uuidAction
         self._async_add_devices = kwargs["async_add_devices"]
         self._light_controller_id = kwargs.get("lightcontroller_id")

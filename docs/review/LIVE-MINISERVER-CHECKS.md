@@ -569,6 +569,46 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   **Fail:** adjust the parser; if a lock blocks a control that the app
   can still switch, drop the refusal in `_send`.
 
+### 29. LightControllerV2 off moods, manual mode and plain turn-on (WP-7.1)
+
+- **Where:** `OFF_MOOD_IDS`, `lcv2_is_on` and `lcv2_plain_turn_on_command`
+  in `custom_components/loxone/lights/lightcontroller.py`
+- **The doubt:** three stacked guesses, ported from upstream `e43301f` /
+  `466ea0e` and only partly spec-backed. Confirmed in the Structure File
+  (v16 and v17 text): `changeTo/{moodId}` exists, "The moodID 0 is always
+  'off'", and `plus` is "Changes to the next mood" — and the command list
+  has **no** other "on" command, so mood-picking is the only documented
+  vocabulary. Not confirmed anywhere: (a) that **778** is an off mood on
+  this Miniserver — it is upstream's observed static "Aus" id and appears
+  in no spec; (b) that an **empty `activeMoods` list means manual mode**
+  ("Stimmung Manuell", the master clears the list while circuits stay
+  lit) — one upstream observation on one installation; (c) what the
+  **plain turn-on** should actually be — the old `changeTo/99` was
+  documented nowhere, and a 200 reply never proves a command exists, so
+  the first non-off mood of the mood list (fallback `plus`) must be
+  judged by what the lights do, not by the reply. The real device also
+  streams an `activeMoodsNum` state the structure file does not document
+  (the integration ignores it; if (b) fails, it may be the tiebreaker).
+- **Test:** read-only first — watch `activeMoods` and `activeMoodsNum`
+  (raw websocket state feed, or an automation on the `loxone_event`
+  bus event) while
+  on one controller **with** a master and one **without**: (a) select a
+  mood in the Loxone app, (b) switch the controller off in the app,
+  (c) change one circuit directly, (d) move the master. The Home
+  Assistant light entity must match the real lamps at every step. Then
+  the command step: from Home Assistant a **plain** `light.turn_on`
+  (no brightness, no effect) on the controller with the master and on
+  one without.
+- **Pass:** off in the app reads `off` in HA (whatever id the app
+  reports — if the app's off mood is an id other than 0 or 778, note
+  it); manual mode after (c)/(d) shows on while any circuit is lit; the
+  plain turn-on lights the room without changing an already-lit one.
+  **Fail / adjust:** a wrong off id -> add it to `OFF_MOOD_IDS` (with a
+  comment naming where it came from); manual mode misread -> `lcv2_is_on`
+  (its fallback chain is master -> circuits -> unknown); plain turn-on
+  dark instead of bright, or jumps to a surprise mood ->
+  `lcv2_plain_turn_on_command` is the one place to change the command.
+
 ### 31. TextInput value state and command encoding (WP-7.3, PS-03)
 
 - **Where:** `text_input_command` and `LoxoneText._value_uuid` in
