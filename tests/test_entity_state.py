@@ -69,5 +69,8 @@ async def test_text_reports_value_after_event(hass) -> None:
     _stub_ha_write(e)
     assert e.native_value is None
 
-    e.event_handler({e.uuidAction: "hello world"})
+    # WP-7.3 (PS-03, upstream 6911e14): the value arrives on the "text"
+    # state uuid, not on the control's uuidAction — the old test fed the
+    # wrong stream, the one no Miniserver actually publishes on.
+    e.event_handler({e.states["text"]: "hello world"})
     assert e.native_value == "hello world"

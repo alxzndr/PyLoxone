@@ -6,10 +6,10 @@ https://github.com/JoDehli/PyLoxone
 """
 
 import logging
+from urllib.parse import quote
 
 from homeassistant.components.text import TextEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNKNOWN
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -18,6 +18,25 @@ from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_de
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
+
+# HA rejects a text state longer than the entity's max (default 255).
+MAX_TEXT_LENGTH = 255
+
+
+def text_input_command(value: str) -> str:
+    """
+    The wire payload for a ``TextInput`` command (WP-7.3, upstream 6911e14).
+
+    The spec command is the new text itself, sent as one path segment of
+    ``jdev/sps/io/<uuid>/<value>`` (structure file v16, TextInput:
+    "Commands: {text}").  The spec does not say the text is URI-encoded,
+    but it percent-encodes the free-text reason of the Alarm's
+    ``lockcontrol`` command exactly the same way (``{uriEncodedReason}``),
+    and a raw ``/`` ``?`` ``#`` or space breaks the path — so the value is
+    encoded here, in one place, pending live check
+    ``docs/review/LIVE-MINISERVER-CHECKS.md`` #31.
+    """
+    return quote(value, safe="")
 
 
 async def async_setup_entry(
@@ -49,13 +68,29 @@ class LoxoneText(LoxoneEntity, TextEntity):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         """Initialize the Loxone text."""
-        self._state = STATE_UNKNOWN
         self._icon = None
         self._assumed = False
-        self._native_value = None
+        # Unknown until the Miniserver sends the "text" state (PS-09,
+        # upstream 6911e14).
+        self._attr_native_value = None
 
         self.type = "TextInput"
         self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, self.type, self.room)
+        # The block's maxLength detail bounds what the VI accepts; HA's
+        # text platform refuses longer values before they hit the wire.
+        # Only set when known: Home Assistant's ``max`` is
+        # ``min(native_max, 255)`` and ``None`` breaks it.
+        max_length = self._max_length(kwargs.get("details"))
+        if max_length is not None:
+            self._attr_native_max = max_length
+
+    @staticmethod
+    def _max_length(details) -> int | None:
+        """``native_max`` from a positive-integer ``maxLength`` detail, capped at 255."""
+        max_length = details.get("maxLength") if isinstance(details, dict) else None
+        if isinstance(max_length, int) and not isinstance(max_length, bool) and max_length > 0:
+            return min(max_length, MAX_TEXT_LENGTH)
+        return None
 
     @property
     def icon(self):
@@ -63,32 +98,40 @@ class LoxoneText(LoxoneEntity, TextEntity):
         return self._icon
 
     @property
-    def native_value(self):
-        """Return the native_min_value to use for device if any."""
-        return self._native_value
-
-    @property
     def assumed_state(self):
         """Return if the state is based on assumptions."""
         return self._assumed
 
+    def _value_uuid(self) -> str | None:
+        """
+        The stream that carries the block's text value.
+
+        PS-03 / upstream 6911e14: the value arrives as the ``text`` state,
+        which has its own uuid — not under the control's ``uuidAction``
+        (the WP-3.2 comment claiming otherwise was wrong; the structure
+        file lists ``text`` as the only TextInput state, and no state is
+        published under a control's own ``uuidAction``).  Only a TextInput
+        without a ``text`` state falls back to ``uuidAction``.
+        """
+        states = getattr(self, "states", None)
+        uuid = states.get("text") if isinstance(states, dict) else None
+        if isinstance(uuid, str) and uuid:
+            return uuid
+        return self.uuidAction if isinstance(self.uuidAction, str) and self.uuidAction else None
+
     def _state_uuids(self) -> frozenset[str]:
-        # CORE-27: the action stream the handler reads (TextInput controls
-        # publish their value on ``uuidAction``).
-        return frozenset({self.uuidAction}) if isinstance(self.uuidAction, str) and self.uuidAction else frozenset()
+        # CORE-27: the action stream the handler reads.
+        uuid = self._value_uuid()
+        return frozenset({uuid}) if uuid else frozenset()
 
     @callback
     def event_handler(self, e):
-        if self.uuidAction in e:
-            data = e[self.uuidAction]
-            if isinstance(data, (list, dict)):
-                data = str(data)
-            if isinstance(data, str):
-                self._native_value = data[:255]
-            else:
-                self._native_value = data
-            self._state = data
-
+        uuid = self._value_uuid()
+        if uuid is not None and uuid in e:
+            value = e[uuid]
+            if not isinstance(value, str):
+                value = str(value)
+            self._attr_native_value = value[:MAX_TEXT_LENGTH]
             self.async_write_ha_state()
 
     @property
@@ -98,13 +141,14 @@ class LoxoneText(LoxoneEntity, TextEntity):
 
         Implemented by platform classes.
         """
+        states = getattr(self, "states", None)
         return {
             **self._attr_extra_state_attributes,
-            "state_uuid": self.states["text"],
+            "state_uuid": states.get("text") if isinstance(states, dict) else None,
             "device_type": self.type,
         }
 
     async def async_set_value(self, value: str):
         """Set new value."""
-        self._send(f"{value}")
+        self._send(text_input_command(f"{value}"))
         self.async_schedule_update_ha_state()

@@ -1368,7 +1368,13 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
         # write command (the control is an output).
         self.type = "InfoOnlyText" if kwargs.get("type") == "InfoOnlyText" else "TextInput"
         self._state = None
-        self._state_uuid = self.states.get("text") or self.uuidAction
+        # 64ad11d remainder (WP-7.3): ``states`` is optional in a truncated
+        # structure file; indexing it here used to drop the whole sensor
+        # for that control.  Without a ``text`` state the control echoes on
+        # its action stream (the same fallback as text.py).
+        states = kwargs.get("states")
+        states = states if isinstance(states, dict) else {}
+        self._state_uuid = states.get("text") or self.uuidAction
         # CORE-20 / device link: a fresh device built from the control's
         # own identity (previously no device at all).
         self._attr_device_info = device_info_for(
