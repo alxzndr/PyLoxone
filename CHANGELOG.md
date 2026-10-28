@@ -13,6 +13,15 @@ Finding ids such as `CORE-09` or `PC-31` refer to
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-28
+
+Brings the fork in line with upstream 0.10.2 (see
+`docs/review/2026-10-upstream-0.10.2-gaps.md`), mostly lights and entity
+state. Two changes are visible on upgrade: a secured alarm now asks for
+its code in a text field (the keypad is an option), and the light
+controller state follows its moods and circuits. Live checks #29 and #30
+(light controller, colour-picker range) are still open on hardware.
+
 ### Added
 
 - The stand-alone client `scripts/pyloxone-cli` grew three output styles
