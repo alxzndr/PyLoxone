@@ -3,15 +3,16 @@
 Fork: `alxzndr/PyLoxone`, branch `master`
 Base: `JoDehli/PyLoxone` at `7561247` (release 0.9.23, the upstream HEAD when
 this work began on 2026-09-03)
-Last updated: 2026-10-18 (release 1.0.0)
+Last updated: 2026-10-28 (fork 1.0.1 plus the WP-7.x sync with upstream
+0.10.2)
 
 ---
 
 ## The short version
 
-Since branching, 154 commits (not counting merges) changed 141 files (34,463
-lines added, 4,601 removed). The test suite went from 69 tests to 1,068 and
-whole-integration coverage from 14 % to about 90 %.
+Since branching, 183 commits (not counting merges) changed 151 files (39,754
+lines added, 4,643 removed). The test suite went from 69 tests to 1,283 and
+whole-integration coverage from 14 % to 91 %.
 
 **Yes, you can run it**, with one caveat that is genuinely one-way. Read the
 rollback section before you install.
@@ -21,10 +22,75 @@ rollback section before you install.
 ## Version numbers
 
 The fork released 0.10.0 to 0.10.9 between 2026-09-03 and 2026-09-16.
-Upstream then released its own, different 0.10.0 and 0.10.1 in October 2026.
-To keep the two apart, the fork continues at **1.0.0**; a version number
-starting with `0.10.` in a bug report therefore needs the repository it came
-from.
+Upstream then released its own, different 0.10.0 and 0.10.1 in October 2026
+and 0.10.2 on 2026-10-24. To keep the two apart, the fork continues at
+**1.0.x**; a version number starting with `0.10.` in a bug report therefore
+needs the repository it came from.
+
+---
+
+## Upstream 0.10.2
+
+Upstream released 0.10.2 on 2026-10-24 and pushed a follow-up batch the same
+evening (tip `ecf4d65`). The fork compared all 30 commits of
+`38016e3..ecf4d65` against itself, one by one, in
+[docs/review/2026-10-upstream-0.10.2-gaps.md](review/2026-10-upstream-0.10.2-gaps.md);
+that file is the record, this section is the summary as merged.
+
+The range went both ways: upstream is now porting from the fork. `6f90986`
+copies the fork's smoke-alarm level state (PS-04), `d614882` the fork's
+select locks and `parse_control_lock` (PS-19), `f61acd9` the fork's
+auth-reply filter (the 1.0.0 security fix) and `4230276` the fork's
+`scripts/pyloxone-cli` launcher unchanged. Counting those, 14 commits of the
+range needed no fork change and 2 were already done better here: the entity
+availability of `98704fd` (the fork sends a per-entry connection signal
+since API-09, not a global one) and the temperature unit of `e9f0c71`
+(under "differs" below). The rest of the range is the table and the lists
+below.
+
+What the fork took from 0.10.2, merged as the WP-7.x series, each doubtful
+rule behind a named helper and a live-check entry:
+
+| WP | In the fork now | Upstream commits | Live check |
+|---|---|---|---|
+| WP-7.1 + 7.1b | `LightControllerV2` state derived from moods, master value and circuits (`lcv2_is_on`); moods 0 and 778 read as off (`OFF_MOOD_IDS`), plain turn-on behind `lcv2_plain_turn_on_command` preferring the all-on mood 777; the switch circuit starts unknown | `e43301f`, `466ea0e`, `173d2ea`, `64ad11d` (LCV2 part) | #29 |
+| WP-7.2 | ColorPickerV2 Kelvin range from `TWMin`/`TWMax` instead of a hard 2700-6500; plain TunableWhite turn-on sends `setBrightness`, not `On` (the spec lists no `On` for it) | `7cc7c77`, `5867889` (light parts) | #30 |
+| WP-7.3 | `TextInput` reads its `text` state (PS-03); Meter `totalNeg` formats with `totalFormatNeg`; binary sensors stay unknown until the first value, and `digital_value_is_on` reads `"0"` as off | `6911e14`, `6441290`, `127f42a`, `64ad11d` (text part), the shared bug in `6f90986` | #31 |
+| WP-7.4 | the "Schedule" preset sends `stopOverride` during an override again (a fork regression lost in WP-4.1); the temperature unit comes from whole unit tokens, not `"F" in fmt` | `cf51951` (context), `e9f0c71` (shared bug) | #32 |
+| WP-7.5 | the secured-alarm code input is the `alarm_code_format` option, default `text` as upstream chose, `number` for the #413 keypad | `d13ef23` | #33 |
+| WP-7.6 | CLI `--format pretty`, `--uuid` and `--format web`, with `lastcode` / `lasttag` / `events` redacted in every format | `4230276`, `adc411b`, `ecf4d65` | no |
+
+Where the fork deliberately differs:
+
+- A Window sends `stop` unconditionally. Upstream `a802e1b` keeps the old
+  opposite-end heuristic as a fallback for structures without a
+  `targetPosition` state, which drives the window to the other end - the
+  very bug that commit set out to fix.
+- A bare-degree temperature format follows `msInfo.tempUnit`; upstream
+  `e9f0c71` reads it as Celsius even on a Fahrenheit Miniserver. The fork
+  also fixed the substring test both used to share (a format labelled
+  `%.1f°C Fußboden` is not Fahrenheit).
+- `LightControllerV2` manual mode follows the circuits; the master position
+  is the fallback. Upstream's "empty `activeMoods` follows the master"
+  reads a controller without a `masterValue` as off while its circuits are
+  lit - on the maintainer's installation 13 of 20 controllers.
+- The alarm code field is a per-entry option, not upstream's unilateral
+  switch back to text.
+- The CLI and web view redact NFC credentials that upstream prints in clear
+  text (PS-27: `lastcode` / `lasttag` never leave the connection).
+
+Do not copy from this range (the full list, with evidence, is the
+"do not copy" section of
+[docs/review/2026-10-upstream-0.10.2-gaps.md](review/2026-10-upstream-0.10.2-gaps.md)):
+the empty-`activeMoods` master fallback and the `_attr_is_on is not True`
+plain-turn-on guard from `e43301f`; the Window `targetPosition` fallback to
+`fullopen` / `fullclose` from `a802e1b`; `"F" in format_str` as a Fahrenheit
+test from `e9f0c71`; the digital sensor reading `"0"` and `"0.0"` as on from
+`6f90986`; smoke alarms from `areAlarmSignalsOff` in `64ad11d` (superseded
+two commits later); a third entity per `TextInput`; printing NFC
+credentials in the CLI; and upstream's test style of building entities with
+`__new__` and `SimpleNamespace` instead of the real `hass` fixture - port
+the cases, not the harness.
 
 ---
 
@@ -128,10 +194,11 @@ Twelve types that upstream ignores entirely:
 `PowerUnit`, `Wallbox`, `IntercomV2`, `NfcCodeTouch`, `LightsceneRGB`,
 `TextState` (the Status block), `WindowMonitor`
 
-Plus a `text` platform that upstream shipped but never loaded (`Platform.TEXT`
-was missing from its platform list, so `text.py` was dead code), Message Center
-entries as repair issues, and diagnostic sensors for the Miniserver version
-and websocket traffic.
+Plus a `text` platform that upstream shipped but never loaded
+(`Platform.TEXT` was missing from its platform list, so `text.py` was dead
+code; upstream enabled it in 0.10.2 with `6911e14`, which the fork took in
+WP-7.3 with the value-state fix), Message Center entries as repair issues,
+and diagnostic sensors for the Miniserver version and websocket traffic.
 
 Correction (2026-10): earlier versions of this page also listed
 `PresenceDetector` illuminance and noise sub-sensors (#461), and the README
@@ -203,7 +270,7 @@ and a light dims across its full range.
 ## What is still unverified
 
 `docs/review/LIVE-MINISERVER-CHECKS.md` lists every protocol assumption and
-its status. As of 2026-09-15:
+its status. As of 2026-10-28:
 
 | Item | Status |
 |---|---|
@@ -213,6 +280,9 @@ its status. As of 2026-09-15:
 | `LightsceneRGB` write path | Inconclusive. Four candidate commands produced no reaction, but both available blocks have an empty `sceneList`. |
 | Audio zone power / mute / source commands, `Tracker` and `UpDownDigital` shapes, `IntercomV2` sub-controls | Open. No such hardware available. The structure file (v16) contradicts the audio zone states and commands the code assumes, and describes intercom sub-controls as pushbuttons, not switches; the code follows that from 1.0.0, still unchecked on hardware. |
 | `PresenceDetector` illuminance / noise sub-sensors | Most likely dead code: the structure file lists no such states. Open until checked on a real detector. |
+| LightControllerV2 off moods, manual mode, plain turn-on | Open, wanted **before release** (#29). The fork's rule (WP-7.1/7.1b) differs from upstream 0.10.2's on purpose; the 777/778 mood ids are observed in the maintainer's scene registry, the behaviour is not yet seen on the device. 20 controllers in the house. |
+| ColorPickerV2 Kelvin range from TWMin/TWMax | Open (#30). The settable range only widens on hardware if the fix works; 3 RGB pickers in the house. |
+| Gate `stop` command | Open (#34). PC-07 replaced the opposite-direction heuristic with `stop`; upstream `a802e1b` cites the structure file ("stops a moving gate"), never checked here. The maintainer has a Gate. |
 
 None of these affect an installation without that hardware. They do matter
 before any of this is proposed upstream.
@@ -226,7 +296,7 @@ to: inert brightness ranges, resetting counters fed to the energy dashboard as
 monotonic ones, entity churn on every reconnect, and a dead integration after
 a firmware update.
 
-The risks are the one-way migration, which a backup covers, and that 1,068
+The risks are the one-way migration, which a backup covers, and that 1,283
 passing tests prove internal consistency rather than agreement with the
 Loxone protocol. The parts of that protocol the maintainer's house exercises
 have been checked against real hardware. The parts it does not exercise have
