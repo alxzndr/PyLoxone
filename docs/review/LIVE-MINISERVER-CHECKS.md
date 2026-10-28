@@ -735,6 +735,28 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
 - **Pass:** the text field arms with the letter code. **Fail:** revisit the
   option's default with the maintainer.
 
+### 34. Gate `stop` stops a moving gate (WP-7.7, PC-07, upstream a802e1b)
+
+- **Where:** `gate_stop_command` in `custom_components/loxone/cover.py`,
+  used by `LoxoneGate.async_stop_cover`
+- **The doubt:** PC-07 replaced the opposite-direction heuristic (which
+  parked the gate at the other end instead of stopping) with a plain
+  `stop`, and that has never been checked on hardware. Upstream `a802e1b`
+  cites the Structure File's Gate section: an unversioned `stop` command
+  that "stops a moving gate" - the v16 text was not re-read for this
+  entry, so the claim is upstream's. Jalousies have always sent `stop`
+  with no complaint, which is suggestive but is a different control.
+- **Test:** on the maintainer's Gate (the house has one): start opening
+  from the Loxone app, press Stop in Home Assistant while it moves, watch
+  `position` and `active` - the read-only way is
+  `scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <uuid>`.
+- **Pass:** the gate stops moving between the end positions; `active`
+  clears and `position` settles where you stopped it. **Fail:** if the
+  gate reverses (an echo of the old heuristic) or runs on to the far end,
+  `stop` does not work on a Gate with this firmware - a 200 reply proves
+  nothing - and `gate_stop_command` needs a verified command before
+  release.
+
 ---
 
 ## Regression sweep

@@ -80,7 +80,7 @@ def gate_stop_command():
     direction reversal, not a stop. The intended semantics — and what
     `LoxoneJalousie.stop_cover` already does — is a real `stop`; Loxone gate
     controls expose it. A live-Miniserver check before merge is required to
-    confirm the gate honours `stop`.
+    confirm the gate honours `stop` (LIVE-MINISERVER-CHECKS.md #34).
     """
     return "stop"
 
