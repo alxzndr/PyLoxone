@@ -145,24 +145,43 @@ def _ac_make(states: dict, details: dict | None = None):
 
 
 # ---------------------------------------------------------------------------
-# PC-23: shared temperature unit helper (°C/°F contains, fallbacks, default)
+# PC-23 / WP-7.4: shared temperature unit helper — exact unit tokens only,
+# the bare "°" and unknown text fall back to the caller's default (the
+# Miniserver's unit).  "Fußboden" carries a capital F but is not Fahrenheit.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
-    ("fmt", "expected"),
+    ("fmt", "default", "expected"),
     [
-        ("℃", UnitOfTemperature.CELSIUS),  # "°" at index 0: find("°") == 0 was falsy
-        ("°C", UnitOfTemperature.CELSIUS),
-        ("%.1f °C", UnitOfTemperature.CELSIUS),
-        ("%.1f °F", UnitOfTemperature.FAHRENHEIT),
-        ("°F", UnitOfTemperature.FAHRENHEIT),
-        ("C", UnitOfTemperature.CELSIUS),  # legacy "C without degree symbol" fallback
-        ("F", UnitOfTemperature.FAHRENHEIT),  # legacy "F without degree symbol" fallback
-        ("", UnitOfTemperature.CELSIUS),
-        (None, UnitOfTemperature.CELSIUS),  # no format at all -> Celsius
+        ("%.1f°F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("%.1f°F", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        ("%.1f °C", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("%.1f °C", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        # Loxone Config's own default formats: the Miniserver's unit decides
+        ("%.1f°", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        ("%.1f°", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        ("%d°", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        ("%.1f", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        ("%.1f", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        # The regression (upstream e9f0c71 `"F" in fmt`): "Fußboden" is a
+        # label, the format says °C — the default must not matter either.
+        ("%.1f°C Fußboden", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        ("%.1f°C Fußboden", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("%.1f F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("<v.1>°F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("<v.1>°F", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        (None, UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        (None, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        # Explicit units without a value placeholder still name the unit
+        ("℃", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),  # find("°") == 0 was falsy
+        ("°C", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("°F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("C", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
     ],
 )
-def test_temperature_unit_from_format(fmt, expected):
-    assert temperature_unit_from_format(fmt) == expected
+def test_temperature_unit_from_format(fmt, default, expected):
+    assert temperature_unit_from_format(fmt, default) == expected
 
 
 @pytest.mark.parametrize("cls_name", ["LoxoneRoomController", "LoxoneRoomControllerV2", "LoxoneAcControl"])

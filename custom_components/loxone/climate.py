@@ -29,7 +29,13 @@ from .const import CONF_HVAC_AUTO_MODE, PRESET_PAUSED_WINDOW, PRESET_SCHEDULE, l
 # (parallel-safe, WP-4.2/4.4); see the PR body follow-up.
 PRESET_FIXED = "fixed"
 PRESET_FIXED_DYNAMIC = "fixed_dynamic"
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device, miniserver_temperature_unit
+from .helpers import (
+    add_room_and_cat_to_value_values,
+    clean_unit,
+    get_all,
+    get_or_create_device,
+    miniserver_temperature_unit,
+)
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,20 +71,33 @@ def _parse_mode_list(raw, what: str) -> list[dict]:
 
 def temperature_unit_from_format(fmt: str | None, default: str = UnitOfTemperature.CELSIUS) -> str:
     """
-    Map a Loxone format string to a temperature unit (PC-23).
+    Map a Loxone format string to a temperature unit (PC-23, WP-7.4).
 
-    The designer can put any format string on the input sensor; we assume it
-    mentions the unit.  Containment, not ``str.find`` (index 0 is falsy):
-    ``"°C"`` at position 0 must read as Celsius.  Falls back to the legacy
-    bare-letter heuristic, then to ``default``: the Miniserver's own unit
-    (``msInfo.tempUnit``), because Loxone Config's default temperature
-    formats are ``%.1f°`` / ``%d°`` without C or F.
+    A format names a unit only in its unit text -- the text behind the
+    value: ``%.1f°F`` and a bare ``F`` are Fahrenheit, ``%.1f°C`` and a
+    bare ``C`` are Celsius, ``℃`` is Celsius.  The bare ``°`` (Loxone
+    Config's own default formats ``%.1f°`` / ``%d°``, 1d4d03d) means the
+    Miniserver's unit, which the caller passes in as ``default``
+    (``msInfo.tempUnit``); anything else -- ``%.1f``, an empty format, no
+    format at all -- falls back to ``default``.
+
+    The unit text is extracted with :func:`clean_unit` (it knows the
+    ``<v.1>`` value placeholders) and matched as whole whitespace-separated
+    tokens, never by substring: upstream ``e9f0c71`` tested ``"F" in fmt``,
+    so any capital F anywhere -- the label in ``%.1f°C Fußboden`` -- read as
+    Fahrenheit ("do not copy" 4 of the 2026-10 gap review), and ``"C" in
+    fmt`` did the same for Celsius.  A label around an explicit unit must
+    not change the unit either, so only a token that is exactly the unit
+    counts.
     """
     if fmt is None:
         return default
-    if "°F" in fmt or "F" in fmt:
+    # A unit text such as "°C Fußboden" names the unit in one token;
+    # "Fußboden" is decoration, not a unit (that capital F caused the bug).
+    tokens = clean_unit(fmt, temperature_unit=default).split()
+    if any(t in ("°F", "F") for t in tokens):
         return UnitOfTemperature.FAHRENHEIT
-    if "°C" in fmt or "C" in fmt:
+    if any(t in ("°C", "C", "℃") for t in tokens):
         return UnitOfTemperature.CELSIUS
     return default
 
