@@ -22,6 +22,7 @@ from unittest.mock import patch
 import pytest
 from custom_components.loxone import config_flow
 from custom_components.loxone.const import (
+    CONF_ALARM_CODE_FORMAT,
     CONF_GENERATE_GROUPS,
     CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
     CONF_SCENE_GEN,
@@ -119,6 +120,8 @@ async def test_user_flow_success_creates_v5_entry_with_serial(hass, mock_connect
         CONF_SCENE_GEN: True,
         CONF_SCENE_GEN_DELAY: 3,
         CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN: False,
+        # WP-7.5 (upstream d13ef23): secured alarms take the code as text.
+        CONF_ALARM_CODE_FORMAT: "text",
     }
     assert entry.unique_id == SERIAL
     # The entry HA starts setting up automatically must come up on the
@@ -300,6 +303,8 @@ async def test_options_flow_updates_preferences_only(hass, enable_custom_integra
         CONF_SCENE_GEN: True,
         CONF_SCENE_GEN_DELAY: 3,
         CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN: True,
+        # WP-7.5: the new preference travels with the form.
+        CONF_ALARM_CODE_FORMAT: "text",
     }
     result = await hass.config_entries.options.async_configure(result["flow_id"], new_options)
 

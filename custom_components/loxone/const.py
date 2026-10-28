@@ -135,6 +135,19 @@ CONF_VERIFY_SSL = "verify_ssl"
 # key, and an absent key preserves the pre-option behaviour (groups ON).
 CONF_GENERATE_GROUPS = "generate_groups"
 DEFAULT_GENERATE_GROUPS = False
+
+# WP-7.5 (upstream d13ef23, #413, PC-06): what a *secured* Alarm asks for as
+# code input.  The code is the user's visualisation password (`visupass`),
+# which Loxone Config does not limit to digits, so the default is a plain
+# text field; a digits-only password is no problem to type there, while a
+# numeric keypad locks out every password that contains a letter.  `number`
+# restores the keypad of 1.0.x -- the PIN pad upstream #413 asked for.
+# Applies to every secured alarm of the entry; unsecured alarms never ask
+# for a code.
+CONF_ALARM_CODE_FORMAT = "alarm_code_format"
+ALARM_CODE_FORMAT_TEXT = "text"
+ALARM_CODE_FORMAT_NUMBER = "number"
+DEFAULT_ALARM_CODE_FORMAT = ALARM_CODE_FORMAT_TEXT
 DEFAULT_FORCE_UPDATE = False
 
 # PS-14: the control-type strings the auto-groups match on — the single

@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import LoxoneEntity
+from .const import ALARM_CODE_FORMAT_NUMBER, CONF_ALARM_CODE_FORMAT, DEFAULT_ALARM_CODE_FORMAT
 from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
@@ -103,6 +104,26 @@ def alarm_arm_delay_attributes(armed_delay, armed_delay_total):
     }
 
 
+def alarm_code_format(is_secured, code_format_option) -> CodeFormat | None:
+    """
+    The code input an alarm entity offers (WP-7.5, upstream ``d13ef23``, #413).
+
+    An unsecured alarm needs no code at all (PC-06), regardless of the
+    option.  A secured one asks for the user's visualisation password, which
+    Loxone Config does not limit to digits: the entry's ``alarm_code_format``
+    option picks the input -- ``number`` shows Home Assistant's numeric keypad
+    (what #413 asked for and 1.0.x did), anything else -- the default
+    ``text`` -- a text field that can carry letters.  A numeric keypad locks a
+    letter-password user out of the alarm card entirely, so text is the
+    default.
+    """
+    if not is_secured:
+        return None
+    if code_format_option == ALARM_CODE_FORMAT_NUMBER:
+        return CodeFormat.NUMBER
+    return CodeFormat.TEXT
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -111,10 +132,13 @@ async def async_setup_entry(
     """Set up Loxone Alarms."""
     miniserver = get_miniserver_from_hass(hass, config_entry)
     loxconfig = miniserver.lox_config.json
+    # WP-7.5: one option per entry, applied to every secured alarm of it.
+    # An entry that predates the option (key absent) gets the default.
+    code_format_option = config_entry.options.get(CONF_ALARM_CODE_FORMAT, DEFAULT_ALARM_CODE_FORMAT)
     entities = []
     for loxone_alarm in get_all(loxconfig, "Alarm"):
         loxone_alarm = add_room_and_cat_to_value_values(loxconfig, loxone_alarm)
-        loxone_alarm.update({"code": None})
+        loxone_alarm.update({"code": None, "alarm_code_format": code_format_option})
         new_alarm = LoxoneAlarm(**loxone_alarm)
         entities.append(new_alarm)
 
@@ -133,12 +157,16 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
         self._armed_delay_total_delay = None
         self._armed_at = 0
         self._next_level_at = 0
-        # Fixed at setup time from the structure file (PC-06): a secured alarm
-        # needs a numeric arm/disarm code, an unsecured one needs none. They
-        # must not depend on ``code_arm_required`` being read first.
+        # Fixed at setup time from the structure file (PC-06) and the entry's
+        # ``alarm_code_format`` option (WP-7.5): a secured alarm needs the
+        # visualisation password as arm/disarm code, an unsecured one needs
+        # none.  They must not depend on ``code_arm_required`` being read
+        # first.
         is_secured = bool(kwargs.get("isSecured"))
         self._attr_code_arm_required = is_secured
-        self._attr_code_format = CodeFormat.NUMBER if is_secured else None
+        self._attr_code_format = alarm_code_format(
+            is_secured, kwargs.get("alarm_code_format", DEFAULT_ALARM_CODE_FORMAT)
+        )
         self._attr_device_info = get_or_create_device(self.unique_id, self._lox_name, "Alarm", self.room)
 
     @property

@@ -262,14 +262,27 @@ async def test_fan_turn_on_preset_sends_mode_command(hass) -> None:
 # ===========================================================================
 
 
-async def test_alarm_secured_code_format_number_independent_of_property_order(hass) -> None:
-    """PC-06: code attributes are setup-time facts, not read-order-dependent state."""
+async def test_alarm_secured_code_format_text_default_independent_of_property_order(hass) -> None:
+    """PC-06: code attributes are setup-time facts, not read-order-dependent state.
+
+    WP-7.5 (upstream ``d13ef23``): without the option the secured alarm shows
+    a *text* field -- the visualisation password may carry letters, which the
+    keypad cannot type."""
     e = _alarm(hass, isSecured=True)
     _hass_write_stub(e)
 
     assert e.code_arm_required is True
-    assert e.code_format == CodeFormat.NUMBER
+    assert e.code_format == CodeFormat.TEXT
     # Re-evaluating in the opposite order must not change anything.
+    assert e.code_format == CodeFormat.TEXT
+    assert e.code_arm_required is True
+
+
+async def test_alarm_secured_code_format_number_option_selects_keypad(hass) -> None:
+    """WP-7.5 (#413): the option value the platform injects selects the keypad."""
+    e = _alarm(hass, isSecured=True, alarm_code_format="number")
+    _hass_write_stub(e)
+
     assert e.code_format == CodeFormat.NUMBER
     assert e.code_arm_required is True
 
