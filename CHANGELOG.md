@@ -140,7 +140,10 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   cut off the warm 2200-2699 K band. The range now comes from the block's
   details; 2700-6500 K stays only as the default when the details carry no
   usable pair - a missing, `null`, non-numeric or non-positive value falls
-  back per end, a nonsensical pair (`min` >= `max`) as a whole. Ported
+  back per end, a nonsensical pair (`min` >= `max`) as a whole. Structure
+  file v16 names the same two details `minKelvin`/`maxKelvin`, so a firmware
+  that uses those names is read too: each end falls back to the v16 name
+  when its `TW*` key is missing. Ported
   from upstream `7cc7c77`, whose first version still crashed on
   `"TWMin": null`; that hardening is `5867889`. PC-39; live check #30.
 - A plain `light.turn_on` of a TunableWhite picker no longer sends `On`.

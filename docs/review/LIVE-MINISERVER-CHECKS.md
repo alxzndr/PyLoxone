@@ -636,11 +636,14 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   the Structure File text (v16 and v17, ColorPickerV2): `TWMin`/`TWMax` are
   the block's colour-temperature limits with spec defaults 2700/6500 (v16
   names the same two details `minKelvin`/`maxKelvin`; the real device sends
-  `TWMin`/`TWMax`), and the *Commands* list has `setBrightness`, `hsv()`,
-  `temp()`, `daylight()` and the `setFav`/`setSequence` words — **no**
-  `on`. So the plain TunableWhite turn-on that used to send `On` sends the
-  documented `setBrightness/<last level>` now (upstream `7cc7c77` /
-  `5867889`). Not confirmed anywhere: (a) that the Miniserver honours the
+  `TWMin`/`TWMax`). `color_temp_range` reads `TWMin`/`TWMax` first and each
+  end falls back to the v16 `minKelvin`/`maxKelvin` name when the `TW*` key
+  is missing, so a firmware that uses either naming is honoured (WP-7.8).
+  And the *Commands* list has `setBrightness`, `hsv()`, `temp()`,
+  `daylight()` and the `setFav`/`setSequence` words — **no** `on`. So the
+  plain TunableWhite turn-on that used to send `On` sends the documented
+  `setBrightness/<last level>` now (upstream `7cc7c77` / `5867889`). Not
+  confirmed anywhere: (a) that the Miniserver honours the
   reported 2200 K floor as Home Assistant asks for it, (b) what the plain
   turn-on actually does on hardware — a 200 reply proves nothing about
   unknown commands — and (c) that the fallback 4000 K (clamped into the

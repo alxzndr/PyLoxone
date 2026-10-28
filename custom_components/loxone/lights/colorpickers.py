@@ -22,9 +22,10 @@ _LOGGER = logging.getLogger(__name__)
 # VERIFY on a live Miniserver (PC-39; live check #13).
 DEFAULT_TURN_ON_KELVIN = 4000
 
-# Structure File v16/v17, ColorPickerV2 Details: `TWMin`/`TWMax` are "Lowest/
-# Highest color-temperature supported" with defaults 2700/6500.  They are the
-# fallback when a control's details carry no usable pair (PC-39).
+# Structure File v17 (`TWMin`/`TWMax`; v16 names them
+# `minKelvin`/`maxKelvin`), ColorPickerV2 Details: "Lowest/
+# Highest color-temperature supported" with defaults 2700/6500.  They are
+# the fallback when a control's details carry no usable pair (PC-39).
 DEFAULT_MIN_KELVIN = 2700
 DEFAULT_MAX_KELVIN = 6500
 
@@ -35,9 +36,12 @@ def color_temp_range(details) -> tuple[int, int]:
     (upstream ``7cc7c77``/``5867889``).
 
     ``TWMin``/``TWMax`` (Structure File v17, ColorPickerV2 Details; the real
-    device sends them, e.g. 2200/6500 — v16 documents the same two details
-    under the names `minKelvin`/`maxKelvin`).  A missing, ``null``,
-    non-numeric or non-positive value falls back to the spec default for
+    device sends them, e.g. 2200/6500).  Structure File v16 documents the
+    same two details under the names ``minKelvin``/``maxKelvin`` ("available
+    since 15.0"), so a structure file that uses those names is read too:
+    each end falls back to the v16 name when its ``TW*`` key is missing
+    (WP-7.8).  A missing, ``null``, non-numeric or non-positive value falls
+    back to the spec default for
     that end; a nonsensical pair (min >= max) falls back to the pair.
     Home Assistant would otherwise clamp every request into the hard-coded
     2700-6500 and make the warm end of a 2200 K block unreachable.
@@ -51,8 +55,8 @@ def color_temp_range(details) -> tuple[int, int]:
             return default
         return value if value > 0 else default
 
-    lo = _kelvin(details.get("TWMin"), DEFAULT_MIN_KELVIN)
-    hi = _kelvin(details.get("TWMax"), DEFAULT_MAX_KELVIN)
+    lo = _kelvin(details.get("TWMin", details.get("minKelvin")), DEFAULT_MIN_KELVIN)
+    hi = _kelvin(details.get("TWMax", details.get("maxKelvin")), DEFAULT_MAX_KELVIN)
     if lo >= hi:
         return DEFAULT_MIN_KELVIN, DEFAULT_MAX_KELVIN
     return lo, hi
