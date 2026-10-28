@@ -28,7 +28,9 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   cannot read the tree. Unlike upstream, which prints every state value,
   every format here keeps the NFC Code Touch credentials hidden: the
   values of `lastcode`, `lasttag` and `events` show as `[redacted]` and
-  no flag turns that off (PS-27).
+  no flag turns that off (PS-27); until that redaction is built from the
+  structure file, a state message is dropped rather than printed
+  unredacted.
 
 ### Changed
 

@@ -555,13 +555,19 @@ async def main(argv: list[str]) -> int:
         sink = FORMATTERS[args.format]()
     api = LoxoneConnection(host=args.host, port=args.port, username=args.username, password=password)
     wanted: frozenset[str] | None = None
+    # WP-7.8 fail-closed: sink.redact is derived from the structure file,
+    # which only exists once on_state(True) has run. Until then the
+    # default path drops dict messages, exactly like --uuid mode drops
+    # them while `wanted` is None — nothing can be printed unredacted.
+    redaction_ready = False
 
     def on_state(connected: bool) -> None:
-        nonlocal wanted
+        nonlocal wanted, redaction_ready
         # The structure file is loaded before the connection is reported up.
         if connected:
             sink.labels = _state_labels(api.structure_file)
             sink.redact = _redacted_uuids(api.structure_file)
+            redaction_ready = True
             if isinstance(sink, WebUi):
                 sink.set_structure(api.structure_file)
         sink.connection(connected)
@@ -574,6 +580,8 @@ async def main(argv: list[str]) -> int:
 
     def on_message(data) -> None:
         if not args.uuid:
+            if isinstance(data, dict) and not redaction_ready:
+                return
             sink.message(data)
             return
         if wanted is None or not isinstance(data, dict):

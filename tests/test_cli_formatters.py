@@ -251,6 +251,37 @@ class _FakeConnection:
         pass
 
 
+class _EarlyConnection(_FakeConnection):
+    """Feeds a state message *before* the connect callback has run.
+
+    Nothing guarantees the order in the real supervisor; the redaction set
+    is derived from the structure file, which only exists once
+    ``on_state(True)`` has built it (WP-7.8 fail-closed).
+    """
+
+    async def run(self, state_cb, callback=None):
+        callback({"<uuid-lastcode>": SECRET_CODE})
+        await super().run(state_cb, callback)
+
+
+async def test_main_drops_messages_before_the_redaction_exists(monkeypatch, lines):
+    """WP-7.8 fail-closed: before ``on_state(True)`` has filled
+    ``sink.redact`` from the structure file, every dict message is dropped
+    — the default path gets the guard ``--uuid`` mode already had, so a
+    credential can never be printed unredacted."""
+    _FakeConnection.instances = []
+    monkeypatch.setattr(cli, "LoxoneConnection", _EarlyConnection)
+    monkeypatch.setenv("LOXONE_PASSWORD", "not-on-the-command-line")
+
+    await cli.main(["host", "80", "admin", "--format", "raw"])
+
+    joined = "\n".join(lines)
+    assert SECRET_CODE not in joined
+    # the guard is only for the unready phase: the connected feed still prints,
+    # and the second canned message carries <uuid-up>.
+    assert "<uuid-up>" in joined
+
+
 async def test_main_filters_by_uuid_and_redacts(monkeypatch, lines):
     """One control only: its states print, other controls do not, NFC stays hidden."""
     _FakeConnection.instances = []
