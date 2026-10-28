@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from homeassistant.components.climate import HVACMode
 
+from custom_components.loxone.const import PRESET_SCHEDULE
+
 BEDROOM_V2 = "63746c3a-0126-9647-ffff-f6f6d20436f6000038"
 BEDROOM_ENTITY = "climate.bedroom_bedroom_controller"
 BEDROOM_COMFORT = "36333734-0129-9336-ffff-d303132362d3000041"
@@ -119,6 +121,42 @@ async def test_legacy_controller_settemp_uses_the_active_index(hass, mock_connec
 
 BEDROOM_OVERRIDE_REASON = "36333734-0135-9336-ffff-d303132362d3000053"
 OVERRIDE_REASON_ENTITY = "sensor.bedroom_bedroom_controller_override_reason"
+
+
+async def test_v2_schedule_preset_during_an_override_ends_the_override(hass, mock_connection, mock_entry) -> None:
+    """WP-7.4 fork regression (lost in c7ad8c9; 0.9.23 had it, ``7561247``):
+    selecting "Schedule" while overridden must send ``stopOverride`` —
+    Structure File v16, IRoomControllerV2: "Stops a currently running
+    override timer" — and nothing that changes the operating mode.
+    ``setOperatingMode/0`` (what the fork sent since WP-4.1) does not end
+    the override and moves this automatic, heating-only controller (1) to
+    heating and cooling (0)."""
+    await _setup(hass, mock_entry)
+    mock_connection.feed(BEDROOM_OPERATING_MODE, 1)  # automatic, only heating allowed
+    mock_connection.feed(BEDROOM_OVERRIDE_REASON, 3)  # comfort override
+    await hass.async_block_till_done()
+    assert hass.states.get(BEDROOM_ENTITY).attributes["is_overridden"] is True
+
+    before = len(mock_connection.sent)
+    await _call(hass, "set_preset_mode", {"entity_id": BEDROOM_ENTITY, "preset_mode": PRESET_SCHEDULE})
+    assert _sent_to(mock_connection, BEDROOM_V2, before) == ["stopOverride"]
+
+
+async def test_v2_schedule_preset_without_override_switches_to_automatic(hass, mock_connection, mock_entry) -> None:
+    """Not overridden: ``setOperatingMode/0`` (Structure File v16: 0 =
+    "Automatic, heating and cooling allowed") is the documented way back to
+    the schedule from a manual operating mode or off; upstream 0.10.2
+    (``cf51951``) and the fork agree on this case — kept deliberately, see
+    ``schedule_preset_commands``."""
+    await _setup(hass, mock_entry)
+    mock_connection.feed(BEDROOM_OPERATING_MODE, 1)
+    mock_connection.feed(BEDROOM_OVERRIDE_REASON, 0)
+    await hass.async_block_till_done()
+    assert hass.states.get(BEDROOM_ENTITY).attributes["is_overridden"] is False
+
+    before = len(mock_connection.sent)
+    await _call(hass, "set_preset_mode", {"entity_id": BEDROOM_ENTITY, "preset_mode": PRESET_SCHEDULE})
+    assert _sent_to(mock_connection, BEDROOM_V2, before) == ["setOperatingMode/0"]
 
 
 async def test_override_reason_codes_beyond_eight(hass, mock_connection, mock_entry) -> None:

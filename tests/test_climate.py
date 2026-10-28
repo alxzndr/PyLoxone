@@ -145,24 +145,43 @@ def _ac_make(states: dict, details: dict | None = None):
 
 
 # ---------------------------------------------------------------------------
-# PC-23: shared temperature unit helper (°C/°F contains, fallbacks, default)
+# PC-23 / WP-7.4: shared temperature unit helper — exact unit tokens only,
+# the bare "°" and unknown text fall back to the caller's default (the
+# Miniserver's unit).  "Fußboden" carries a capital F but is not Fahrenheit.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
-    ("fmt", "expected"),
+    ("fmt", "default", "expected"),
     [
-        ("℃", UnitOfTemperature.CELSIUS),  # "°" at index 0: find("°") == 0 was falsy
-        ("°C", UnitOfTemperature.CELSIUS),
-        ("%.1f °C", UnitOfTemperature.CELSIUS),
-        ("%.1f °F", UnitOfTemperature.FAHRENHEIT),
-        ("°F", UnitOfTemperature.FAHRENHEIT),
-        ("C", UnitOfTemperature.CELSIUS),  # legacy "C without degree symbol" fallback
-        ("F", UnitOfTemperature.FAHRENHEIT),  # legacy "F without degree symbol" fallback
-        ("", UnitOfTemperature.CELSIUS),
-        (None, UnitOfTemperature.CELSIUS),  # no format at all -> Celsius
+        ("%.1f°F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("%.1f°F", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        ("%.1f °C", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("%.1f °C", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        # Loxone Config's own default formats: the Miniserver's unit decides
+        ("%.1f°", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        ("%.1f°", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        ("%d°", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        ("%.1f", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        ("%.1f", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        # The regression (upstream e9f0c71 `"F" in fmt`): "Fußboden" is a
+        # label, the format says °C — the default must not matter either.
+        ("%.1f°C Fußboden", UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        ("%.1f°C Fußboden", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("%.1f F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("<v.1>°F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("<v.1>°F", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        (None, UnitOfTemperature.CELSIUS, UnitOfTemperature.CELSIUS),
+        (None, UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
+        # Explicit units without a value placeholder still name the unit
+        ("℃", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),  # find("°") == 0 was falsy
+        ("°C", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("°F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("C", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.CELSIUS),
+        ("F", UnitOfTemperature.CELSIUS, UnitOfTemperature.FAHRENHEIT),
+        ("", UnitOfTemperature.FAHRENHEIT, UnitOfTemperature.FAHRENHEIT),
     ],
 )
-def test_temperature_unit_from_format(fmt, expected):
-    assert temperature_unit_from_format(fmt) == expected
+def test_temperature_unit_from_format(fmt, default, expected):
+    assert temperature_unit_from_format(fmt, default) == expected
 
 
 @pytest.mark.parametrize("cls_name", ["LoxoneRoomController", "LoxoneRoomControllerV2", "LoxoneAcControl"])
@@ -574,7 +593,8 @@ def test_v2_demand_event_still_wins_when_it_arrives():
 async def test_v2_preset_mode_fixed_literals_and_commands():
     """PC-32: FIXED (14) / FIXED_DYNAMIC (112) read back as stable presets;
     the schedule preset is always offered; `stop` sends `setOperatingMode/0`
-    (PC-20), never `setOperationMode/0`."""
+    (PC-20), never `setOperationMode/0`, and — WP-7.4, upstream 7561247 —
+    `stopOverride` while overridden."""
     modes = [{"id": 0, "name": "Away"}, {"id": 1, "name": "Here"}]
     states = {"activeMode": "st_active", "operatingMode": "st_op", "openWindow": "st_ow", "overrideReason": "st_ov"}
     e, out = _v2_make(states, details={"timerModes": modes, "possibleCapabilities": 3})
@@ -601,6 +621,12 @@ async def test_v2_preset_mode_fixed_literals_and_commands():
     # schedule preset -> correctly spelled command
     await e.async_set_preset_mode(PRESET_SCHEDULE)
     assert out == ["setOperatingMode/0"]
+    # WP-7.4: while overridden, "Schedule" ends the override and sends
+    # nothing that changes the operating mode (the branch c7ad8c9 dropped)
+    feed(e, {"st_ov": 3})  # comfort override
+    before = len(out)
+    await e.async_set_preset_mode(PRESET_SCHEDULE)
+    assert out[before:] == ["stopOverride"]
     await e.async_set_preset_mode("Here")
     assert out[-1] == "override/1"
     await e.async_set_preset_mode("Bogus")

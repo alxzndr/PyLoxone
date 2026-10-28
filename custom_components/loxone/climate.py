@@ -29,7 +29,13 @@ from .const import CONF_HVAC_AUTO_MODE, PRESET_PAUSED_WINDOW, PRESET_SCHEDULE, l
 # (parallel-safe, WP-4.2/4.4); see the PR body follow-up.
 PRESET_FIXED = "fixed"
 PRESET_FIXED_DYNAMIC = "fixed_dynamic"
-from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device, miniserver_temperature_unit
+from .helpers import (
+    add_room_and_cat_to_value_values,
+    clean_unit,
+    get_all,
+    get_or_create_device,
+    miniserver_temperature_unit,
+)
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,20 +71,33 @@ def _parse_mode_list(raw, what: str) -> list[dict]:
 
 def temperature_unit_from_format(fmt: str | None, default: str = UnitOfTemperature.CELSIUS) -> str:
     """
-    Map a Loxone format string to a temperature unit (PC-23).
+    Map a Loxone format string to a temperature unit (PC-23, WP-7.4).
 
-    The designer can put any format string on the input sensor; we assume it
-    mentions the unit.  Containment, not ``str.find`` (index 0 is falsy):
-    ``"°C"`` at position 0 must read as Celsius.  Falls back to the legacy
-    bare-letter heuristic, then to ``default``: the Miniserver's own unit
-    (``msInfo.tempUnit``), because Loxone Config's default temperature
-    formats are ``%.1f°`` / ``%d°`` without C or F.
+    A format names a unit only in its unit text -- the text behind the
+    value: ``%.1f°F`` and a bare ``F`` are Fahrenheit, ``%.1f°C`` and a
+    bare ``C`` are Celsius, ``℃`` is Celsius.  The bare ``°`` (Loxone
+    Config's own default formats ``%.1f°`` / ``%d°``, 1d4d03d) means the
+    Miniserver's unit, which the caller passes in as ``default``
+    (``msInfo.tempUnit``); anything else -- ``%.1f``, an empty format, no
+    format at all -- falls back to ``default``.
+
+    The unit text is extracted with :func:`clean_unit` (it knows the
+    ``<v.1>`` value placeholders) and matched as whole whitespace-separated
+    tokens, never by substring: upstream ``e9f0c71`` tested ``"F" in fmt``,
+    so any capital F anywhere -- the label in ``%.1f°C Fußboden`` -- read as
+    Fahrenheit ("do not copy" 4 of the 2026-10 gap review), and ``"C" in
+    fmt`` did the same for Celsius.  A label around an explicit unit must
+    not change the unit either, so only a token that is exactly the unit
+    counts.
     """
     if fmt is None:
         return default
-    if "°F" in fmt or "F" in fmt:
+    # A unit text such as "°C Fußboden" names the unit in one token;
+    # "Fußboden" is decoration, not a unit (that capital F caused the bug).
+    tokens = clean_unit(fmt, temperature_unit=default).split()
+    if any(t in ("°F", "F") for t in tokens):
         return UnitOfTemperature.FAHRENHEIT
-    if "°C" in fmt or "C" in fmt:
+    if any(t in ("°C", "C", "℃") for t in tokens):
         return UnitOfTemperature.CELSIUS
     return default
 
@@ -333,6 +352,40 @@ class OperatingMode(Enum):
             if member.value[0] == mode:
                 return member
         raise ValueError(f"{mode} is not a valid number for {cls.__name__}")
+
+
+def schedule_preset_commands(is_overridden: bool, operating_mode: OperatingMode) -> list[str]:
+    """
+    Commands for the "Schedule" preset of an ``IRoomControllerV2`` (PC-20, PC-32).
+
+    Structure File v16, Intelligent Room Controller v2, commands (pages
+    84-85; upstream's "page 77" for ``stopOverride`` is the v17
+    pagination): ``stopOverride`` "Stops a currently running override
+    timer" and changes nothing else; ``setOperatingMode/{opMode}`` selects
+    one of ``states.operatingMode`` -- 0 = "Automatic, heating and cooling
+    allowed", 1/2 = automatic with heating/cooling only, 3-5 = manual,
+    -1 = off.
+
+    * Overridden: end the override and leave the operating mode alone.
+      0.9.23 (upstream ``7561247``) had this branch; the fork dropped it in
+      WP-4.1 (``c7ad8c9``), and since then "Schedule" always sent
+      ``setOperatingMode/0`` -- which does not end the override and moves a
+      controller that was on automatic heating (1) to heating and cooling
+      (0).  The ``and operating_mode`` half mirrors upstream's 0.10.2
+      condition (``cf51951``); an ``OperatingMode`` member is always
+      truthy, so it never changes the outcome.
+    * Not overridden: ``setOperatingMode/0``, as upstream 0.9.23/0.10.2 and
+      the fork already do.  Without an override the controller follows its
+      schedule only in an automatic mode; from a manual mode or off this is
+      the documented way back, and sending nothing would make the preset
+      silently do nothing.  Accepted trade-off: from automatic heating-only
+      or cooling-only (1/2) it also lifts that restriction.  No room
+      controller in the maintainer's house -- both branches are in
+      ``docs/review/LIVE-MINISERVER-CHECKS.md`` (#32).
+    """
+    if is_overridden and operating_mode:
+        return ["stopOverride"]
+    return ["setOperatingMode/0"]
 
 
 # Home Assistant 2026.11 renamed the temperature members a climate entity
@@ -980,8 +1033,12 @@ class LoxoneRoomControllerV2(LoxoneEntity, NativeTemperatureCompat, ClimateEntit
             _LOGGER.debug("Unknown preset mode %r for %s (%s)", preset_mode, self._lox_name, self.type)
             return
         if mode_id == "stop":
-            # PC-20: the correct command is setOperatingMode/0, not setOperationMode/0
-            self._send("setOperatingMode/0")
+            # PC-20: "stop" is not a mode to override into -- it means "back to
+            # the schedule".  stopOverride while overridden, else
+            # setOperatingMode/0 (never the setOperationMode/0 typo); see the
+            # helper for the Structure File semantics.
+            for command in schedule_preset_commands(self.is_overridden, self.operating_mode):
+                self._send(command)
         else:
             self._send(f"override/{mode_id}")
         self.async_write_ha_state()

@@ -569,6 +569,35 @@ scripts/pyloxone-cli <host> 80 <user> --format pretty --uuid <control-uuid>
   **Fail:** adjust the parser; if a lock blocks a control that the app
   can still switch, drop the refusal in `_send`.
 
+### 32. "Schedule" preset during an override (WP-7.4, PC-20/PC-32)
+
+- **Where:** `schedule_preset_commands` in
+  `custom_components/loxone/climate.py`, used by
+  `LoxoneRoomControllerV2.async_set_preset_mode`
+- **The doubt:** the Structure File (v16 pages 84-85) documents
+  `stopOverride` as "Stops a currently running override timer" and
+  `setOperatingMode/{opMode}` with 0 = "Automatic, heating and cooling
+  allowed", but `overrideReason` also counts reasons that are not
+  override timers (1 = someone present, 2 = window open); what the
+  Miniserver does with `stopOverride` for those is not in the text. The
+  not-overridden case sends `setOperatingMode/0` even when the controller
+  is already automatic heating-only (1) or cooling-only (2), which per
+  the state table lifts that restriction - upstream's behaviour since
+  0.9.23 (`7561247`), kept deliberately, but never seen on hardware. No
+  room controller in this house.
+- **Test:** on an `IRoomControllerV2`, start an override from the Loxone
+  app, select "Schedule" in Home Assistant. Also worth a read of
+  `operatingMode` before and after selecting "Schedule" while already
+  automatic with heating only.
+- **Pass:** the override ends and the operating mode is unchanged. For
+  the not-overridden automatic case, note what `operatingMode` becomes
+  (expected: 0, heating and cooling allowed); if lifting a heat-only
+  restriction is unacceptable, change the helper to send nothing when an
+  automatic mode is already following its schedule. **Fail:** if
+  `stopOverride` does not end a non-timer override, the override case
+  needs `override/{modeId}` semantics or nothing more than a docstring
+  note - remap inside the helper.
+
 ---
 
 ## Regression sweep

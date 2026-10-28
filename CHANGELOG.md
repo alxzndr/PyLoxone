@@ -28,6 +28,28 @@ Finding ids such as `CORE-09` or `PC-31` refer to
   values of `lastcode`, `lasttag` and `events` show as `[redacted]` and
   no flag turns that off (PS-27).
 
+### Fixed
+
+- Selecting the "Schedule" preset of a room controller (V2) while the
+  controller was overridden ends the override again. Upstream 0.9.23
+  (`7561247`) sent `stopOverride` in that case; this fork lost the branch
+  in the 1.0.0 climate rework, and since then the preset always sent
+  `setOperatingMode/0` - which does not end an override and switches a
+  controller that was on automatic heating only to heating and cooling.
+  The command now matches upstream 0.10.2 (`cf51951`) again, against the
+  Structure File's `stopOverride` ("Stops a currently running override
+  timer"); without an override it deliberately keeps sending
+  `setOperatingMode/0`, the documented way back to automatic from a
+  manual mode. PC-20, PC-32; live check #32, the maintainer has no room
+  controller.
+- A temperature format whose label merely contains a capital `F` or `C`
+  no longer decides the unit. `%.1f°C Fußboden` was read as Fahrenheit
+  because `"F" in fmt` matched the word "Fußboden" - the substring test
+  upstream `e9f0c71` shares with this fork. The unit is now taken from
+  the format's unit text as a whole token (`°F` / `F`, `°C` / `C`), the
+  bare `°` keeps meaning the Miniserver's own unit, and anything else
+  falls back as before. PC-23.
+
 ## 1.0.1 - 2026-10-18
 
 ### Fixed
